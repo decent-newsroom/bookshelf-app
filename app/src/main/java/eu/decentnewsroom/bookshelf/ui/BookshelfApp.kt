@@ -1,5 +1,7 @@
 package eu.decentnewsroom.bookshelf.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -49,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -58,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
+import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
@@ -72,6 +78,58 @@ import kotlin.math.roundToInt
 @Composable
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val signerAvailable = remember(context) { AndroidExternalSigner.isInstalled(context) }
+    var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val loginLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        when (val parsed = AndroidExternalSigner.parseLoginResult(result.resultCode, result.data)) {
+            is AndroidSignerResult.Success -> viewModel.completeExternalSignerLogin(parsed.value)
+            is AndroidSignerResult.Failed -> viewModel.reportExternalSignerFailure(parsed.message)
+        }
+    }
+
+    val directorySignLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val requestId = result.data?.getStringExtra("id") ?: launchedSignRequestId
+        when (val parsed = AndroidExternalSigner.parseSignEventResult(result.resultCode, result.data)) {
+            is AndroidSignerResult.Success -> viewModel.completeDirectorySignature(requestId, parsed.value)
+            is AndroidSignerResult.Failed -> viewModel.failPendingDirectorySignature(parsed.message)
+        }
+        launchedSignRequestId = null
+    }
+
+    LaunchedEffect(state.pendingDirectorySignRequest?.id) {
+        val request = state.pendingDirectorySignRequest ?: return@LaunchedEffect
+        launchedSignRequestId = request.id
+        runCatching {
+            directorySignLauncher.launch(
+                AndroidExternalSigner.signEventIntent(
+                    session = request.session,
+                    unsignedEventJson = request.unsignedEventJson,
+                    requestId = request.id,
+                ),
+            )
+        }.onFailure { failure ->
+            launchedSignRequestId = null
+            viewModel.failPendingDirectorySignature(failure.message ?: "Could not open Android signer.")
+        }
+    }
+
+    val startExternalSignerLogin: () -> Unit = {
+        if (!signerAvailable) {
+            viewModel.reportExternalSignerFailure("No Android Nostr signer found.")
+        } else {
+            runCatching {
+                loginLauncher.launch(AndroidExternalSigner.loginIntent())
+            }.onFailure { failure ->
+                viewModel.reportExternalSignerFailure(failure.message ?: "Could not open Android signer.")
+            }
+        }
+    }
 
     BookshelfTheme {
         Scaffold(
@@ -143,7 +201,13 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onToggleSaved = viewModel::toggleSaved,
                         )
 
-                        BookshelfTab.Settings -> SettingsScreen(state)
+                        BookshelfTab.Settings -> SettingsScreen(
+                            state = state,
+                            signerAvailable = signerAvailable,
+                            onLogin = startExternalSignerLogin,
+                            onSyncNow = viewModel::syncNow,
+                            onSignOut = viewModel::signOut,
+                        )
                     }
                 }
             }
@@ -217,6 +281,14 @@ private fun SearchScreen(
             item { Notice(message) }
         }
 
+        state.syncMessage?.let { message ->
+            item { Notice(message) }
+        }
+
+        if (state.isPublishingDirectory) {
+            item { LoadingInline("Publishing collection...") }
+        }
+
         items(state.searchResults, key = BookSummary::coordinate) { book ->
             BookCard(
                 book = book,
@@ -273,7 +345,13 @@ private fun MyBooksScreen(
 }
 
 @Composable
-private fun SettingsScreen(state: BookshelfUiState) {
+private fun SettingsScreen(
+    state: BookshelfUiState,
+    signerAvailable: Boolean,
+    onLogin: () -> Unit,
+    onSyncNow: () -> Unit,
+    onSignOut: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -285,10 +363,54 @@ private fun SettingsScreen(state: BookshelfUiState) {
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
+
+        state.error?.let { message -> Notice(message) }
+        state.syncMessage?.let { message -> Notice(message) }
+
         Notice("Mercury: https://mercury-relay.imwald.eu")
         Notice("Reader: ${state.readerPreferences.fontSizeSp.roundToInt()}sp, ${state.readerPreferences.theme.label}")
+
+        Text(
+            text = "Nostr",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        val session = state.signerSession
+        if (session == null) {
+            Notice(if (signerAvailable) "Signed out." else "No Android Nostr signer found.")
+            Button(
+                onClick = onLogin,
+                enabled = signerAvailable && !state.isSyncingDirectory && !state.isPublishingDirectory,
+            ) {
+                Text("Log in with signer")
+            }
+        } else {
+            Notice("Signed in: ${session.pubkey.compactHex()} via ${session.packageName}")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSyncNow,
+                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
+                ) {
+                    Text("Sync")
+                }
+                TextButton(
+                    onClick = onSignOut,
+                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
+                ) {
+                    Text("Sign out")
+                }
+            }
+        }
+
         Notice("Relay sync: ${state.syncState.label}")
-        Notice("Next: connect Quartz signers, NIP-65 write relays, and kind 30045 publishing.")
+
+        if (state.isSyncingDirectory) {
+            LoadingInline("Syncing collection...")
+        }
+        if (state.isPublishingDirectory) {
+            LoadingInline("Publishing collection...")
+        }
     }
 }
 
@@ -750,10 +872,17 @@ private val eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.label: Str
         when (this) {
             eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.NotConfigured -> "Not configured"
             eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.SignedOut -> "Signed out"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Ready -> "Ready"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Syncing -> "Syncing"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed -> "Failed"
+            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Ready -> "Ready (${relayCount} relays)"
+            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Syncing -> "Syncing ${pubkey.compactHex()}"
+            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed -> "Failed: ${message}"
         }
+
+private fun String.compactHex(): String =
+    if (length <= 16) {
+        this
+    } else {
+        "${take(8)}...${takeLast(8)}"
+    }
 
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()
 
