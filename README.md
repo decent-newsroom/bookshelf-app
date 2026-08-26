@@ -68,19 +68,3 @@ Create a release by pushing a tag, for example:
 git tag v0.1.0
 git push origin v0.1.0
 ```
-
-## Windows Gradle Home
-
-Gradle 9.x launches its daemon with an instrumentation-agent path. On Windows
-profiles with non-ASCII characters, that path can be misencoded before the JVM
-opens the agent jar. Use ASCII-only paths for both the project and Gradle user home during local builds and
-Android Studio syncs.
-
-On this machine, `C:\bookshelf-bundle` is a directory junction to this repo, and
-`C:\gradle-home` is a directory junction to the real `%USERPROFILE%\.gradle`.
-Open `C:\bookshelf-bundle\android` in Android Studio, then restart Android
-Studio after changing `GRADLE_USER_HOME`. If Android Studio still uses the old
-Gradle cache path, set **Gradle user home** to `C:\gradle-home` in the IDE's
-Gradle settings.
-
-If Android Studio still reports the old SDK path, set **Android SDK Location** to `C:\Android\Sdk` in **Settings > Appearance & Behavior > System Settings > Android SDK**.
