@@ -8,6 +8,7 @@ import android.widget.TextView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +19,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -50,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -81,6 +85,7 @@ import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -434,15 +439,24 @@ private fun ReaderScreen(
     onLineHeightChanged: (Float) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
 ) {
-    val listState = rememberLazyListState()
+    val initialListItemIndex = readerListItemIndexForChapter(progress.currentChapterIndex, detail.chapters.size)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialListItemIndex)
+    val coroutineScope = rememberCoroutineScope()
     val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size)
 
     LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
-            .collect { index -> onProgressChanged(detail, index) }
+            .collect { index ->
+                onProgressChanged(
+                    detail,
+                    chapterIndexForReaderListItem(index, detail.chapters.size),
+                )
+            }
     }
 
     if (showSettings) {
@@ -452,6 +466,25 @@ private fun ReaderScreen(
                 onFontSizeChanged = onFontSizeChanged,
                 onLineHeightChanged = onLineHeightChanged,
                 onThemeChanged = onThemeChanged,
+            )
+        }
+    }
+
+    if (showContents) {
+        ModalBottomSheet(onDismissRequest = { showContents = false }) {
+            ReaderContentsSheet(
+                chapters = detail.chapters,
+                currentChapterIndex = currentChapterIndex,
+                colors = colors,
+                onChapterSelected = { chapterIndex ->
+                    showContents = false
+                    showNavigationMenus = false
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(
+                            readerListItemIndexForChapter(chapterIndex, detail.chapters.size),
+                        )
+                    }
+                },
             )
         }
     }
@@ -481,6 +514,7 @@ private fun ReaderScreen(
                     colors = colors,
                     onBack = onBack,
                     onToggleSaved = onToggleSaved,
+                    onShowContents = { showContents = true },
                     onShowSettings = { showSettings = true },
                 )
             }
@@ -501,6 +535,7 @@ private fun ReaderScreen(
                 colors = colors,
                 onBack = onBack,
                 onToggleSaved = onToggleSaved,
+                onShowContents = { showContents = true },
                 onShowSettings = { showSettings = true },
                 modifier = Modifier.align(Alignment.TopCenter),
             )
@@ -521,6 +556,7 @@ private fun ReaderControlsMenu(
     colors: ReaderColors,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
+    onShowContents: () -> Unit,
     onShowSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -541,6 +577,10 @@ private fun ReaderControlsMenu(
                     Text("Back", color = colors.accent)
                 }
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = onShowContents) {
+                    Text("Contents", color = colors.accent)
+                }
+                Spacer(Modifier.width(6.dp))
                 TextButton(onClick = onShowSettings) {
                     Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
                 }
@@ -604,6 +644,7 @@ private fun ReaderHeader(
     colors: ReaderColors,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
+    onShowContents: () -> Unit,
     onShowSettings: () -> Unit,
 ) {
     Column(
@@ -615,6 +656,10 @@ private fun ReaderHeader(
                 Text("Back", color = colors.accent)
             }
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = onShowContents) {
+                Text("Contents", color = colors.accent)
+            }
+            Spacer(Modifier.width(6.dp))
             TextButton(onClick = onShowSettings) {
                 Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
             }
@@ -736,6 +781,99 @@ private fun SettingHeader(label: String, value: String) {
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.SemiBold,
         )
+    }
+}
+
+@Composable
+private fun ReaderContentsSheet(
+    chapters: List<BookChapter>,
+    currentChapterIndex: Int,
+    colors: ReaderColors,
+    onChapterSelected: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            text = "Contents",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = if (chapters.size == 1) "1 chapter" else "${chapters.size} chapters",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (chapters.isEmpty()) {
+            Text(
+                text = "No chapters are available from Mercury.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 18.dp),
+            ) {
+                itemsIndexed(chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter ->
+                    ReaderContentsItem(
+                        chapter = chapter,
+                        selected = index == currentChapterIndex,
+                        colors = colors,
+                        onClick = { onChapterSelected(index) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderContentsItem(
+    chapter: BookChapter,
+    selected: Boolean,
+    colors: ReaderColors,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) colors.track else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = "Chapter ${chapter.position}",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) colors.accent else colors.muted,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
+        Text(
+            text = chapter.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.text,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        chapter.summary?.let { summary ->
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.muted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1008,6 +1146,29 @@ private val ReaderTheme.readerColors: ReaderColors
                 controls = Color(0xFF19211E),
             )
         }
+
+private const val ReaderHeaderItemCount = 1
+
+private fun readerListItemIndexForChapter(chapterIndex: Int, chapterCount: Int): Int =
+    if (chapterCount <= 0) {
+        0
+    } else {
+        coerceReaderChapterIndex(chapterIndex, chapterCount) + ReaderHeaderItemCount
+    }
+
+private fun chapterIndexForReaderListItem(listItemIndex: Int, chapterCount: Int): Int =
+    if (chapterCount <= 0) {
+        0
+    } else {
+        (listItemIndex - ReaderHeaderItemCount).coerceIn(0, chapterCount - 1)
+    }
+
+private fun coerceReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int =
+    if (chapterCount <= 0) {
+        0
+    } else {
+        chapterIndex.coerceIn(0, chapterCount - 1)
+    }
 
 private val BookshelfTab.label: String
     get() =
