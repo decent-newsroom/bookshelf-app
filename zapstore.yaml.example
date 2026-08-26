@@ -1,0 +1,5 @@
+# Copy to zapstore.yaml or let `zsp publish --wizard` create the real file.
+repository: https://github.com/your-org/bookshelf
+release_source: ./app/build/outputs/apk/release/app-release.apk
+metadata_sources:
+  - github
