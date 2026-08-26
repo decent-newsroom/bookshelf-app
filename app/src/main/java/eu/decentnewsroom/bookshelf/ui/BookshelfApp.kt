@@ -1,5 +1,10 @@
 package eu.decentnewsroom.bookshelf.ui
 
+import android.graphics.Typeface
+import android.text.Html
+import android.text.method.LinkMovementMethod
+import android.util.TypedValue
+import android.widget.TextView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -40,8 +45,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -63,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
@@ -70,6 +75,7 @@ import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
+import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
@@ -136,22 +142,6 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
 
     BookshelfTheme {
         Scaffold(
-            topBar = {
-                if (state.selectedBook == null) {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                text = "Bookshelf",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                    )
-                }
-            },
             bottomBar = {
                 if (state.selectedBook == null) {
                     BookshelfBottomBar(
@@ -212,6 +202,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onLogin = startExternalSignerLogin,
                             onSyncNow = viewModel::syncNow,
                             onSignOut = viewModel::signOut,
+                            onClearChapterCache = viewModel::clearChapterHtmlCache,
                         )
                     }
                 }
@@ -356,6 +347,7 @@ private fun SettingsScreen(
     onLogin: () -> Unit,
     onSyncNow: () -> Unit,
     onSignOut: () -> Unit,
+    onClearChapterCache: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -374,6 +366,13 @@ private fun SettingsScreen(
 
         Notice("Mercury: https://mercury-relay.imwald.eu")
         Notice("Reader: ${state.readerPreferences.fontSizeSp.roundToInt()}sp, ${state.readerPreferences.theme.label}")
+        Notice("Chapter cache: ${state.chapterCacheStats.label}")
+        Button(
+            onClick = onClearChapterCache,
+            enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache,
+        ) {
+            Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache")
+        }
 
         Text(
             text = "Nostr",
@@ -826,15 +825,52 @@ private fun ChapterSection(
                 color = colors.muted,
             )
         }
-        Text(
-            text = chapter.content ?: "This chapter is not available from Mercury at this time.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = colors.text,
-            fontFamily = FontFamily.Serif,
-            fontSize = preferences.fontSizeSp.sp,
-            lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
-        )
+        val renderedHtml = chapter.renderedHtml
+        if (renderedHtml != null) {
+            HtmlChapterText(
+                html = renderedHtml,
+                preferences = preferences,
+                colors = colors,
+            )
+        } else {
+            Text(
+                text = chapter.content ?: "This chapter is not available from Mercury at this time.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.text,
+                fontFamily = FontFamily.Serif,
+                fontSize = preferences.fontSizeSp.sp,
+                lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
+            )
+        }
     }
+}
+
+@Composable
+private fun HtmlChapterText(
+    html: String,
+    preferences: ReaderPreferences,
+    colors: ReaderColors,
+) {
+    AndroidView(
+        modifier = Modifier.fillMaxWidth(),
+        factory = { context ->
+            TextView(context).apply {
+                setIncludeFontPadding(false)
+                linksClickable = true
+                movementMethod = LinkMovementMethod.getInstance()
+                typeface = Typeface.SERIF
+            }
+        },
+        update = { view ->
+            view.text = Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT)
+            view.setTextColor(colors.text.toArgb())
+            view.setLinkTextColor(colors.accent.toArgb())
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, preferences.fontSizeSp)
+            view.setLineSpacing(0f, preferences.lineHeightMultiplier)
+            view.typeface = Typeface.SERIF
+            view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        },
+    )
 }
 
 @Composable
@@ -980,6 +1016,31 @@ private val BookshelfTab.label: String
             BookshelfTab.MyBooks -> "My Books"
             BookshelfTab.Settings -> "Settings"
         }
+
+private val ChapterHtmlCacheStats.label: String
+    get() {
+        if (entryCount == 0) {
+            return "empty"
+        }
+
+        val files = if (entryCount == 1) "1 file" else "$entryCount files"
+        return "$files, ${sizeBytes.formatByteCount()}"
+    }
+
+private fun Long.formatByteCount(): String {
+    if (this < 1024L) {
+        return "$this B"
+    }
+
+    val kib = this / 1024.0
+    if (this < 1024L * 1024L) {
+        return "${kib.formatOneDecimal()} KB"
+    }
+
+    return "${(kib / 1024.0).formatOneDecimal()} MB"
+}
+
+private fun Double.formatOneDecimal(): String = ((this * 10.0).roundToInt() / 10.0).toString()
 
 private val ReaderTheme.label: String
     get() =

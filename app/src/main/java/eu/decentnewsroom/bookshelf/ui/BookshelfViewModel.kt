@@ -14,6 +14,8 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
+import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
+import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,7 @@ import java.util.UUID
 
 class BookshelfViewModel(
     private val repository: MercuryBookRepository = AppGraph.mercuryBooks,
+    private val chapterHtmlCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
     private val localBookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
@@ -73,6 +76,7 @@ class BookshelfViewModel(
                 syncRemoteDirectory(session.pubkey, announceEmpty = false)
             }
         }
+        refreshChapterCacheStats()
     }
 
     fun selectTab(tab: BookshelfTab) {
@@ -136,11 +140,13 @@ class BookshelfViewModel(
             }
 
             try {
-                val detail = repository.getBook(book.id)
+                val detail = repository.getBook(book.id)?.let { chapterHtmlCache.renderBook(it) }
+                val cacheStats = chapterHtmlCache.stats()
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false,
                         selectedBook = detail,
+                        chapterCacheStats = cacheStats,
                         error = if (detail == null) "Book not available." else null,
                     )
                 }
@@ -157,6 +163,31 @@ class BookshelfViewModel(
 
     fun closeBook() {
         _uiState.update { it.copy(selectedBook = null, error = null) }
+    }
+
+    fun clearChapterHtmlCache() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isClearingChapterCache = true, error = null) }
+
+            runCatching { chapterHtmlCache.clear() }
+                .onSuccess { stats ->
+                    _uiState.update {
+                        it.copy(
+                            isClearingChapterCache = false,
+                            chapterCacheStats = stats,
+                            syncMessage = "Chapter cache cleared.",
+                            error = null,
+                        )
+                    }
+                }.onFailure { failure ->
+                    _uiState.update {
+                        it.copy(
+                            isClearingChapterCache = false,
+                            error = failure.message ?: "Could not clear chapter cache.",
+                        )
+                    }
+                }
+        }
     }
 
     fun completeExternalSignerLogin(session: NostrSignerSession) {
@@ -344,6 +375,13 @@ class BookshelfViewModel(
         readerSettings.setTheme(theme)
     }
 
+    private fun refreshChapterCacheStats() {
+        viewModelScope.launch {
+            val stats = chapterHtmlCache.stats()
+            _uiState.update { it.copy(chapterCacheStats = stats) }
+        }
+    }
+
     private suspend fun syncRemoteDirectory(pubkey: String, announceEmpty: Boolean) {
         _uiState.update {
             it.copy(
@@ -442,6 +480,8 @@ data class BookshelfUiState(
     val pendingDirectorySignRequest: PendingDirectorySignRequest? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
+    val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
+    val isClearingChapterCache: Boolean = false,
 )
 
 private data class DirectoryApplyResult(

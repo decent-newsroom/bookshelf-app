@@ -52,6 +52,8 @@ data class BookChapter(
     val content: String?,
     val id: String?,
     val createdAt: Long?,
+    val renderedHtml: String? = null,
+    val renderedHtmlCachePath: String? = null,
 )
 
 data class BookReference(

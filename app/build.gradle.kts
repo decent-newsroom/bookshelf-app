@@ -78,6 +78,24 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/BSDL",
+                "META-INF/COPYING",
+                "META-INF/DEPENDENCIES",
+                "META-INF/INDEX.LIST",
+                "META-INF/LEGAL",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/VERSION",
+                "META-INF/*.DSA",
+                "META-INF/*.RSA",
+                "META-INF/*.SF",
+            )
+        }
+    }
 }
 
 tasks.register<CheckReleaseKeystoreTask>("checkReleaseKeystore") {
@@ -102,6 +120,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.asciidoctorj)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.quartz)
