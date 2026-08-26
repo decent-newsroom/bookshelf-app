@@ -3,6 +3,7 @@ package eu.decentnewsroom.bookshelf.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -52,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -175,7 +178,9 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                 bookCoordinate = selectedBook.summary.coordinate,
                                 chapterCount = selectedBook.chapters.size,
                             ),
+                        selectedTab = state.tab,
                         onBack = viewModel::closeBook,
+                        onTabSelected = viewModel::selectTab,
                         onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
                         onProgressChanged = viewModel::recordReaderProgress,
                         onFontSizeChanged = viewModel::setReaderFontSize,
@@ -421,7 +426,9 @@ private fun ReaderScreen(
     isSaved: Boolean,
     preferences: ReaderPreferences,
     progress: ReadingProgress,
+    selectedTab: BookshelfTab,
     onBack: () -> Unit,
+    onTabSelected: (BookshelfTab) -> Unit,
     onToggleSaved: () -> Unit,
     onProgressChanged: (BookDetail, Int) -> Unit,
     onFontSizeChanged: (Float) -> Unit,
@@ -431,6 +438,7 @@ private fun ReaderScreen(
     val listState = rememberLazyListState()
     val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
 
     LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
@@ -449,31 +457,141 @@ private fun ReaderScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background),
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        item(key = "reader-header") {
-            ReaderHeader(
-                detail = detail,
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(detail.summary.coordinate) {
+                    detectTapGestures(
+                        onTap = { showNavigationMenus = !showNavigationMenus },
+                    )
+                },
+            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            item(key = "reader-header") {
+                ReaderHeader(
+                    detail = detail,
+                    isSaved = isSaved,
+                    progress = progress,
+                    colors = colors,
+                    onBack = onBack,
+                    onToggleSaved = onToggleSaved,
+                    onShowSettings = { showSettings = true },
+                )
+            }
+
+            items(detail.chapters, key = { chapter -> chapter.reference.coordinate }) { chapter ->
+                ChapterSection(
+                    chapter = chapter,
+                    preferences = preferences,
+                    colors = colors,
+                )
+            }
+        }
+
+        if (showNavigationMenus) {
+            ReaderControlsMenu(
                 isSaved = isSaved,
                 progress = progress,
                 colors = colors,
                 onBack = onBack,
                 onToggleSaved = onToggleSaved,
                 onShowSettings = { showSettings = true },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+            ReaderBottomNavigationMenu(
+                selected = selectedTab,
+                colors = colors,
+                onSelected = onTabSelected,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+}
 
-        items(detail.chapters, key = { chapter -> chapter.reference.coordinate }) { chapter ->
-            ChapterSection(
-                chapter = chapter,
-                preferences = preferences,
-                colors = colors,
+@Composable
+private fun ReaderControlsMenu(
+    isSaved: Boolean,
+    progress: ReadingProgress,
+    colors: ReaderColors,
+    onBack: () -> Unit,
+    onToggleSaved: () -> Unit,
+    onShowSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = colors.controls,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) {
+                    Text("Back", color = colors.accent)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onShowSettings) {
+                    Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.width(6.dp))
+                Button(onClick = onToggleSaved) {
+                    Text(if (isSaved) "Remove" else "Save")
+                }
+            }
+            LinearProgressIndicator(
+                progress = { progress.progressFraction.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(999.dp)),
+                color = colors.accent,
+                trackColor = colors.track,
+            )
+            Text(
+                text = "Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.muted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderBottomNavigationMenu(
+    selected: BookshelfTab,
+    colors: ReaderColors,
+    onSelected: (BookshelfTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NavigationBar(
+        modifier = modifier.fillMaxWidth(),
+        containerColor = colors.controls,
+    ) {
+        BookshelfTab.entries.forEach { tab ->
+            NavigationBarItem(
+                selected = selected == tab,
+                onClick = { onSelected(tab) },
+                label = { Text(tab.label) },
+                icon = {},
+                colors = NavigationBarItemDefaults.colors(
+                    selectedTextColor = colors.accent,
+                    selectedIconColor = colors.accent,
+                    indicatorColor = colors.track,
+                    unselectedTextColor = colors.muted,
+                    unselectedIconColor = colors.muted,
+                ),
             )
         }
     }
@@ -818,6 +936,7 @@ private data class ReaderColors(
     val accent: Color,
     val track: Color,
     val notice: Color,
+    val controls: Color,
 )
 
 private val ReaderTheme.readerColors: ReaderColors
@@ -830,6 +949,7 @@ private val ReaderTheme.readerColors: ReaderColors
                 accent = Color(0xFF24564B),
                 track = Color(0xFFE2E9E4),
                 notice = Color(0xFFECEFE9),
+                controls = Color(0xFFFFFFFF),
             )
 
             ReaderTheme.Sepia -> ReaderColors(
@@ -839,6 +959,7 @@ private val ReaderTheme.readerColors: ReaderColors
                 accent = Color(0xFF7A5534),
                 track = Color(0xFFE4D5B7),
                 notice = Color(0xFFE8DCC4),
+                controls = Color(0xFFFFF7E6),
             )
 
             ReaderTheme.Night -> ReaderColors(
@@ -848,6 +969,7 @@ private val ReaderTheme.readerColors: ReaderColors
                 accent = Color(0xFF86D6C1),
                 track = Color(0xFF27332F),
                 notice = Color(0xFF1C2522),
+                controls = Color(0xFF19211E),
             )
         }
 
