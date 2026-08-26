@@ -44,6 +44,31 @@ gradle wrapper --gradle-version 9.4.1
 The dependency versions are pinned on purpose. Avoid dynamic versions for the
 Android Gradle Plugin, Kotlin, Compose, Quartz, or OkHttp.
 
+## Tag Releases
+
+GitHub Actions builds signed APK and AAB release artifacts when a tag is
+pushed, then attaches them to a GitHub release for that tag.
+
+Configure these repository secrets before pushing a release tag:
+
+- `ANDROID_RELEASE_KEYSTORE_BASE64`: base64-encoded release keystore.
+- `ANDROID_RELEASE_STORE_PASSWORD`: keystore password.
+- `ANDROID_RELEASE_KEY_ALIAS`: signing key alias.
+- `ANDROID_RELEASE_KEY_PASSWORD`: signing key password.
+
+On PowerShell, encode the keystore with:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("keystores\bookshelf-release.jks"))
+```
+
+Create a release by pushing a tag, for example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Windows Gradle Home
 
 Gradle 9.x launches its daemon with an instrumentation-agent path. On Windows
@@ -59,5 +84,3 @@ Gradle cache path, set **Gradle user home** to `C:\gradle-home` in the IDE's
 Gradle settings.
 
 If Android Studio still reports the old SDK path, set **Android SDK Location** to `C:\Android\Sdk` in **Settings > Appearance & Behavior > System Settings > Android SDK**.
-
-

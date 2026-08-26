@@ -1,9 +1,30 @@
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+abstract class CheckReleaseKeystoreTask : DefaultTask() {
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val keystorePropertiesFile: RegularFileProperty
+
+    @TaskAction
+    fun check() {
+        require(keystorePropertiesFile.asFile.get().isFile) {
+            "Missing keystore.properties. Copy keystore.properties.example, fill it in, then rerun assembleRelease."
+        }
+    }
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -59,12 +80,8 @@ android {
     }
 }
 
-tasks.register("checkReleaseKeystore") {
-    doLast {
-        require(hasReleaseKeystore) {
-            "Missing keystore.properties. Copy keystore.properties.example, fill it in, then rerun assembleRelease."
-        }
-    }
+tasks.register<CheckReleaseKeystoreTask>("checkReleaseKeystore") {
+    keystorePropertiesFile.set(rootProject.layout.projectDirectory.file("keystore.properties"))
 }
 
 tasks.configureEach {
