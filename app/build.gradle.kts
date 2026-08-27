@@ -34,6 +34,21 @@ val keystoreProperties = Properties().apply {
     }
 }
 val hasReleaseKeystore = keystorePropertiesFile.exists()
+val appVersionName = providers.gradleProperty("appVersionName").getOrElse("0.1.0")
+val appVersionCode =
+    providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.also { versionCode ->
+        require(versionCode in 1..2_100_000_000) {
+            "appVersionCode must be an integer between 1 and 2100000000."
+        }
+    } ?: if (providers.gradleProperty("appVersionCode").isPresent) {
+        error("appVersionCode must be an integer between 1 and 2100000000.")
+    } else {
+        1
+    }
+
+require(Regex("(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)").matches(appVersionName)) {
+    "appVersionName must use MAJOR.MINOR.PATCH without a leading v."
+}
 
 android {
     namespace = "eu.decentnewsroom.bookshelf"
@@ -43,8 +58,8 @@ android {
         applicationId = "eu.decentnewsroom.bookshelf"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

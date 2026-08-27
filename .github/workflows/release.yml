@@ -18,6 +18,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      - name: Validate release tag
+        run: bash .github/scripts/derive-android-version.sh "$GITHUB_REF_NAME"
+
       - name: Set up JDK
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -53,6 +56,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Derive Android version from tag
+        id: version
+        run: bash .github/scripts/derive-android-version.sh "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
@@ -107,7 +114,24 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build release artifacts
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          ./gradlew --no-daemon \
+            "-PappVersionName=$APP_VERSION_NAME" \
+            "-PappVersionCode=$APP_VERSION_CODE" \
+            assembleRelease bundleRelease
+
+      - name: Verify release artifact version
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test "$("$apkanalyzer" manifest version-name "$apk")" = "$APP_VERSION_NAME"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$APP_VERSION_CODE"
 
       - name: Collect release artifacts
         run: |

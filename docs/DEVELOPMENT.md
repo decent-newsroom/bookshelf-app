@@ -66,6 +66,17 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+Release tags must use `vMAJOR.MINOR.PATCH`. The workflow removes the leading
+`v` for Android's `versionName` and derives the monotonically increasing
+`versionCode` as `MAJOR * 1,000,000 + MINOR * 1,000 + PATCH`. Minor and patch
+components are therefore limited to `999`; for example, `v0.1.7` produces
+`versionName` `0.1.7` and `versionCode` `1007`. Local builds retain the default
+development metadata (`0.1.0`, code `1`) unless `appVersionName` and
+`appVersionCode` Gradle properties are supplied.
+
+Before publishing, the release job reads the final APK manifest and fails if
+its version does not match the tag-derived values.
+
 The release workflow pins its actions to immutable commit SHAs. The Gradle
 wrapper also pins the official Gradle 9.7.1 binary distribution checksum; when
 upgrading Gradle, obtain the new value from [Gradle's official checksum
