@@ -2,6 +2,8 @@ package eu.decentnewsroom.bookshelf
 
 import android.content.Context
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
+import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
+import eu.decentnewsroom.bookshelf.data.discovery.ShelfMetadataCache
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiClient
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
@@ -39,6 +41,8 @@ object AppGraph {
     private var mercuryBooksStore: MercuryBookRepository? = null
     private var relaySyncStore: BookshelfRelaySync? = null
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
+    private var shelfMetadataCacheStore: ShelfMetadataCache? = null
+    private var curatedShelfRepositoryStore: CuratedShelfRepository? = null
 
     val mercuryBooks: MercuryBookRepository
         get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
@@ -56,6 +60,9 @@ object AppGraph {
 
     val chapterHtmlCache: ChapterHtmlCache
         get() = chapterHtmlCacheStore ?: error("AppGraph.initialize(context) must be called before using chapter HTML cache.")
+
+    val curatedShelves: CuratedShelfRepository
+        get() = curatedShelfRepositoryStore ?: error("AppGraph.initialize(context) must be called before using curated shelves.")
 
     fun initialize(context: Context) {
         val appContext = context.applicationContext
@@ -81,6 +88,12 @@ object AppGraph {
         }
         if (chapterHtmlCacheStore == null) {
             chapterHtmlCacheStore = ChapterHtmlCache(appContext)
+        }
+        if (shelfMetadataCacheStore == null) {
+            shelfMetadataCacheStore = ShelfMetadataCache(appContext)
+        }
+        if (curatedShelfRepositoryStore == null) {
+            curatedShelfRepositoryStore = CuratedShelfRepository(mercuryBooks, checkNotNull(shelfMetadataCacheStore))
         }
         if (relaySyncStore == null) {
             relaySyncStore = QuartzBookshelfRelaySync(

@@ -1,0 +1,128 @@
+package eu.decentnewsroom.bookshelf.data.discovery
+
+data class CuratedShelfSpec(val id: String, val title: String, val publicationNaddrs: List<String>)
+
+object CuratedShelfCatalog {
+    val shelves = listOf(
+        CuratedShelfSpec(
+            id = "adventure",
+            title = "Adventure",
+            publicationNaddrs = listOf(
+                "naddr1qqthqeejxumnsvpdw3ex2ctnw4ex2ttfwdkxzmnyqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqpmnmyc",
+                "naddr1qqs8qee3xyurgtt5dpjj6cm0w4h8gtt0vckk6mmww3jj6cmjd9ehgmcpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c2e9efv",
+                "naddr1qqjhqee3xqej6ctjda6kuepdw35x2tthdaexcepdd9hz6etfva58g7fdv3shjucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2ckcap3s",
+                "naddr1qqdhqee3xg6nwtt5dpjj6argwfjk2ttdw4ekket5v4jhyucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2clc3mcr",
+                "naddr1qq8hqee5xgcj66mfv3hxzursv4jqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64svhekwq",
+                "naddr1qqd8qeejxymrvtttd9hxwttndakx7mt0deej6mtfdejhxqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqh4jfas",
+                "naddr1qq28qee38ymr2ttrv9c8gctfdckkymr0dajqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sg785uy",
+                "naddr1qqd8qeeex5khg6r994c8y6tndahx2u3ddanz67n9dejxzqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqyulhm4",
+                "naddr1qqdhqee4x5uz6argv5khg6rfwf68jttwd9hx2ttnw3jhqucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2clkzgw0",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "romance",
+            title = "Romance",
+            publicationNaddrs = listOf(
+                "naddr1qqd8qee3xv6ryttswf5kgefdv9hxgttswfjk5atyd93k2qgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq0z5pmx",
+                "naddr1qqshqee3xgmrqtt2v9hx2tt909ex2ttpdckkzat5da3xjmm8wfshq6reqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tq0vp6h8",
+                "naddr1qqthqeehxcuz6am4w35x2unfdenj66r9d9nksarnqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tq4lhplh",
+                "naddr1qqdhqee3xccj6um9deek2ttpdejz6um9deekjcnfd35hg7gpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2clzssn5",
+                "naddr1qqg8qee3xq6j6ur9wfeh2ctnd9hkuqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq6r9vmj",
+                "naddr1qqt8qee5xgmnvttwdae8g6pdv9hxgttnda6hg6qpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c25w6qe",
+                "naddr1qqvhqeejxc6rzttp94ex7mmd94mkjarg94sj6anfv4msz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sqd4qam",
+                "naddr1qq0hqeekxuunwwfdw35x2ttzd36k2ttrv9ehgmr994sj6mn0wejkcqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqrfkn6t",
+                "naddr1qq0hqeejxukkvctj94n8ymmd946xsefdd4skgerfdenj6cmjdamkgqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqu0t5y2",
+                "naddr1qqjhqeecxscz6mr0wfhxzttydahkuefdvykhymmdv9hxxefddanz6etcd4hk7uspr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c7kn54z",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "mystery-detective",
+            title = "Mystery & Detective",
+            publicationNaddrs = listOf(
+                "naddr1qq58qee3xcmrztt5dpjj6ctywejkuar4wfjhxtt0vckhx6r9wfkx7cmt945x7mrdv4esz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sjky7pt",
+                "naddr1qqj8qeej8q6nytt5dpjj66r0w4hxgtt0vckhg6r9943xzumtv4e8v6tvd3jhxqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqxrkvez",
+                "naddr1qqv8qeejxs6z6cfdwd682ere945kuttnvdshymr9wsq36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vq06q8hj",
+                "naddr1qqfhqee3x56j6argv5kk6mm0deehgmmwv5q36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vq80djh4",
+                "naddr1qqv8qee48qej6argv5khwmmdv9hz66tw94mks6t5v5q36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vqnqjkfa",
+                "naddr1qq3hqeejxq6z6argv5kkjmnwda3k2mnrv5kk7e3dveshg6r9wgkkyun0wahqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64s3tj4uq",
+                "naddr1qquhqeekxyenxtt5dpjj6etcw3exzmmjv35kuctj0ykkzerkv4h8gatjv4ej6mmx94shyumwv5kkcatsd9hz6em9de6xcegpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2clvzg5l",
+                "naddr1qqd8qee3xycnywpdw35x2ttjv4jz6argw4kkyttdv9exkqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq2r7sal",
+                "naddr1qqjhqeecxcej6argv5kk67tnw3jhy6t0w4ej6ctxveskju3dv96z6um509kx2ucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c4za3ma",
+                "naddr1qq3hqeek8ycrsdedw35x2ttdw4exgetj94hkvttjdank2u3dv93kkun009jqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sgqp4jq",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "horror-gothic",
+            title = "Horror & Gothic",
+            publicationNaddrs = listOf(
+                "naddr1qqxhqeenxs6j6erjv93h2mrpqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqeqkkza",
+                "naddr1qqkhqee5xgenydpdveexzmntv4h8xar9d9hz6mmj946xsefdd4hkgetjdckhqun0d4jhg6r9w4esz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64secy6nf",
+                "naddr1qqh8qee5xvkhg6r994ehgunpdenk2ttrv9ek2tt0vckkgu3ddfjkk7tvdskkzmny94khyttg09jx2qgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqmm4gnd",
+                "naddr1qquhqee5xg6rsd3dw35x2tt5wahj6mtpva5kxuedw35x2tt5w4exutt0vckhg6r994ekxun9wukkxmmkv4exjmn894jkueqpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c65p3lm",
+                "naddr1qqdhqeek8ymz6argv5kkxctnw3kx2tt0vckk7arjv9h8gmcpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2ch638d4",
+                "naddr1qq0hqeenxgmrstt5dpjj6mtewd6x2unfv4ej6mmx946kgmmvwp5x7qgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq0vgn42",
+                "naddr1qqvhqeecxsunytt5dpjj66mfdenj66tw94uk2mrvdamsz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64s4mkgqy",
+                "naddr1qq3hqee3xqcrqv3dw35x2ttgda6hxefddahz6argv5kkymmjv3jhymrpdejqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64swc6p7s",
+                "naddr1qqdhqeek8qersvedw35x2ttrv9kxctt0vckkxargw4kxsagpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2csx6r6v",
+                "naddr1qq3hqeehxqmr2v3dv96z6argv5kk6mm4de6xz6twwvkk7e3dd4skgmn9wdesz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sa9k75p",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "sci-fi-speculative-fiction",
+            title = "Sci-Fi & Speculative Fiction",
+            publicationNaddrs = listOf(
+                "naddr1qq2hqeenx5khg6r9946xjmt994kkzcmgd9hx2qgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqxq0gkg",
+                "naddr1qqd8qeenxckhg6r994mkzu3ddanz6argv5khwmmjd3j8xqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqvw4nng",
+                "naddr1qqs8qee3xqcnxtt5dpjj6enfwfehgttdv4hz66tw946xsefdd4hk7mspr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2chlgcu2",
+                "naddr1qq4hqeejxqcj6envv96xcctwvskkzttjdakkzmnrv5kk7e3dd4sku7fdv35k6etwwd5k7mnnqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tq9td25f",
+                "naddr1qqk8qee38qur2dedvykk5mm4wfhx27fdw3hj6argv5kkxetww3ex2tt0vckhg6r994jkzun5dqq36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vqefly2f",
+                "naddr1qq28qee3xvuj6argv5kkcmmnwskhwmmjd3jqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64s8e9q9w",
+                "naddr1qqthqeekxgkkzttswf5kucm9wdej6mmx94kkzunnqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqu6dmzu",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "humour-satire",
+            title = "Humour & Satire",
+            publicationNaddrs = listOf(
+                "naddr1qqehqeenxquz6argwfjk2ttdv4hz66tw94sj6cn0v96z6ar094ekz7fddehhg6rfdenj6mmx946xsefdv3hkwqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqengjs5",
+                "naddr1qqu8qeecxs6z6argv5kkjmtsdae8gctwvdjj6mmx943x26twvukk2ctjdejhxapdvykhgunfwe5kzmpdvdhk6ety0ykkvqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq28pa5f",
+                "naddr1qqw8qee3xqervtt5dpjj6erfv9e8jtt0vckkzttwda3x7ereqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqca0w8e",
+                "naddr1qqdhqeenxymnvtt5dpjj66twdehkxetww3ej6ctzwfhkzeqpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2cv2ex56",
+                "naddr1qq8hqee38yungv3dvdskuerfv3jsz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64scl6nhp",
+                "naddr1qqu8qeecxguj6em4d3kxjan9wfej6arjv9mx2mrn945kuar094ek2an9wfskcttjv4kk7ar994hxzarfdah8xtt0vckhgqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqhmnwx9",
+                "naddr1qq28qeecxymrgttd0ykk6ctw944x2etkv4esz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sqy206d",
+                "naddr1qqj8qee3xykkzmrfvdjhxttpv3mx2mn5w4ex2uedd9hz6am0dejx2unvv9hxgqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqamcfyr",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "high-seas",
+            title = "High Seas",
+            publicationNaddrs = listOf(
+                "naddr1qqthqeejxumnsvpdw3ex2ctnw4ex2ttfwdkxzmnyqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqpmnmyc",
+                "naddr1qqwhqeejxsurjttdda38jttyd93kktt0wgkhg6r994mksctvv5q36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vq2wpkl7",
+                "naddr1qqfhqee3xqmngtt5dpjj6um9vykhwmmvvcq36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vq0jtwnu",
+                "naddr1qqs8qeejxq6n2tt5wahj67t9v9e8xttzv4nx7un9946xsefdd4shxaqpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2cyuxgxr",
+                "naddr1qqmhqee4xycrvvpdw35x2ttwv9e8yct5d9mx2tt0vckkzun5dp6hytt8daexgmmw94c8jmfddanz6mnpde682cmtv46qz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64smsty74",
+                "naddr1qq28qee38ymr2ttrv9c8gctfdckkymr0dajqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64sg785uy",
+                "naddr1qqmhqee3xgmryvedw35x2ttvd9nx2ttpdejz6ctywejkuar4wfjhxtt0vckhymmzd9h8xmmw943hyatndajj6vfcxquqz8thwden5te0d4jhycm4wfuj6un9d3shjtnfd4mkzmry9ejh2q3q8cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqxpqqqp64s5cluku",
+                "naddr1qqehqeehxyergtt5dpjj6cm0wfskcttfwdkxzmny94sj6arpd3jj6mmx946xsefdwpskx6txd93j6mmrv4skuqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kqzznsyn",
+            ),
+        ),
+        CuratedShelfSpec(
+            id = "poetry",
+            title = "Poetry",
+            publicationNaddrs = listOf(
+                "naddr1qqt8qee3xveryttvv4shvetn94hkvtt8wfshxucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2czyjpan",
+                "naddr1qqm8qee3xgergv3dwphk2mtn9438jtt9d45kc7fdv35kx6mfdeek7m3dw358yet994ek2unfv4ej6cm0d4cxcet5v5q36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vqf89tet",
+                "naddr1qq4hqee38yengttndahxwueddanz66twdehkxetwvdjj6ctwvskk7e3dv4u8qetjd9jkucm9qywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqm85tda",
+                "naddr1qqn8qeejxg6rqvedwphk2mtn94hkvtt8v4exzuny94kkzmnvv4uj66r0wp4kjmnnqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqj3kxm6",
+                "naddr1qqdhqee3xq6rzttndpskketnwpjkzun9wvkhxmmwdejhgucpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2c3pd8zc",
+                "naddr1qqjhqeejxvmrsdpdddjkzarn94cx7etdwvkhqatzd35hx6r9vskkjm3dxyuryvqpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2cgdtw3n",
+                "naddr1qqa8qee3xcun2vpdvahkymrfdckk6ctjddjhgtt5dpjj6urjd9hxxetn94c8ymm8wfjhxuedv9hxgtt0w35x2u3dwphk2mtnqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqg9j7pt",
+                "naddr1qqg8qeehxymrgtt8d96xzmn2v9kxjqgawaehxw309akk2unrw4e8jttjv4kxz7fwd9khwctvvshx2agzyqlp458n5hfuzgj9mdmcs4rvgwk78ktudczxck20vqtu6mx5zerfqqcyqqq82kq84n69l",
+                "naddr1qq38qeejxsmz6argv5khyatzv95hjct594hkvtt0d4shytttdpshj7tpd5q36amnwvaz7tmdv4exxatj0ykhyetvv9uju6tdwaskcepwv46sygp7rtg08fwncy3ytkmh3p2xcsadu0vhcmsyd3v57cqhe4kdg9jxjqpsgqqqw4vqgvc533",
+                "naddr1qqdhqeenxccrjwpdw35x2ttxd3hhwetjwvkk7e3dv4mxjmqpr4mhxue69uhk6etjvd6hy7fdwfjkccte9e5k6ampd3jzuet4qgsruxks7wja8sfzghdh0zz5d3p6mc7e03hqgmzefasp0ntv6stydyqrqsqqqa2cl3tst2",
+            ),
+        ),
+    )
+}

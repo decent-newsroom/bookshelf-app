@@ -5,6 +5,7 @@ import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.util.TypedValue
 import android.widget.TextView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -84,6 +86,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookChapter
+import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
@@ -95,6 +98,8 @@ import kotlin.math.roundToInt
 @Composable
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    BackHandler(enabled = state.selectedBook != null) { viewModel.closeBook() }
+    BackHandler(enabled = state.selectedBook == null && state.isSearchOpen) { viewModel.closeSearch() }
     val context = LocalContext.current
     val signerAvailable = remember(context) { AndroidExternalSigner.isInstalled(context) }
     var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -151,7 +156,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     BookshelfTheme {
         Scaffold(
             bottomBar = {
-                if (state.selectedBook == null) {
+                if (state.selectedBook == null && !state.isSearchOpen) {
                     BookshelfBottomBar(
                         selected = state.tab,
                         onSelected = viewModel::selectTab,
@@ -188,23 +193,33 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
 
                     state.isLoadingBook -> LoadingScreen("Opening book...")
 
-                    else -> when (state.tab) {
-                        BookshelfTab.Search -> SearchScreen(
+                    else -> when {
+                        state.isSearchOpen -> SearchScreen(
                             state = state,
                             onQueryChanged = viewModel::updateQuery,
                             onSearch = viewModel::submitSearch,
                             onOpen = viewModel::openBook,
                             onToggleSaved = viewModel::toggleSaved,
+                            onClose = viewModel::closeSearch,
                         )
 
-                        BookshelfTab.MyBooks -> MyBooksScreen(
+                        state.tab == BookshelfTab.Home -> HomeScreen(
+                            shelves = state.curatedShelves,
+                            isLoading = state.isLoadingShelves,
+                            message = state.shelfMessage,
+                            onSearch = viewModel::openSearch,
+                            onRetry = viewModel::retryShelves,
+                            onOpen = viewModel::openBook,
+                        )
+
+                        state.tab == BookshelfTab.MyBooks -> MyBooksScreen(
                             books = state.savedBooks,
                             savedCoordinates = state.savedCoordinates,
                             onOpen = viewModel::openBook,
                             onToggleSaved = viewModel::toggleSaved,
                         )
 
-                        BookshelfTab.Settings -> SettingsScreen(
+                        state.tab == BookshelfTab.Settings -> SettingsScreen(
                             state = state,
                             signerAvailable = signerAvailable,
                             onLogin = startExternalSignerLogin,
@@ -238,12 +253,53 @@ private fun BookshelfBottomBar(
 }
 
 @Composable
+private fun HomeScreen(
+    shelves: List<CuratedShelf>,
+    isLoading: Boolean,
+    message: String?,
+    onSearch: () -> Unit,
+    onRetry: () -> Unit,
+    onOpen: (BookSummary) -> Unit,
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Discover", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onSearch) { Text("Search") }
+            }
+        }
+        if (isLoading && shelves.isEmpty()) item { LoadingInline("Loading shelves...") }
+        message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); TextButton(onClick = onRetry) { Text("Retry") } } } }
+        shelves.forEach { shelf ->
+            item(key = shelf.id) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(shelf.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(shelf.books, key = BookSummary::coordinate) { book -> ShelfBookCard(book, onOpen = { onOpen(book) }) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShelfBookCard(book: BookSummary, onOpen: () -> Unit) {
+    Column(Modifier.width(124.dp).clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        BookCover(book, Modifier.fillMaxWidth().height(174.dp))
+        Text(book.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(book.authors.joinToString(", ").ifBlank { "Unknown author" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+@Composable
 private fun SearchScreen(
     state: BookshelfUiState,
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onToggleSaved: (BookSummary) -> Unit,
+    onClose: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -251,11 +307,15 @@ private fun SearchScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text(
-                text = "Search Mercury",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onClose) { Text("Back to Home") }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Search Mercury",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -1229,7 +1289,7 @@ private fun coerceReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int 
 private val BookshelfTab.label: String
     get() =
         when (this) {
-            BookshelfTab.Search -> "Search"
+            BookshelfTab.Home -> "Home"
             BookshelfTab.MyBooks -> "My Books"
             BookshelfTab.Settings -> "Settings"
         }

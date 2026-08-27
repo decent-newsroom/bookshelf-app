@@ -2,7 +2,7 @@
 
 Bookshelf is a calm Android reader for discovering, saving, and enjoying books published through Mercury and Nostr.
 
-It turns an open publishing network into a personal pocket library: search the public catalog, open a book, settle into a comfortable chapter view, and keep the titles you care about close at hand.
+It turns an open publishing network into a personal pocket library: browse curated shelves or search the public catalog, open a book, settle into a comfortable chapter view, and keep the titles you care about close at hand.
 
 ## Why Bookshelf
 
@@ -10,7 +10,8 @@ Books should be easy to find, pleasant to read, and portable beyond any single p
 
 ## Highlights
 
-- Search Mercury for long-form Nostr publications.
+- Browse categorized reading suggestions on a cover-first Home screen.
+- Search Mercury for more long-form Nostr publications.
 - Save favorites to `My Books` for a personal library.
 - Read chapter-based books in a focused mobile reader.
 - Keep your place as you move through a book.

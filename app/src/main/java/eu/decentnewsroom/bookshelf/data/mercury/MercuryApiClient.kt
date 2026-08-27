@@ -19,6 +19,11 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class MercuryApiException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
+data class PublicationCoordinate(val pubkey: String, val identifier: String) {
+    val coordinate: String get() = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$identifier"
+}
+
+
 class MercuryApiClient(
     private val httpClient: OkHttpClient,
     mercuryApiBaseUrl: String,
@@ -131,6 +136,28 @@ class MercuryApiClient(
         )
     }
 
+    suspend fun getPublicationsByCoordinates(coordinates: List<PublicationCoordinate>): List<NostrEvent> {
+        val normalized = coordinates.mapNotNull { coordinate ->
+            val pubkey = coordinate.pubkey.trim().lowercase()
+            val identifier = coordinate.identifier.trim()
+            if (!HEX_64.matches(pubkey) || identifier.isBlank()) null
+            else coordinate.copy(pubkey = pubkey, identifier = identifier)
+        }.distinctBy { it.coordinate }
+        if (normalized.isEmpty()) return emptyList()
+
+        return normalized.groupBy(PublicationCoordinate::pubkey).flatMap { (pubkey, items) ->
+            items.map { it.identifier }.distinct().chunked(FILTER_BATCH_SIZE).flatMap { identifiers ->
+                filterEvents(
+                    MercuryFilterRequest(
+                        authors = listOf(pubkey),
+                        kinds = listOf(BookKinds.PUBLICATION_INDEX),
+                        limit = identifiers.size.coerceToMercuryLimit(),
+                        dTags = identifiers,
+                    ),
+                )
+            }
+        }
+    }
     suspend fun getChaptersByAuthors(authors: List<String>, limit: Int): List<NostrEvent> {
         val normalized = authors.normalizedHexKeys()
         if (normalized.isEmpty()) {
@@ -301,6 +328,8 @@ class MercuryApiClient(
         val limit: Int,
         @SerialName("#a")
         val aTags: List<String> = emptyList(),
+        @SerialName("#d")
+        val dTags: List<String> = emptyList(),
     )
 
     @Serializable

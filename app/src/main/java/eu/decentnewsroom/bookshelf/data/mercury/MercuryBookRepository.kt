@@ -185,7 +185,6 @@ class MercuryBookRepository(
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()
         val eventIds = references.mapNotNull(BookReference::eventId)
-        val authors = references.mapNotNull(BookReference::pubkey).distinct()
 
         indexPublicationEvents(
             events = apiClient.getPublicationEventsByIds(eventIds),
@@ -193,17 +192,17 @@ class MercuryBookRepository(
             eventsByCoordinate = eventsByCoordinate,
         )
 
-        val unresolvedCoordinates =
-            references.any { reference ->
-                reference.coordinate != null && eventsByCoordinate[reference.coordinate] == null
-            }
+        val unresolvedCoordinates = references.mapNotNull { reference ->
+            val coordinate = reference.coordinate ?: return@mapNotNull null
+            if (eventsByCoordinate[coordinate] != null) return@mapNotNull null
+            val parts = coordinate.split(":", limit = 3)
+            if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_INDEX) return@mapNotNull null
+            PublicationCoordinate(parts[1], parts[2])
+        }
 
-        if (unresolvedCoordinates) {
+        if (unresolvedCoordinates.isNotEmpty()) {
             indexPublicationEvents(
-                events = apiClient.getPublicationsByAuthors(
-                    authors = authors,
-                    limit = minOf(MAX_SEARCH_RESULTS * 5, 100),
-                ),
+                events = apiClient.getPublicationsByCoordinates(unresolvedCoordinates),
                 eventsById = eventsById,
                 eventsByCoordinate = eventsByCoordinate,
             )

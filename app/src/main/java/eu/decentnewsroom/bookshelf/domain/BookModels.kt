@@ -1,11 +1,14 @@
 package eu.decentnewsroom.bookshelf.domain
 
+import kotlinx.serialization.Serializable
+
 object BookKinds {
     const val PUBLICATION_INDEX = 30040
     const val PUBLICATION_CONTENT = 30041
     const val DIRECTORY = 30045
 }
 
+@Serializable
 data class BookSummary(
     val id: String,
     val coordinate: String,
@@ -35,6 +38,7 @@ data class BookDetail(
     val truncated: Boolean,
 )
 
+@Serializable
 data class ChapterReference(
     val coordinate: String,
     val pubkey: String,

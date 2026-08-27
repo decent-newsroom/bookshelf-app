@@ -7,6 +7,7 @@ Bookshelf is a native Android app built with Kotlin and Jetpack Compose. `AppGra
 The main source boundaries are:
 
 - `domain`: Nostr events and book/chapter models.
+- `data/discovery`: checked-in curated shelf definitions, NIP-19 publication-reference decoding, and shelf metadata caching.
 - `data/mercury`: Mercury REST access, publication mapping, chapter-source settings, and relay-backed chapter retrieval.
 - `data/rendering`: AsciiDoc rendering and rendered-HTML caching.
 - `data/bookshelf`: local saved-book state and kind `30045` directory rules.
@@ -56,8 +57,17 @@ Saved-book state is local-first. With an Android Nostr signer session, the app r
 
 ## Verification Notes
 
-The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. Unit coverage for chapter relay URL rules and Nostr request construction is in `ChapterSourcesTest`.
+The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules and Nostr request construction. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup and the no-chapter-fetch discovery invariant.
 
 ## Decision Records
 
 - [`decisions/0001-persistent-relay-chapter-fetching.md`](decisions/0001-persistent-relay-chapter-fetching.md)
+- [`decisions/0002-cached-curated-discovery-shelves.md`](decisions/0002-cached-curated-discovery-shelves.md)
+
+## Curated Discovery Shelves
+
+The Home tab is driven by the checked-in editorial catalog in `data/discovery/CuratedShelfCatalog.kt`. Each shelf stores only its title, stable id, and ordered NIP-19 `naddr` publication references; displayed title, author, cover, and chapter-reference metadata always come from kind `30040` publication-index events.
+
+`NaddrPublicationReferenceDecoder` validates each address as a kind `30040` replaceable publication coordinate. `MercuryApiClient.getPublicationsByCoordinates` resolves exact coordinates using grouped author and `#d` filters, batched at the Mercury filter limit. Shelf loading never requests chapter events or opens chapter WebSockets. Chapters are fetched only by `BookshelfViewModel.openBook` through the existing reader flow.
+
+`ShelfMetadataCache` stores serialized publication-index summaries under `context.cacheDir/shelf-metadata/v1.json`. Entries are fresh for 24 hours. Cached summaries are rendered immediately, stale/missing coordinates then refresh, successful refreshes are atomically written, and stale entries remain available when Mercury is unavailable. The cache contains no chapter bodies or rendered HTML.

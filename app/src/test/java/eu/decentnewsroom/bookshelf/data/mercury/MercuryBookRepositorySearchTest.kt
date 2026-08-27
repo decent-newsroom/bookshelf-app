@@ -1,6 +1,9 @@
 package eu.decentnewsroom.bookshelf.data.mercury
 
 import eu.decentnewsroom.bookshelf.domain.BookKinds
+import eu.decentnewsroom.bookshelf.domain.BookReference
+import eu.decentnewsroom.bookshelf.domain.ChapterReference
+import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -109,6 +112,77 @@ class MercuryBookRepositorySearchTest {
         }
     }
 
+    @Test
+    fun publicationReferenceLookupUsesExactDTagAndDoesNotFetchChapters() = runBlocking {
+        val pubkey = "6".repeat(64)
+        val wantedIdentifier = "pg1-wanted"
+        val oldBook = publicationEvent(
+            id = "1".repeat(64),
+            pubkey = pubkey,
+            identifier = wantedIdentifier,
+            title = "Old title",
+            author = "Author",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$pubkey:chapter-one"),
+            createdAt = 1,
+        )
+        val newBook = publicationEvent(
+            id = "2".repeat(64),
+            pubkey = pubkey,
+            identifier = wantedIdentifier,
+            title = "New title",
+            author = "Author",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$pubkey:chapter-one"),
+            createdAt = 2,
+        )
+        val unrelated = publicationEvent(
+            id = "3".repeat(64),
+            pubkey = pubkey,
+            identifier = "unrelated",
+            title = "Unrelated",
+            author = "Author",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$pubkey:unrelated-chapter"),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/events/filter") eventListJson(unrelated, oldBook, newBook) else "[]"
+        }
+        var chapterSourceCalled = false
+
+        server.use {
+            val repository =
+                MercuryBookRepository(
+                    apiClient = MercuryApiClient(OkHttpClient(), server.baseUrl),
+                    chapterEventSource =
+                        object : ChapterEventSource {
+                            override suspend fun fetchChapters(references: List<ChapterReference>): List<NostrEvent> {
+                                chapterSourceCalled = true
+                                return emptyList()
+                            }
+                        },
+                )
+            val coordinate = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$wantedIdentifier"
+
+            val results =
+                repository.getBooksForReferences(
+                    listOf(
+                        BookReference(
+                            type = "a",
+                            coordinate = coordinate,
+                            relay = null,
+                            eventId = null,
+                            pubkey = pubkey,
+                        ),
+                    ),
+                )
+
+            assertEquals(listOf("New title"), results.map { it.title })
+            assertFalse(chapterSourceCalled)
+            val filterRequests = server.requests.filter { it.path == "/api/events/filter" }
+            assertEquals(1, filterRequests.size)
+            assertTrue(filterRequests.single().body.contains("\"authors\":[\"$pubkey\"]"))
+            assertTrue(filterRequests.single().body.contains("\"#d\":[\"$wantedIdentifier\"]"))
+            assertTrue(filterRequests.single().body.contains("\"kinds\":[${BookKinds.PUBLICATION_INDEX}]"))
+        }
+    }
     @Test
     fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
         val pubkey = "4".repeat(64)
@@ -253,6 +327,7 @@ class MercuryBookRepositorySearchTest {
         author: String,
         chapterCoordinates: List<String>,
         extraTags: List<List<String>> = emptyList(),
+        createdAt: Long = 1,
     ): String {
         val tags =
             listOf(
@@ -266,6 +341,7 @@ class MercuryBookRepositorySearchTest {
             pubkey = pubkey,
             kind = BookKinds.PUBLICATION_INDEX,
             tags = tags,
+            createdAt = createdAt,
         )
     }
 
@@ -275,12 +351,13 @@ class MercuryBookRepositorySearchTest {
         kind: Int,
         tags: List<List<String>>,
         content: String = "",
+        createdAt: Long = 1,
     ): String =
         """
         {
           "id":"$id",
           "pubkey":"$pubkey",
-          "created_at":1,
+          "created_at":$createdAt,
           "kind":$kind,
           "tags":${tagsJson(tags)},
           "content":"${jsonEscape(content)}",

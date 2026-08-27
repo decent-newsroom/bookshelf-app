@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
+import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
@@ -19,6 +21,7 @@ import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +36,7 @@ class BookshelfViewModel(
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
     private val chapterSourceSettings: ChapterSourceSettingsStore = AppGraph.chapterSourceSettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
+    private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(BookshelfUiState())
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
@@ -84,10 +88,23 @@ class BookshelfViewModel(
             }
         }
         refreshChapterCacheStats()
+        refreshCuratedShelves()
     }
 
     fun selectTab(tab: BookshelfTab) {
-        _uiState.update { it.copy(tab = tab, selectedBook = null, error = null) }
+        _uiState.update { it.copy(tab = tab, selectedBook = null, error = null, isSearchOpen = false) }
+    }
+
+    fun openSearch() {
+        _uiState.update { it.copy(isSearchOpen = true, tab = BookshelfTab.Home) }
+    }
+
+    fun closeSearch() {
+        _uiState.update { it.copy(isSearchOpen = false) }
+    }
+
+    fun retryShelves() {
+        refreshCuratedShelves()
     }
 
     fun updateQuery(query: String) {
@@ -401,6 +418,43 @@ class BookshelfViewModel(
         readerSettings.setTheme(theme)
     }
 
+    private fun refreshCuratedShelves() {
+        if (_uiState.value.isLoadingShelves) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingShelves = true, shelfMessage = null) }
+            try {
+                val cached = curatedShelfRepository.loadCached()
+                _uiState.update {
+                    it.copy(
+                        curatedShelves = cached.shelves,
+                        isLoadingShelves = cached.needsRefresh,
+                    )
+                }
+                if (!cached.needsRefresh) {
+                    return@launch
+                }
+
+                val refreshed = curatedShelfRepository.refresh()
+                _uiState.update {
+                    it.copy(
+                        curatedShelves = refreshed.shelves,
+                        isLoadingShelves = false,
+                        shelfMessage = refreshed.error,
+                    )
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingShelves = false,
+                        shelfMessage = failure.message ?: "Could not load shelves.",
+                    )
+                }
+            }
+        }
+    }
+
     private fun refreshChapterCacheStats() {
         viewModelScope.launch {
             val stats = chapterHtmlCache.stats()
@@ -474,7 +528,7 @@ class BookshelfViewModel(
 }
 
 enum class BookshelfTab {
-    Search,
+    Home,
     MyBooks,
     Settings,
 }
@@ -488,7 +542,11 @@ data class PendingDirectorySignRequest(
 )
 
 data class BookshelfUiState(
-    val tab: BookshelfTab = BookshelfTab.Search,
+    val tab: BookshelfTab = BookshelfTab.Home,
+    val curatedShelves: List<CuratedShelf> = emptyList(),
+    val isLoadingShelves: Boolean = false,
+    val shelfMessage: String? = null,
+    val isSearchOpen: Boolean = false,
     val query: String = "",
     val isSearching: Boolean = false,
     val searchResults: List<BookSummary> = emptyList(),
