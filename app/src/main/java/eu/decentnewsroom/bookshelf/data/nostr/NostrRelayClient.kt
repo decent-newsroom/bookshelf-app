@@ -56,6 +56,24 @@ class NostrRelayClient(
                 .maxByOrNull(NostrEvent::createdAt)
         }
 
+    suspend fun fetchLatestProfile(pubkey: String): NostrEvent? =
+        coroutineScope {
+            val attempts =
+                relayUrls.map { relayUrl ->
+                    async {
+                        runCatching { fetchLatestProfileFromRelay(relayUrl, pubkey) }
+                    }
+                }.awaitAll()
+
+            if (attempts.isNotEmpty() && attempts.all { it.isFailure }) {
+                throw NostrRelayException("Could not reach configured relays.")
+            }
+
+            attempts
+                .mapNotNull { it.getOrNull() }
+                .maxByOrNull(NostrEvent::createdAt)
+        }
+
     suspend fun publishDirectory(event: NostrEvent): PublishReport =
         coroutineScope {
             val attempts =
@@ -95,6 +113,67 @@ class NostrRelayClient(
                                 }.getOrNull()
 
                             if (event != null && event.isDirectoryFor(pubkey)) {
+                                latest.updateAndGet { current ->
+                                    if (current == null || event.createdAt > current.createdAt) {
+                                        event
+                                    } else {
+                                        current
+                                    }
+                                }
+                            }
+                        }
+
+                        "EOSE", "CLOSED" -> {
+                            if (!done.isCompleted) {
+                                done.complete(latest.get())
+                            }
+                        }
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!done.isCompleted) {
+                        done.completeExceptionally(NostrRelayException("Relay $relayUrl failed.", t))
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!done.isCompleted) {
+                        done.complete(latest.get())
+                    }
+                }
+            },
+        )
+
+        val result = withTimeoutOrNull(timeoutMillis) { done.await() } ?: latest.get()
+        webSocket.send(closeMessage(subscriptionId))
+        webSocket.close(1000, "done")
+        return result
+    }
+
+    private suspend fun fetchLatestProfileFromRelay(relayUrl: String, pubkey: String): NostrEvent? {
+        val subscriptionId = "profile-${UUID.randomUUID()}"
+        val latest = AtomicReference<NostrEvent?>(null)
+        val done = CompletableDeferred<NostrEvent?>()
+        lateinit var webSocket: WebSocket
+
+        webSocket = httpClient.newWebSocket(
+            Request.Builder().url(relayUrl).build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(profileReqMessage(subscriptionId, pubkey))
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val message = parseMessage(text) ?: return
+                    when (message.getOrNull(0)?.jsonPrimitive?.content) {
+                        "EVENT" -> {
+                            val event =
+                                runCatching {
+                                    json.decodeFromJsonElement<NostrEvent>(message[2])
+                                }.getOrNull()
+
+                            if (event != null && event.isProfileFor(pubkey)) {
                                 latest.updateAndGet { current ->
                                     if (current == null || event.createdAt > current.createdAt) {
                                         event
@@ -212,4 +291,22 @@ class NostrRelayClient(
         kind == BookKinds.DIRECTORY &&
             this.pubkey.equals(pubkey, ignoreCase = true) &&
             tags.any { it.getOrNull(0) == "d" && it.getOrNull(1) == BookshelfDirectoryRules.IDENTIFIER }
+
+    private fun NostrEvent.isProfileFor(pubkey: String): Boolean =
+        kind == BookKinds.PROFILE_METADATA && this.pubkey.equals(pubkey, ignoreCase = true)
 }
+
+internal fun profileReqMessage(subscriptionId: String, pubkey: String): String =
+    JsonArray(
+        listOf(
+            JsonPrimitive("REQ"),
+            JsonPrimitive(subscriptionId),
+            JsonObject(
+                mapOf(
+                    "kinds" to JsonArray(listOf(JsonPrimitive(BookKinds.PROFILE_METADATA))),
+                    "authors" to JsonArray(listOf(JsonPrimitive(pubkey))),
+                    "limit" to JsonPrimitive(1),
+                ),
+            ),
+        ),
+    ).toString()

@@ -12,6 +12,8 @@ import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
+import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
+import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileSource
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
@@ -36,6 +38,7 @@ class BookshelfViewModel(
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
     private val chapterSourceSettings: ChapterSourceSettingsStore = AppGraph.chapterSourceSettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
+    private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(BookshelfUiState())
@@ -79,7 +82,17 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             relaySync.activeSession.collect { session ->
-                _uiState.update { it.copy(signerSession = session) }
+                _uiState.update {
+                    it.copy(
+                        signerSession = session,
+                        nostrProfile = it.nostrProfile?.takeIf { profile ->
+                            session != null && profile.pubkey.equals(session.pubkey, ignoreCase = true)
+                        },
+                    )
+                }
+                if (session != null) {
+                    loadNostrProfile(session.pubkey)
+                }
             }
         }
         relaySync.activeSession.value?.let { session ->
@@ -276,10 +289,9 @@ class BookshelfViewModel(
     fun signOut() {
         viewModelScope.launch {
             relaySync.signOut()
-            localBookshelf.replace(BookshelfDirectoryRules.emptyTags(), emptyList())
             _uiState.update {
                 it.copy(
-                    syncMessage = "Signed out.",
+                    syncMessage = "Signed out. My Books remains saved on this device.",
                     error = null,
                     pendingDirectorySignRequest = null,
                     isPublishingDirectory = false,
@@ -293,46 +305,74 @@ class BookshelfViewModel(
         val state = _uiState.value
         val session = state.signerSession
 
-        if (state.pendingDirectorySignRequest != null || state.isPublishingDirectory) {
+        if (
+            session != null &&
+            (state.pendingDirectorySignRequest != null || state.isPublishingDirectory)
+        ) {
             _uiState.update { it.copy(error = "Finish the current signer request first.") }
             return
         }
-        if (session == null) {
-            _uiState.update {
-                it.copy(
-                    tab = BookshelfTab.Settings,
-                    error = "Log in with an Android signer before collecting books.",
-                    syncMessage = null,
-                )
-            }
-            return
-        }
 
-        runCatching {
-            val nextTags = BookshelfDirectoryRules.toggleBook(localBookshelf.directoryTags.value, book)
-            val draft = relaySync.buildDirectoryDraft(
-                pubkey = session.pubkey,
-                tags = nextTags,
+        _uiState.update {
+            it.copy(
+                isPublishingDirectory = session != null,
+                error = null,
+                syncMessage = null,
             )
-            PendingDirectorySignRequest(
-                id = UUID.randomUUID().toString(),
-                session = session,
-                unsignedEventJson = relaySync.unsignedDirectoryJson(draft),
-                tags = draft.tags,
-                fallbackBook = book,
-            )
-        }.onSuccess { request ->
-            _uiState.update {
-                it.copy(
-                    pendingDirectorySignRequest = request,
-                    isPublishingDirectory = true,
-                    error = null,
-                    syncMessage = "Review the collection update in your signer.",
+        }
+        viewModelScope.launch {
+            try {
+                val change = localBookshelf.toggle(book)
+                if (session == null) {
+                    _uiState.update {
+                        it.copy(
+                            syncMessage = if (change.isSaved) {
+                                "Saved to My Books on this device."
+                            } else {
+                                "Removed from My Books on this device."
+                            },
+                        )
+                    }
+                    return@launch
+                }
+
+                val activePubkey = _uiState.value.signerSession?.pubkey
+                if (!activePubkey.equals(session.pubkey, ignoreCase = true)) {
+                    _uiState.update {
+                        it.copy(
+                            isPublishingDirectory = false,
+                            syncMessage = "Bookshelf change saved on this device.",
+                        )
+                    }
+                    return@launch
+                }
+
+                val draft = relaySync.buildDirectoryDraft(
+                    pubkey = session.pubkey,
+                    tags = change.tags,
                 )
-            }
-        }.onFailure { failure ->
-            _uiState.update {
-                it.copy(error = failure.message ?: "Could not prepare collection update.")
+                val request = PendingDirectorySignRequest(
+                    id = UUID.randomUUID().toString(),
+                    session = session,
+                    unsignedEventJson = relaySync.unsignedDirectoryJson(draft),
+                    tags = draft.tags,
+                    fallbackBook = book,
+                )
+                _uiState.update {
+                    it.copy(
+                        pendingDirectorySignRequest = request,
+                        isPublishingDirectory = true,
+                        error = null,
+                        syncMessage = "Saved locally. Review sharing in your signer.",
+                    )
+                }
+            } catch (failure: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isPublishingDirectory = false,
+                        error = failure.message ?: "Could not update My Books.",
+                    )
+                }
             }
         }
     }
@@ -346,7 +386,7 @@ class BookshelfViewModel(
                         pendingDirectorySignRequest = null,
                         isPublishingDirectory = false,
                         error = "Signer returned an unexpected request id.",
-                        syncMessage = null,
+                        syncMessage = "Bookshelf change remains saved on this device.",
                     )
                 }
                 return@launch
@@ -365,9 +405,9 @@ class BookshelfViewModel(
                 val applied = applyDirectoryTags(event.tags, fallbackBooks = listOf(pending.fallbackBook))
                 val publishMessage =
                     if (report.acceptedRelays > 0) {
-                        "Published ${applied.referenceCount} collection items to ${report.acceptedRelays}/${report.attemptedRelays} relays."
+                        "Shared ${applied.referenceCount} bookshelf items with ${report.acceptedRelays}/${report.attemptedRelays} relays."
                     } else {
-                        "Collection saved locally, but no relay accepted it yet."
+                        "Bookshelf saved locally, but no relay accepted it yet."
                     }
 
                 _uiState.update {
@@ -383,8 +423,8 @@ class BookshelfViewModel(
                     it.copy(
                         pendingDirectorySignRequest = null,
                         isPublishingDirectory = false,
-                        error = failure.message ?: "Could not publish collection update.",
-                        syncMessage = null,
+                        error = failure.message ?: "Could not share bookshelf update.",
+                        syncMessage = "Bookshelf change remains saved on this device.",
                     )
                 }
             }
@@ -397,7 +437,7 @@ class BookshelfViewModel(
                 pendingDirectorySignRequest = null,
                 isPublishingDirectory = false,
                 error = message,
-                syncMessage = null,
+                syncMessage = "Bookshelf change remains saved on this device.",
             )
         }
     }
@@ -462,6 +502,26 @@ class BookshelfViewModel(
         }
     }
 
+    private suspend fun loadNostrProfile(pubkey: String) {
+        nostrProfiles.cachedProfile(pubkey)?.let { cached ->
+            updateNostrProfile(pubkey, cached)
+        }
+
+        runCatching { nostrProfiles.refreshProfile(pubkey) }
+            .getOrNull()
+            ?.let { refreshed -> updateNostrProfile(pubkey, refreshed) }
+    }
+
+    private fun updateNostrProfile(pubkey: String, profile: NostrProfile) {
+        _uiState.update { state ->
+            if (state.signerSession?.pubkey.equals(pubkey, ignoreCase = true)) {
+                state.copy(nostrProfile = profile)
+            } else {
+                state
+            }
+        }
+    }
+
     private suspend fun syncRemoteDirectory(pubkey: String, announceEmpty: Boolean) {
         _uiState.update {
             it.copy(
@@ -474,11 +534,14 @@ class BookshelfViewModel(
         try {
             val event = relaySync.fetchLatestDirectory(pubkey)
             if (event == null) {
-                localBookshelf.replace(BookshelfDirectoryRules.emptyTags(), emptyList())
                 _uiState.update {
                     it.copy(
                         isSyncingDirectory = false,
-                        syncMessage = if (announceEmpty) "No collection found yet." else null,
+                        syncMessage = if (announceEmpty) {
+                            "No shared bookshelf found. Local books are unchanged."
+                        } else {
+                            null
+                        },
                     )
                 }
                 return
@@ -489,14 +552,14 @@ class BookshelfViewModel(
                 it.copy(
                     isSyncingDirectory = false,
                     error = applied.warning,
-                    syncMessage = "Synced ${applied.referenceCount} collection items from relays.",
+                    syncMessage = "Merged ${applied.referenceCount} bookshelf items with this device.",
                 )
             }
         } catch (failure: Throwable) {
             _uiState.update {
                 it.copy(
                     isSyncingDirectory = false,
-                    error = failure.message ?: "Could not sync collection.",
+                    error = failure.message ?: "Could not sync bookshelf.",
                     syncMessage = null,
                 )
             }
@@ -518,10 +581,13 @@ class BookshelfViewModel(
             (resolvedBooks.getOrDefault(emptyList()) + fallbackBooks)
                 .distinctBy(BookSummary::coordinate)
 
-        localBookshelf.replace(normalizedTags, books)
+        localBookshelf.merge(normalizedTags, books)
 
         return DirectoryApplyResult(
-            referenceCount = references.size,
+            referenceCount =
+                BookshelfDirectoryRules
+                    .extractBookReferences(localBookshelf.directoryTags.value)
+                    .size,
             warning = resolvedBooks.exceptionOrNull()?.message,
         )
     }
@@ -558,6 +624,7 @@ data class BookshelfUiState(
     val error: String? = null,
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,
     val signerSession: NostrSignerSession? = null,
+    val nostrProfile: NostrProfile? = null,
     val syncMessage: String? = null,
     val isSyncingDirectory: Boolean = false,
     val isPublishingDirectory: Boolean = false,

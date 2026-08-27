@@ -204,6 +204,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             shelves = state.curatedShelves,
                             isLoading = state.isLoadingShelves,
                             message = state.shelfMessage,
+                            profileName = state.nostrProfile?.preferredName,
                             onSearch = viewModel::openSearch,
                             onRetry = viewModel::retryShelves,
                             onOpen = viewModel::openBook,
@@ -254,6 +255,7 @@ private fun HomeScreen(
     shelves: List<CuratedShelf>,
     isLoading: Boolean,
     message: String?,
+    profileName: String?,
     onSearch: () -> Unit,
     onRetry: () -> Unit,
     onOpen: (BookSummary) -> Unit,
@@ -261,7 +263,13 @@ private fun HomeScreen(
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Discover", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = profileName?.let { "Hello, $it" } ?: "Discover",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onSearch) { Text("Search") }
             }
@@ -359,7 +367,7 @@ private fun SearchScreen(
         }
 
         if (state.isPublishingDirectory) {
-            item { LoadingInline("Publishing collection...") }
+            item { LoadingInline("Sharing bookshelf...") }
         }
 
         items(state.searchResults, key = BookSummary::coordinate) { book ->
@@ -383,7 +391,7 @@ private fun MyBooksScreen(
     if (books.isEmpty()) {
         EmptyScreen(
             title = "Your shelf is empty",
-            body = "Save books from search results to keep a personal Nostr directory here.",
+            body = "Save books from search results. They stay on this device even without a login.",
         )
         return
     }
@@ -400,7 +408,7 @@ private fun MyBooksScreen(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "${books.size} books in your local directory.",
+                text = "${books.size} books saved on this device.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -480,24 +488,37 @@ private fun SettingsScreen(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
+        Notice("Login is optional. My Books works locally; login enables relay sync and sharing.")
 
         val session = state.signerSession
         if (session == null) {
-            Notice(if (signerAvailable) "Signed out." else "No Android Nostr signer found.")
+            Notice(
+                if (signerAvailable) {
+                    "Not connected to relay sync."
+                } else {
+                    "No Android Nostr signer found. Local My Books is still available."
+                },
+            )
             Button(
                 onClick = onLogin,
                 enabled = signerAvailable && !state.isSyncingDirectory && !state.isPublishingDirectory,
             ) {
-                Text("Log in with signer")
+                Text("Log in to sync and share")
             }
         } else {
-            Notice("Signed in: ${session.pubkey.compactHex()} via ${session.packageName}")
+            val accountName = state.nostrProfile?.preferredName ?: session.pubkey.compactHex()
+            Notice("Logged in as $accountName")
+            Text(
+                text = "${session.pubkey.compactHex()} via ${session.packageName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onSyncNow,
                     enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
                 ) {
-                    Text("Sync")
+                    Text("Sync from relays")
                 }
                 TextButton(
                     onClick = onSignOut,
@@ -511,10 +532,10 @@ private fun SettingsScreen(
         Notice("Relay sync: ${state.syncState.label}")
 
         if (state.isSyncingDirectory) {
-            LoadingInline("Syncing collection...")
+            LoadingInline("Syncing bookshelf...")
         }
         if (state.isPublishingDirectory) {
-            LoadingInline("Publishing collection...")
+            LoadingInline("Sharing bookshelf...")
         }
     }
 }
@@ -1361,4 +1382,3 @@ private fun String.compactHex(): String =
     }
 
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()
-

@@ -53,7 +53,11 @@ Chapter event content is expected to be AsciiDoc. `AsciidoctorChapterRenderer` c
 
 ## Saved Books and Nostr Identity
 
-Saved-book state is local-first. With an Android Nostr signer session, the app reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
+Saved-book state is device-local and does not require a Nostr login. `LocalBookshelfStore` atomically persists normalized directory tags and the corresponding `BookSummary` values under `context.filesDir/bookshelf/local-v1.json`; My Books is restored on process restart and remains intact on sign-out or relay failure.
+
+With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Saving or removing a book commits locally before requesting a signature. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
+
+After a signer session becomes active, `NostrProfileRepository` reads the account's cached kind `0` metadata event and refreshes it from the configured identity/directory relays. The complete event is cached by pubkey under `context.cacheDir/nostr-profiles/v1`; parsed `display_name` (falling back to `name`) is exposed to Home and Settings. Cache and relay failures do not invalidate the signer session or block kind `30045` directory synchronization.
 
 ## Verification Notes
 
@@ -63,6 +67,8 @@ The Windows verification command and temporary Gradle-home cleanup procedure are
 
 - [`decisions/0001-persistent-relay-chapter-fetching.md`](decisions/0001-persistent-relay-chapter-fetching.md)
 - [`decisions/0002-cached-curated-discovery-shelves.md`](decisions/0002-cached-curated-discovery-shelves.md)
+- [`decisions/0003-cache-nostr-profile-on-login.md`](decisions/0003-cache-nostr-profile-on-login.md)
+- [`decisions/0004-device-local-bookshelf-with-optional-sync.md`](decisions/0004-device-local-bookshelf-with-optional-sync.md)
 
 ## Curated Discovery Shelves
 

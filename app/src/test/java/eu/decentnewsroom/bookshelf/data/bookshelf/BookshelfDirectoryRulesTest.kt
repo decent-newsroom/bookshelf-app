@@ -33,6 +33,43 @@ class BookshelfDirectoryRulesTest {
         BookshelfDirectoryRules.assertValidDirectory(tags, "")
     }
 
+    @Test
+    fun mergeKeepsLocalOrderAndDeduplicatesRemoteItems() {
+        val book = bookSummary()
+        val local = BookshelfDirectoryRules.toggleBook(BookshelfDirectoryRules.emptyTags(), book)
+        val merged = BookshelfDirectoryRules.mergeEditableTags(local, local)
+
+        assertEquals(local, merged)
+    }
+
+    @Test
+    fun mergeDeduplicatesBeforeApplyingItemLimit() {
+        val localBook = bookSummary()
+        val remoteBook = localBook.copy(
+            id = "b".repeat(64),
+            coordinate = "${BookKinds.PUBLICATION_INDEX}:${"2".repeat(64)}:another-book",
+            pubkey = "2".repeat(64),
+            identifier = "another-book",
+            title = "Another Book",
+        )
+        val local = BookshelfDirectoryRules.toggleBook(BookshelfDirectoryRules.emptyTags(), localBook)
+        val remoteBookTag =
+            BookshelfDirectoryRules
+                .toggleBook(BookshelfDirectoryRules.emptyTags(), remoteBook)
+                .last()
+        val remote =
+            BookshelfDirectoryRules.emptyTags() +
+                List(499) { local.last() } +
+                listOf(remoteBookTag)
+
+        val merged = BookshelfDirectoryRules.mergeEditableTags(local, remote)
+
+        assertEquals(
+            listOf(localBook.coordinate, remoteBook.coordinate),
+            BookshelfDirectoryRules.extractBookReferences(merged).mapNotNull { it.coordinate },
+        )
+    }
+
     private fun bookSummary(): BookSummary {
         val pubkey = "1".repeat(64)
         val eventId = "a".repeat(64)

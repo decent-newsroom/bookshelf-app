@@ -25,6 +25,25 @@ object BookshelfDirectoryRules {
         return normalized + listOf(listOf("a", book.coordinate, book.relay.orEmpty(), book.id))
     }
 
+    fun mergeEditableTags(
+        localTags: List<List<String>>,
+        remoteTags: List<List<String>>,
+    ): List<List<String>> {
+        val seen = mutableSetOf<String>()
+        val merged = mutableListOf(listOf("d", IDENTIFIER))
+
+        sequenceOf(localTags, remoteTags)
+            .flatMap { normalizeEditableTags(it).drop(1).asSequence() }
+            .forEach { tag ->
+                val key = "${tag.firstOrNull()}:${tag.getOrNull(1)?.lowercase()}"
+                if (seen.add(key) && merged.size < MAX_ITEMS + 1) {
+                    merged += tag
+                }
+            }
+
+        return merged
+    }
+
     fun extractBookReferences(tags: List<List<String>>): List<BookReference> {
         val seen = mutableSetOf<String>()
 
@@ -190,4 +209,3 @@ object BookshelfDirectoryRules {
 
     private val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
 }
-

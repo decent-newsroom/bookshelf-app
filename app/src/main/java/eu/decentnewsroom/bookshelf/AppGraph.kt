@@ -9,6 +9,8 @@ import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiClient
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.PersistentNostrChapterSource
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
+import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileCache
+import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileRepository
 import eu.decentnewsroom.bookshelf.data.nostr.NostrRelayClient
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSessionStore
 import eu.decentnewsroom.bookshelf.data.nostr.QuartzBookshelfRelaySync
@@ -38,8 +40,10 @@ object AppGraph {
 
     private var readerSettingsStore: ReaderSettingsStore? = null
     private var chapterSourceSettingsStore: ChapterSourceSettingsStore? = null
+    private var localBookshelfStore: LocalBookshelfStore? = null
     private var mercuryBooksStore: MercuryBookRepository? = null
     private var relaySyncStore: BookshelfRelaySync? = null
+    private var nostrProfileRepositoryStore: NostrProfileRepository? = null
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
     private var shelfMetadataCacheStore: ShelfMetadataCache? = null
     private var curatedShelfRepositoryStore: CuratedShelfRepository? = null
@@ -47,10 +51,14 @@ object AppGraph {
     val mercuryBooks: MercuryBookRepository
         get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
 
-    val localBookshelf = LocalBookshelfStore()
+    val localBookshelf: LocalBookshelfStore
+        get() = localBookshelfStore ?: error("AppGraph.initialize(context) must be called before using the local bookshelf.")
 
     val relaySync: BookshelfRelaySync
         get() = relaySyncStore ?: error("AppGraph.initialize(context) must be called before using relay sync.")
+
+    val nostrProfiles: NostrProfileRepository
+        get() = nostrProfileRepositoryStore ?: error("AppGraph.initialize(context) must be called before using Nostr profiles.")
 
     val readerSettings: ReaderSettingsStore
         get() = readerSettingsStore ?: error("AppGraph.initialize(context) must be called before using reader settings.")
@@ -69,6 +77,9 @@ object AppGraph {
 
         if (readerSettingsStore == null) {
             readerSettingsStore = ReaderSettingsStore(appContext)
+        }
+        if (localBookshelfStore == null) {
+            localBookshelfStore = LocalBookshelfStore(appContext)
         }
         if (chapterSourceSettingsStore == null) {
             chapterSourceSettingsStore = ChapterSourceSettingsStore(appContext)
@@ -95,13 +106,18 @@ object AppGraph {
         if (curatedShelfRepositoryStore == null) {
             curatedShelfRepositoryStore = CuratedShelfRepository(mercuryBooks, checkNotNull(shelfMetadataCacheStore))
         }
-        if (relaySyncStore == null) {
+        if (relaySyncStore == null || nostrProfileRepositoryStore == null) {
+            val relayClient = NostrRelayClient(
+                httpClient = httpClient,
+                relayUrls = defaultRelays,
+            )
             relaySyncStore = QuartzBookshelfRelaySync(
-                relayClient = NostrRelayClient(
-                    httpClient = httpClient,
-                    relayUrls = defaultRelays,
-                ),
+                relayClient = relayClient,
                 sessionStore = NostrSignerSessionStore(appContext),
+            )
+            nostrProfileRepositoryStore = NostrProfileRepository(
+                relayClient = relayClient,
+                cache = NostrProfileCache(appContext),
             )
         }
     }
