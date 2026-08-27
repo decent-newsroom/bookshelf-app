@@ -1,0 +1,11 @@
+repository: https://github.com/decent-newsroom/bookshelf-app
+description: 'Bookshelf is a calm e-reader for discovering, saving, and enjoying books. It turns an open publishing network into a personal pocket library: browse curated shelves or search the public catalog, open a book, settle into a comfortable chapter view, and keep the titles you care about close at hand.'
+summary: E-reader for Nostr books.
+tags:
+    - books
+    - reading
+    - ereader
+    - library
+metadata_sources:
+    - github
+pubkey: npub1ez09adke4vy8udk3y2skwst8q5chjgqzym9lpq4u58zf96zcl7kqyry2lz
