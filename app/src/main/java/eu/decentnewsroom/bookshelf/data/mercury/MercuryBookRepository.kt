@@ -15,6 +15,7 @@ import java.util.Locale
 
 class MercuryBookRepository(
     private val apiClient: MercuryApiClient,
+    private val chapterEventSource: ChapterEventSource? = null,
 ) {
     suspend fun search(query: String): List<BookSummary> = coroutineScope {
         val plan = SearchPlan.from(query)
@@ -117,8 +118,29 @@ class MercuryBookRepository(
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()
 
+        chapterEventSource?.let { source ->
+            runCatching { source.fetchChapters(refs) }
+                .getOrDefault(emptyList())
+                .let { events ->
+                    indexChapterEvents(
+                        events = events,
+                        eventsById = eventsById,
+                        eventsByCoordinate = eventsByCoordinate,
+                    )
+                }
+        }
+
+        val unresolvedEventIds =
+            refs
+                .filter { ref ->
+                    ref.eventId != null &&
+                        eventsById[ref.eventId] == null &&
+                        eventsByCoordinate[ref.coordinate] == null
+                }
+                .mapNotNull(ChapterReference::eventId)
+
         indexChapterEvents(
-            events = apiClient.getEventsByIds(refs.mapNotNull(ChapterReference::eventId)),
+            events = runCatching { apiClient.getEventsByIds(unresolvedEventIds) }.getOrDefault(emptyList()),
             eventsById = eventsById,
             eventsByCoordinate = eventsByCoordinate,
         )
@@ -134,7 +156,10 @@ class MercuryBookRepository(
 
         if (unresolvedAuthors.isNotEmpty()) {
             indexChapterEvents(
-                events = apiClient.getChaptersByAuthors(unresolvedAuthors, MAX_CHAPTERS),
+                events =
+                    runCatching {
+                        apiClient.getChaptersByAuthors(unresolvedAuthors, MAX_CHAPTERS)
+                    }.getOrDefault(emptyList()),
                 eventsById = eventsById,
                 eventsByCoordinate = eventsByCoordinate,
             )
@@ -209,6 +234,13 @@ class MercuryBookRepository(
             return null
         }
 
+        val sourceUrl = httpUrlTag(event.tags, "source") ?: httpUrlTag(event.tags, "s")
+        val coverImageUrl =
+            httpUrlTag(event.tags, "image") ?: gutenbergCoverImageUrl(
+                identifier = identifier,
+                sourceUrl = sourceUrl,
+            )
+
         return BookSummary(
             id = event.id.lowercase(),
             coordinate = "${BookKinds.PUBLICATION_INDEX}:${event.pubkey.lowercase()}:$identifier",
@@ -217,8 +249,8 @@ class MercuryBookRepository(
             title = firstTagValue(event.tags, "title") ?: firstTagValue(event.tags, "T") ?: identifier,
             summary = firstNonEmptyTagValue(event.tags, listOf("summary", "description")),
             authors = tagValues(event.tags, "author").ifEmpty { tagValues(event.tags, "N") },
-            coverImageUrl = httpUrlTag(event.tags, "image"),
-            sourceUrl = httpUrlTag(event.tags, "source") ?: httpUrlTag(event.tags, "s"),
+            coverImageUrl = coverImageUrl,
+            sourceUrl = sourceUrl,
             language = firstTagValue(event.tags, "l"),
             releaseDate = firstNonEmptyTagValue(event.tags, listOf("release_date", "published_on")),
             version = firstTagValue(event.tags, "version"),
@@ -346,6 +378,31 @@ class MercuryBookRepository(
 
     private fun httpUrlTag(tags: List<List<String>>, name: String): String? =
         normalizeHttpUrl(firstTagValue(tags, name))
+
+    private fun gutenbergCoverImageUrl(identifier: String, sourceUrl: String?): String? {
+        val ebookId = sourceUrl?.let(::gutenbergEbookIdFromUrl) ?: gutenbergEbookIdFromIdentifier(identifier)
+
+        return ebookId?.let { id -> "https://www.gutenberg.org/cache/epub/$id/pg$id.cover.medium.jpg" }
+    }
+
+    private fun gutenbergEbookIdFromIdentifier(identifier: String): String? {
+        val match = GUTENBERG_IDENTIFIER.matchEntire(identifier.trim()) ?: return null
+
+        return match.groupValues[1]
+    }
+
+    private fun gutenbergEbookIdFromUrl(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase(Locale.US) ?: return null
+        if (host != "gutenberg.org" && !host.endsWith(".gutenberg.org")) {
+            return null
+        }
+
+        val path = uri.path ?: return null
+        val match = GUTENBERG_URL_PATH.find(path) ?: return null
+
+        return match.groupValues[1]
+    }
 
     private fun normalizeHttpUrl(url: String?): String? {
         val trimmed = url?.trim()?.takeIf(String::isNotEmpty) ?: return null
@@ -510,6 +567,8 @@ class MercuryBookRepository(
             RegexOption.IGNORE_CASE,
         )
         val LANGUAGE_CODE = Regex("^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$")
+        val GUTENBERG_IDENTIFIER = Regex("^pg(\\d+)(?:[-_].*)?$", RegexOption.IGNORE_CASE)
+        val GUTENBERG_URL_PATH = Regex("/(?:ebooks|files|cache/epub)/(\\d+)(?:/|$)")
 
         fun parseFieldQuery(query: String): FieldQuery? {
             val match = FIELD_QUERY.matchEntire(query) ?: return null

@@ -27,9 +27,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,17 +65,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil3.compose.AsyncImage
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
@@ -208,6 +211,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSyncNow = viewModel::syncNow,
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
+                            onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
                         )
                     }
                 }
@@ -353,10 +357,15 @@ private fun SettingsScreen(
     onSyncNow: () -> Unit,
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
+    onChapterRelayUrlsChanged: (String) -> Unit,
 ) {
+    var chapterRelayDraft by remember(state.chapterRelayUrls) {
+        mutableStateOf(state.chapterRelayUrls.joinToString("\n"))
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -369,7 +378,26 @@ private fun SettingsScreen(
         state.error?.let { message -> Notice(message) }
         state.syncMessage?.let { message -> Notice(message) }
 
-        Notice("Mercury: https://mercury-relay.imwald.eu")
+        Notice("Mercury search: https://mercury-relay.imwald.eu")
+        Text(
+            text = "Chapter sources",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        OutlinedTextField(
+            value = chapterRelayDraft,
+            onValueChange = { chapterRelayDraft = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("WebSocket relays") },
+            supportingText = {
+                Text("One ws:// or wss:// relay URL per line. Leave empty to use Mercury HTTP only.")
+            },
+            minLines = 2,
+            maxLines = 5,
+        )
+        Button(onClick = { onChapterRelayUrlsChanged(chapterRelayDraft) }) {
+            Text("Save chapter sources")
+        }
         Notice("Reader: ${state.readerPreferences.fontSizeSp.roundToInt()}sp, ${state.readerPreferences.theme.label}")
         Notice("Chapter cache: ${state.chapterCacheStats.label}")
         Button(
@@ -685,24 +713,40 @@ private fun ReaderHeader(
             color = colors.muted,
         )
 
-        Text(
-            text = detail.summary.title,
-            style = MaterialTheme.typography.headlineMedium,
-            color = colors.text,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Start,
-        )
-        val authors = detail.summary.authors.joinToString(", ").ifBlank { "Unknown author" }
-        Text(
-            text = "by $authors",
-            style = MaterialTheme.typography.bodyLarge,
-            color = colors.muted,
-        )
-        Text(
-            text = "${detail.availableChapterCount} / ${detail.summary.chapterCount} chapters available",
-            style = MaterialTheme.typography.labelLarge,
-            color = colors.muted,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+        ) {
+            BookCover(
+                book = detail.summary,
+                modifier = Modifier.size(width = 88.dp, height = 124.dp),
+                containerColor = colors.track,
+                monogramColor = colors.accent,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = detail.summary.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = colors.text,
+                    fontWeight = FontWeight.Bold,
+                )
+                val authors = detail.summary.authors.joinToString(", ").ifBlank { "Unknown author" }
+                Text(
+                    text = "by $authors",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = colors.muted,
+                )
+                Text(
+                    text = "${detail.availableChapterCount} / ${detail.summary.chapterCount} chapters available",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.muted,
+                )
+            }
+        }
         detail.summary.summary?.let { summary ->
             Text(
                 text = summary,
@@ -893,7 +937,7 @@ private fun BookCard(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BookMonogram(book.title)
+            BookCover(book)
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1012,20 +1056,32 @@ private fun HtmlChapterText(
 }
 
 @Composable
-private fun BookMonogram(title: String) {
+private fun BookCover(
+    book: BookSummary,
+    modifier: Modifier = Modifier.size(width = 56.dp, height = 76.dp),
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    monogramColor: Color = MaterialTheme.colorScheme.primary,
+) {
     Box(
-        modifier = Modifier
-            .size(width = 56.dp, height = 76.dp)
+        modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(containerColor),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = title.trim().firstOrNull()?.uppercase() ?: "B",
+            text = book.title.trim().firstOrNull()?.uppercase() ?: "B",
             style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = monogramColor,
             fontWeight = FontWeight.Bold,
         )
+        book.coverImageUrl?.let { coverUrl ->
+            AsyncImage(
+                model = coverUrl,
+                contentDescription = "Cover art for ${book.title}",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
     }
 }
 

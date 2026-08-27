@@ -109,6 +109,55 @@ class MercuryBookRepositorySearchTest {
         }
     }
 
+    @Test
+    fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
+        val pubkey = "4".repeat(64)
+        val book = publicationEvent(
+            id = "d".repeat(64),
+            pubkey = pubkey,
+            identifier = "pg74359-domestic-medicine",
+            title = "Domestic medicine",
+            author = "William Buchan",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$pubkey:pg74359-chapter-1-domestic-medicine"),
+            extraTags = listOf(listOf("s", "https://www.gutenberg.org/ebooks/74359")),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(book) else "[]"
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+
+            val results = repository.search("Domestic medicine")
+
+            assertEquals("https://www.gutenberg.org/cache/epub/74359/pg74359.cover.medium.jpg", results.single().coverImageUrl)
+        }
+    }
+
+    @Test
+    fun searchInfersGutenbergCoverFromPublicationIdentifier() = runBlocking {
+        val pubkey = "5".repeat(64)
+        val book = publicationEvent(
+            id = "e".repeat(64),
+            pubkey = pubkey,
+            identifier = "pg65238-an-example-book",
+            title = "An Example Book",
+            author = "Writer Name",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$pubkey:pg65238-chapter-1-an-example-book"),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(book) else "[]"
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+
+            val results = repository.search("An Example Book")
+
+            assertEquals("https://www.gutenberg.org/cache/epub/65238/pg65238.cover.medium.jpg", results.single().coverImageUrl)
+        }
+    }
+
     private class RecordingHttpServer(
         private val responder: (RecordedHttpRequest) -> String,
     ) : Closeable {
@@ -203,13 +252,14 @@ class MercuryBookRepositorySearchTest {
         title: String,
         author: String,
         chapterCoordinates: List<String>,
+        extraTags: List<List<String>> = emptyList(),
     ): String {
         val tags =
             listOf(
                 listOf("d", identifier),
                 listOf("title", title),
                 listOf("author", author),
-            ) + chapterCoordinates.map { listOf("a", it) }
+            ) + extraTags + chapterCoordinates.map { listOf("a", it) }
 
         return eventJson(
             id = id,
