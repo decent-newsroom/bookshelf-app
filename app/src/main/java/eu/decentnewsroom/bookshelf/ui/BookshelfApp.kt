@@ -154,7 +154,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     BookshelfTheme {
         Scaffold(
             bottomBar = {
-                if (state.selectedBook == null && !state.isSearchOpen) {
+                if (state.selectedBook == null) {
                     BookshelfBottomBar(
                         selected = state.tab,
                         onSelected = viewModel::selectTab,
@@ -198,7 +198,6 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSearch = viewModel::submitSearch,
                             onOpen = viewModel::openBook,
                             onToggleSaved = viewModel::toggleSaved,
-                            onClose = viewModel::closeSearch,
                         )
 
                         state.tab == BookshelfTab.Home -> HomeScreen(
@@ -297,36 +296,47 @@ private fun SearchScreen(
     onSearch: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onToggleSaved: (BookSummary) -> Unit,
-    onClose: () -> Unit,
 ) {
+    var hasInteracted by rememberSaveable {
+        mutableStateOf(
+            state.query.isNotEmpty() ||
+                state.isSearching ||
+                state.searchResults.isNotEmpty() ||
+                state.searchMessage != null,
+        )
+    }
+    val submitSearch = {
+        hasInteracted = true
+        onSearch()
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onClose) { Text("Back to Home") }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Search Mercury",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!hasInteracted) {
+                    Notice("Find books by title, author, source, or Nostr identifier.")
+                }
                 OutlinedTextField(
                     value = state.query,
-                    onValueChange = onQueryChanged,
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Title, author, source, or identifier") },
+                    onValueChange = { query ->
+                        hasInteracted = true
+                        onQueryChanged(query)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Search books") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
                 )
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onSearch, enabled = !state.isSearching) {
+                Button(
+                    onClick = submitSearch,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.isSearching,
+                ) {
                     Text("Search")
                 }
             }
@@ -605,11 +615,15 @@ private fun ReaderScreen(
                 )
             }
 
-            items(detail.chapters, key = { chapter -> chapter.reference.coordinate }) { chapter ->
+            itemsIndexed(
+                items = detail.chapters,
+                key = { _, chapter -> chapter.reference.coordinate },
+            ) { index, chapter ->
                 ChapterSection(
                     chapter = chapter,
                     preferences = preferences,
                     colors = colors,
+                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
                 )
             }
         }
@@ -951,19 +965,13 @@ private fun ReaderContentsItem(
             .background(if (selected) colors.track else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "Chapter ${chapter.position}",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) colors.accent else colors.muted,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
-        Text(
             text = chapter.title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = colors.text,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (selected) colors.accent else colors.text,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1042,21 +1050,25 @@ private fun ChapterSection(
     chapter: BookChapter,
     preferences: ReaderPreferences,
     colors: ReaderColors,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "Chapter ${chapter.position}",
-            style = MaterialTheme.typography.labelMedium,
-            color = colors.accent,
-        )
-        Text(
             text = chapter.title,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineSmall,
             color = colors.text,
-            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+        )
+        Box(
+            modifier = Modifier
+                .width(44.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(colors.accent),
         )
         chapter.summary?.let {
             Text(
@@ -1093,7 +1105,7 @@ private fun HtmlChapterText(
 ) {
     val annotatedText = remember(html, colors.accent) {
         AnnotatedString.fromHtml(
-            htmlString = html,
+            htmlString = html.withReaderParagraphSpacing(),
             linkStyles = TextLinkStyles(
                 style = SpanStyle(
                     color = colors.accent,
@@ -1113,6 +1125,11 @@ private fun HtmlChapterText(
         ),
     )
 }
+
+internal fun String.withReaderParagraphSpacing(): String =
+    replace(ParagraphClosingTagRegex) { match -> "${match.value}<br>" }
+
+private val ParagraphClosingTagRegex = Regex("</p\\s*>", RegexOption.IGNORE_CASE)
 
 @Composable
 private fun BookCover(
