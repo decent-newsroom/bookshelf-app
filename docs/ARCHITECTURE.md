@@ -52,6 +52,10 @@ Chapter event content is expected to be AsciiDoc. `AsciidoctorChapterRenderer` c
 - AsciiDoc sources above 2 MiB and rendered fragments above 4 MiB are not cached or exposed as rendered HTML. Serialized atomic writes are pruned by last access to a 64 MiB / 1,000-entry ceiling.
 - Rendering uses the Kotlin Multiplatform `asciidoc-kmp` parser to produce CSS-free HTML fragments without a JRuby runtime. The reader converts each fragment to a Compose `AnnotatedString`; no embedded Android `TextView` participates in reader gestures.
 
+## Application Appearance
+
+The persisted reader theme is the app-wide color scheme. Paper, Sepia, and Night each supply both the reader-specific content colors and the Material 3 colors used by discovery, search, My Books, Settings, sheets, dialogs, and navigation. The same choice also controls status-bar and navigation-bar icon contrast and scrims while the activity remains edge-to-edge. `MainActivity` applies the persisted scheme before the first Compose frame, and `BookshelfTheme` reapplies system-bar appearance whenever the setting changes.
+
 ## Untrusted Content Navigation and Covers
 
 Chapter HTML is untrusted remote content. Compose links are intercepted by the

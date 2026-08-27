@@ -41,7 +41,11 @@ class BookshelfViewModel(
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(BookshelfUiState())
+    private val _uiState = MutableStateFlow(
+        BookshelfUiState(
+            readerPreferences = readerSettings.readerPreferences.value,
+        ),
+    )
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
 
     init {

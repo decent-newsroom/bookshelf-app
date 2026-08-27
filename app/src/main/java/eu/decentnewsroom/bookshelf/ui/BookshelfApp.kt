@@ -91,6 +91,8 @@ import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
+import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
+import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -154,8 +156,9 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         }
     }
 
-    BookshelfTheme {
+    BookshelfTheme(theme = state.readerPreferences.theme) {
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 if (state.selectedBook == null) {
                     BookshelfBottomBar(
@@ -228,6 +231,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
                             onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
+                            onThemeChanged = viewModel::setReaderTheme,
                         )
                     }
                 }
@@ -437,6 +441,7 @@ private fun SettingsScreen(
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
     onChapterRelayUrlsChanged: (String) -> Unit,
+    onThemeChanged: (ReaderTheme) -> Unit,
 ) {
     var chapterRelayDraft by remember(state.chapterRelayUrls) {
         mutableStateOf(state.chapterRelayUrls.joinToString("\n"))
@@ -456,6 +461,26 @@ private fun SettingsScreen(
 
         state.error?.let { message -> Notice(message) }
         state.syncMessage?.let { message -> Notice(message) }
+
+        Text(
+            text = "Appearance",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "Color scheme",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReaderTheme.entries.forEach { theme ->
+                FilterChip(
+                    selected = state.readerPreferences.theme == theme,
+                    onClick = { onThemeChanged(theme) },
+                    label = { Text(theme.label) },
+                )
+            }
+        }
 
         Notice("Mercury search: https://mercury-relay.imwald.eu")
         Text(
@@ -1295,50 +1320,6 @@ private fun ReaderNotice(message: String, colors: ReaderColors) {
         )
     }
 }
-
-private data class ReaderColors(
-    val background: Color,
-    val text: Color,
-    val muted: Color,
-    val accent: Color,
-    val track: Color,
-    val notice: Color,
-    val controls: Color,
-)
-
-private val ReaderTheme.readerColors: ReaderColors
-    get() =
-        when (this) {
-            ReaderTheme.Paper -> ReaderColors(
-                background = Color(0xFFFAFAF7),
-                text = Color(0xFF1F2623),
-                muted = Color(0xFF66746E),
-                accent = Color(0xFF24564B),
-                track = Color(0xFFE2E9E4),
-                notice = Color(0xFFECEFE9),
-                controls = Color(0xFFFFFFFF),
-            )
-
-            ReaderTheme.Sepia -> ReaderColors(
-                background = Color(0xFFF4ECD8),
-                text = Color(0xFF2B2118),
-                muted = Color(0xFF715E4B),
-                accent = Color(0xFF7A5534),
-                track = Color(0xFFE4D5B7),
-                notice = Color(0xFFE8DCC4),
-                controls = Color(0xFFFFF7E6),
-            )
-
-            ReaderTheme.Night -> ReaderColors(
-                background = Color(0xFF111816),
-                text = Color(0xFFE8EFEA),
-                muted = Color(0xFFAAB7B0),
-                accent = Color(0xFF86D6C1),
-                track = Color(0xFF27332F),
-                notice = Color(0xFF1C2522),
-                controls = Color(0xFF19211E),
-            )
-        }
 
 private const val ReaderHeaderItemCount = 1
 
