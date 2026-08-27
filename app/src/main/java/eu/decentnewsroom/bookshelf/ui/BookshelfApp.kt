@@ -33,6 +33,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -83,6 +85,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
+import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.domain.BookDetail
@@ -466,7 +469,7 @@ private fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             label = { Text("WebSocket relays") },
             supportingText = {
-                Text("One ws:// or wss:// relay URL per line. Leave empty to use Mercury HTTP only.")
+                Text("One wss:// relay URL per line. Leave empty to use Mercury HTTPS only.")
             },
             minLines = 2,
             maxLines = 5,
@@ -563,7 +566,9 @@ private fun ReaderScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
     val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size)
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
@@ -601,6 +606,33 @@ private fun ReaderScreen(
                             readerListItemIndexForChapter(chapterIndex, detail.chapters.size),
                         )
                     }
+                },
+            )
+        }
+    }
+
+    pendingChapterLinkUrl?.let { url ->
+        val link = ChapterLinkPolicy.parse(url)
+        if (link == null) {
+            pendingChapterLinkUrl = null
+        } else {
+            AlertDialog(
+                onDismissRequest = { pendingChapterLinkUrl = null },
+                title = { Text("Open external link?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("This chapter links outside Bookshelf.")
+                        Text(link.host, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingChapterLinkUrl = null
+                        runCatching { uriHandler.openUri(link.url) }
+                    }) { Text("Open") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingChapterLinkUrl = null }) { Text("Cancel") }
                 },
             )
         }
@@ -644,6 +676,7 @@ private fun ReaderScreen(
                     chapter = chapter,
                     preferences = preferences,
                     colors = colors,
+                    onLinkClick = { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } },
                     modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
                 )
             }
@@ -1071,6 +1104,7 @@ private fun ChapterSection(
     chapter: BookChapter,
     preferences: ReaderPreferences,
     colors: ReaderColors,
+    onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1104,6 +1138,7 @@ private fun ChapterSection(
                 html = renderedHtml,
                 preferences = preferences,
                 colors = colors,
+                onLinkClick = onLinkClick,
             )
         } else {
             Text(
@@ -1123,8 +1158,9 @@ private fun HtmlChapterText(
     html: String,
     preferences: ReaderPreferences,
     colors: ReaderColors,
+    onLinkClick: (String) -> Unit,
 ) {
-    val annotatedText = remember(html, colors.accent) {
+    val annotatedText = remember(html, colors.accent, onLinkClick) {
         AnnotatedString.fromHtml(
             htmlString = html.withReaderParagraphSpacing(),
             linkStyles = TextLinkStyles(
@@ -1133,6 +1169,10 @@ private fun HtmlChapterText(
                     textDecoration = TextDecoration.Underline,
                 ),
             ),
+            linkInteractionListener = { link ->
+                val url = (link as? androidx.compose.ui.text.LinkAnnotation.Url)?.url
+                if (url != null) onLinkClick(url)
+            },
         )
     }
     Text(
@@ -1171,7 +1211,7 @@ private fun BookCover(
             color = monogramColor,
             fontWeight = FontWeight.Bold,
         )
-        book.coverImageUrl?.let { coverUrl ->
+        TrustedCoverImagePolicy.sanitize(book.coverImageUrl)?.let { coverUrl ->
             AsyncImage(
                 model = coverUrl,
                 contentDescription = "Cover art for ${book.title}",

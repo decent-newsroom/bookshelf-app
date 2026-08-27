@@ -235,7 +235,7 @@ class MercuryBookRepository(
 
         val sourceUrl = httpUrlTag(event.tags, "source") ?: httpUrlTag(event.tags, "s")
         val coverImageUrl =
-            httpUrlTag(event.tags, "image") ?: gutenbergCoverImageUrl(
+            TrustedCoverImagePolicy.sanitize(firstTagValue(event.tags, "image")) ?: gutenbergCoverImageUrl(
                 identifier = identifier,
                 sourceUrl = sourceUrl,
             )
@@ -264,23 +264,24 @@ class MercuryBookRepository(
 
     private fun extractChapterRefs(tags: List<List<String>>): List<ChapterReference> {
         val seen = mutableSetOf<String>()
-
-        return tags.mapNotNull { tag ->
+        val references = mutableListOf<ChapterReference>()
+        for (tag in tags) {
+            if (references.size >= MAX_CHAPTERS) break
             if (tag.getOrNull(0) != "a") {
-                return@mapNotNull null
+                continue
             }
 
-            val coordinate = tag.getOrNull(1) ?: return@mapNotNull null
+            val coordinate = tag.getOrNull(1) ?: continue
             val parts = coordinate.split(":", limit = 3)
             if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_CONTENT) {
-                return@mapNotNull null
+                continue
             }
             val normalizedCoordinate = "${BookKinds.PUBLICATION_CONTENT}:${parts[1].lowercase()}:${parts[2]}"
             if (!seen.add(normalizedCoordinate)) {
-                return@mapNotNull null
+                continue
             }
 
-            ChapterReference(
+            references += ChapterReference(
                 coordinate = normalizedCoordinate,
                 pubkey = parts[1].lowercase(),
                 identifier = parts[2],
@@ -288,6 +289,7 @@ class MercuryBookRepository(
                 eventId = tag.getOrNull(3)?.lowercase()?.takeIf { HEX_64.matches(it) },
             )
         }
+        return references
     }
 
     private fun publicationContentCoordinate(event: NostrEvent): String? {
@@ -488,7 +490,7 @@ class MercuryBookRepository(
         companion object {
             fun from(rawQuery: String): SearchPlan {
                 val query = rawQuery.trim()
-                if (query.isBlank()) {
+                if (query.isBlank() || query.length > MAX_SEARCH_QUERY_LENGTH) {
                     return SearchPlan(
                         publicationSearches = emptyList(),
                         sectionQuery = null,
@@ -543,6 +545,7 @@ class MercuryBookRepository(
 
     private companion object {
         const val MAX_SEARCH_RESULTS = 40
+        const val MAX_SEARCH_QUERY_LENGTH = 256
         const val MAX_CHAPTERS = 500
         const val MAX_PUBLICATION_SEARCHES = 8
         const val PUBLICATION_SEARCH_LIMIT = 60

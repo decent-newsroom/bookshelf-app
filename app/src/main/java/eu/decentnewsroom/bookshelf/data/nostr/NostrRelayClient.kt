@@ -53,7 +53,7 @@ class NostrRelayClient(
 
             attempts
                 .mapNotNull { it.getOrNull() }
-                .maxByOrNull(NostrEvent::createdAt)
+                .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
         }
 
     suspend fun fetchLatestProfile(pubkey: String): NostrEvent? =
@@ -71,11 +71,14 @@ class NostrRelayClient(
 
             attempts
                 .mapNotNull { it.getOrNull() }
-                .maxByOrNull(NostrEvent::createdAt)
+                .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
         }
 
     suspend fun publishDirectory(event: NostrEvent): PublishReport =
         coroutineScope {
+            if (NostrEventVerifier.verify(event) == null) {
+                return@coroutineScope PublishReport(0, relayUrls.size, null)
+            }
             val attempts =
                 relayUrls.map { relayUrl ->
                     async {
@@ -107,15 +110,29 @@ class NostrRelayClient(
                     val message = parseMessage(text) ?: return
                     when (message.getOrNull(0)?.jsonPrimitive?.content) {
                         "EVENT" -> {
+                            if ((message.getOrNull(1) as? JsonPrimitive)?.content != subscriptionId) return
                             val event =
                                 runCatching {
                                     json.decodeFromJsonElement<NostrEvent>(message[2])
                                 }.getOrNull()
+                            val verified = event?.let {
+                                NostrEventVerifier.verify(
+                                    it,
+                                    context = NostrEventContext(
+                                        expectedKind = BookKinds.DIRECTORY,
+                                        expectedPubkey = pubkey,
+                                        expectedDTag = BookshelfDirectoryRules.IDENTIFIER,
+                                    ),
+                                )?.event
+                            }
 
-                            if (event != null && event.isDirectoryFor(pubkey)) {
+                            if (verified != null && verified.isDirectoryFor(pubkey)) {
                                 latest.updateAndGet { current ->
-                                    if (current == null || event.createdAt > current.createdAt) {
-                                        event
+                                    if (current == null ||
+                                        verified.createdAt > current.createdAt ||
+                                        (verified.createdAt == current.createdAt && verified.id > current.id)
+                                    ) {
+                                        verified
                                     } else {
                                         current
                                     }
@@ -166,6 +183,7 @@ class NostrRelayClient(
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     val message = parseMessage(text) ?: return
+                    if ((message.getOrNull(1) as? JsonPrimitive)?.content != subscriptionId) return
                     when (message.getOrNull(0)?.jsonPrimitive?.content) {
                         "EVENT" -> {
                             val event =
@@ -173,10 +191,23 @@ class NostrRelayClient(
                                     json.decodeFromJsonElement<NostrEvent>(message[2])
                                 }.getOrNull()
 
-                            if (event != null && event.isProfileFor(pubkey)) {
+                            val verified = event?.let {
+                                NostrEventVerifier.verify(
+                                    it,
+                                    context = NostrEventContext(
+                                        expectedKind = BookKinds.PROFILE_METADATA,
+                                        expectedPubkey = pubkey,
+                                    ),
+                                )?.event
+                            }
+
+                            if (verified?.isProfileFor(pubkey) == true) {
                                 latest.updateAndGet { current ->
-                                    if (current == null || event.createdAt > current.createdAt) {
-                                        event
+                                    if (current == null ||
+                                        verified.createdAt > current.createdAt ||
+                                        (verified.createdAt == current.createdAt && verified.id > current.id)
+                                    ) {
+                                        verified
                                     } else {
                                         current
                                     }
@@ -285,7 +316,9 @@ class NostrRelayClient(
         ).toString()
 
     private fun parseMessage(text: String): JsonArray? =
-        runCatching { json.decodeFromString<JsonArray>(text) }.getOrNull()
+        text.takeIf { it.toByteArray(Charsets.UTF_8).size <= NostrEventVerifier.MAX_MESSAGE_BYTES }?.let {
+            runCatching { json.decodeFromString<JsonArray>(it) }.getOrNull()
+        }
 
     private fun NostrEvent.isDirectoryFor(pubkey: String): Boolean =
         kind == BookKinds.DIRECTORY &&

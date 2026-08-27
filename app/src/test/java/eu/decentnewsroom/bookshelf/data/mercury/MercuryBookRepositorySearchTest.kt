@@ -1,5 +1,7 @@
 package eu.decentnewsroom.bookshelf.data.mercury
 
+import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.vitorpamplona.quartz.utils.Secp256k1InstanceKotlin
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.BookReference
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
@@ -23,15 +25,16 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MercuryBookRepositorySearchTest {
+    private val signingKeys = (1..6).associate { marker -> testPubkey(marker) to ByteArray(32) { marker.toByte() } }
+
     @Test
     fun searchUsesPublicationAndSectionEndpoints() = runBlocking {
         val query = "hidden needle"
-        val metadataPubkey = "1".repeat(64)
-        val sectionPubkey = "2".repeat(64)
-        val sectionBookPubkey = "3".repeat(64)
+        val metadataPubkey = testPubkey(1)
+        val sectionPubkey = testPubkey(2)
+        val sectionBookPubkey = testPubkey(3)
         val sectionCoordinate = "${BookKinds.PUBLICATION_CONTENT}:$sectionPubkey:chapter-one"
         val metadataBook = publicationEvent(
-            id = "a".repeat(64),
             pubkey = metadataPubkey,
             identifier = "metadata-book",
             title = "Metadata Book",
@@ -39,14 +42,12 @@ class MercuryBookRepositorySearchTest {
             chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$metadataPubkey:chapter-one"),
         )
         val sectionEvent = eventJson(
-            id = "b".repeat(64),
             pubkey = sectionPubkey,
             kind = BookKinds.PUBLICATION_CONTENT,
             tags = listOf(listOf("d", "chapter-one"), listOf("title", "Hidden Chapter")),
             content = "This body contains the hidden needle text.",
         )
         val sectionBook = publicationEvent(
-            id = "c".repeat(64),
             pubkey = sectionBookPubkey,
             identifier = "section-book",
             title = "Section Book",
@@ -113,11 +114,22 @@ class MercuryBookRepositorySearchTest {
     }
 
     @Test
+    fun overlongSearchIsRejectedBeforeNetworkAccess() = runBlocking {
+        val server = RecordingHttpServer { "[]" }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+
+            assertTrue(repository.search("x".repeat(257)).isEmpty())
+            assertTrue(server.requests.isEmpty())
+        }
+    }
+
+    @Test
     fun publicationReferenceLookupUsesExactDTagAndDoesNotFetchChapters() = runBlocking {
-        val pubkey = "6".repeat(64)
+        val pubkey = testPubkey(6)
         val wantedIdentifier = "pg1-wanted"
         val oldBook = publicationEvent(
-            id = "1".repeat(64),
             pubkey = pubkey,
             identifier = wantedIdentifier,
             title = "Old title",
@@ -126,7 +138,6 @@ class MercuryBookRepositorySearchTest {
             createdAt = 1,
         )
         val newBook = publicationEvent(
-            id = "2".repeat(64),
             pubkey = pubkey,
             identifier = wantedIdentifier,
             title = "New title",
@@ -135,7 +146,6 @@ class MercuryBookRepositorySearchTest {
             createdAt = 2,
         )
         val unrelated = publicationEvent(
-            id = "3".repeat(64),
             pubkey = pubkey,
             identifier = "unrelated",
             title = "Unrelated",
@@ -185,9 +195,8 @@ class MercuryBookRepositorySearchTest {
     }
     @Test
     fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
-        val pubkey = "4".repeat(64)
+        val pubkey = testPubkey(4)
         val book = publicationEvent(
-            id = "d".repeat(64),
             pubkey = pubkey,
             identifier = "pg74359-domestic-medicine",
             title = "Domestic medicine",
@@ -210,9 +219,8 @@ class MercuryBookRepositorySearchTest {
 
     @Test
     fun searchInfersGutenbergCoverFromPublicationIdentifier() = runBlocking {
-        val pubkey = "5".repeat(64)
+        val pubkey = testPubkey(5)
         val book = publicationEvent(
-            id = "e".repeat(64),
             pubkey = pubkey,
             identifier = "pg65238-an-example-book",
             title = "An Example Book",
@@ -320,7 +328,6 @@ class MercuryBookRepositorySearchTest {
     )
 
     private fun publicationEvent(
-        id: String,
         pubkey: String,
         identifier: String,
         title: String,
@@ -337,7 +344,6 @@ class MercuryBookRepositorySearchTest {
             ) + extraTags + chapterCoordinates.map { listOf("a", it) }
 
         return eventJson(
-            id = id,
             pubkey = pubkey,
             kind = BookKinds.PUBLICATION_INDEX,
             tags = tags,
@@ -346,14 +352,17 @@ class MercuryBookRepositorySearchTest {
     }
 
     private fun eventJson(
-        id: String,
         pubkey: String,
         kind: Int,
         tags: List<List<String>>,
         content: String = "",
         createdAt: Long = 1,
-    ): String =
-        """
+    ): String {
+        val quartzTags = tags.map { it.toTypedArray() }.toTypedArray()
+        val id = EventHasher.hashId(pubkey, createdAt, kind, quartzTags, content)
+        val privateKey = requireNotNull(signingKeys[pubkey])
+        val signature = Secp256k1InstanceKotlin.signSchnorr(id.hexBytes(), privateKey, ByteArray(32)).toHex()
+        return """
         {
           "id":"$id",
           "pubkey":"$pubkey",
@@ -361,9 +370,10 @@ class MercuryBookRepositorySearchTest {
           "kind":$kind,
           "tags":${tagsJson(tags)},
           "content":"${jsonEscape(content)}",
-          "sig":"${"f".repeat(128)}"
+          "sig":"$signature"
         }
         """.trimIndent()
+    }
 
     private fun eventListJson(vararg events: String): String = events.joinToString(prefix = "[", postfix = "]")
 
@@ -373,4 +383,16 @@ class MercuryBookRepositorySearchTest {
         }
 
     private fun jsonEscape(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    private fun testPubkey(marker: Int): String =
+        Secp256k1InstanceKotlin
+            .compressedPubKeyFor(ByteArray(32) { marker.toByte() })
+            .copyOfRange(1, 33)
+            .toHex()
+
+    private fun ByteArray.toHex(): String =
+        joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+    private fun String.hexBytes(): ByteArray =
+        chunked(2).map { pair -> pair.toInt(16).toByte() }.toByteArray()
 }

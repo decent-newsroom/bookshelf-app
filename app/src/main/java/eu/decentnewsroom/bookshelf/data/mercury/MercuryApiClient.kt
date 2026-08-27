@@ -2,6 +2,8 @@ package eu.decentnewsroom.bookshelf.data.mercury
 
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import eu.decentnewsroom.bookshelf.data.nostr.NostrEventContext
+import eu.decentnewsroom.bookshelf.data.nostr.NostrEventVerifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -52,7 +54,9 @@ class MercuryApiClient(
     }
 
     suspend fun searchPublicationSections(query: String, limit: Int = 60): List<NostrEvent> {
-        val normalized = query.trim().takeIf { it.searchTermLength() >= 4 } ?: return emptyList()
+        val normalized = query.trim().takeIf {
+            it.length <= MAX_SEARCH_LENGTH && it.searchTermLength() >= 4
+        } ?: return emptyList()
 
         return requestEventList(
             Request
@@ -106,7 +110,7 @@ class MercuryApiClient(
                         throw MercuryApiException("Mercury returned HTTP ${response.code}.")
                     }
 
-                    decodeEvent(response.body.string())
+                    decodeEvent(response.body.readLimitedUtf8(), eventId)
                 }
             } catch (exception: MercuryApiException) {
                 throw exception
@@ -133,6 +137,7 @@ class MercuryApiClient(
                 kinds = listOf(BookKinds.PUBLICATION_INDEX),
                 limit = limit.coerceToMercuryLimit(),
             ),
+            expectedAuthors = normalized,
         )
     }
 
@@ -154,6 +159,8 @@ class MercuryApiClient(
                         limit = identifiers.size.coerceToMercuryLimit(),
                         dTags = identifiers,
                     ),
+                    expectedAuthors = listOf(pubkey),
+                    expectedDTags = identifiers,
                 )
             }
         }
@@ -170,6 +177,7 @@ class MercuryApiClient(
                 kinds = listOf(BookKinds.PUBLICATION_CONTENT),
                 limit = limit.coerceToMercuryLimit(),
             ),
+            expectedAuthors = normalized,
         )
     }
 
@@ -204,11 +212,19 @@ class MercuryApiClient(
                         kinds = listOf(kind),
                         limit = batch.size.coerceToMercuryLimit(),
                     ),
+                    expectedIds = batch,
+                    expectedKind = kind,
                 )
             }
     }
 
-    private suspend fun filterEvents(filter: MercuryFilterRequest): List<NostrEvent> =
+    private suspend fun filterEvents(
+        filter: MercuryFilterRequest,
+        expectedIds: List<String> = emptyList(),
+        expectedAuthors: List<String> = emptyList(),
+        expectedKind: Int? = filter.kinds.singleOrNull(),
+        expectedDTags: List<String> = emptyList(),
+    ): List<NostrEvent> =
         requestEventList(
             Request
                 .Builder()
@@ -216,9 +232,19 @@ class MercuryApiClient(
                 .post(json.encodeToString(filter).toRequestBody(JSON_MEDIA_TYPE))
                 .header("Accept", "application/json")
                 .build(),
+            expectedIds = expectedIds,
+            expectedAuthors = expectedAuthors,
+            expectedKind = expectedKind,
+            expectedDTags = expectedDTags,
         )
 
-    private suspend fun requestEventList(request: Request): List<NostrEvent> =
+    private suspend fun requestEventList(
+        request: Request,
+        expectedIds: List<String> = emptyList(),
+        expectedAuthors: List<String> = emptyList(),
+        expectedKind: Int? = null,
+        expectedDTags: List<String> = emptyList(),
+    ): List<NostrEvent> =
         withContext(Dispatchers.IO) {
             try {
                 httpClient.newCall(request).execute().use { response ->
@@ -226,7 +252,15 @@ class MercuryApiClient(
                         throw MercuryApiException("Mercury returned HTTP ${response.code}.")
                     }
 
-                    decodeEventList(response.body.string())
+                    decodeEventList(response.body.readLimitedUtf8()).filter { event ->
+                        (expectedIds.isEmpty() || event.id in expectedIds) &&
+                            (expectedAuthors.isEmpty() || event.pubkey in expectedAuthors) &&
+                            (expectedKind == null || event.kind == expectedKind) &&
+                            (expectedDTags.isEmpty() ||
+                                event.tags.any { tag ->
+                                    tag.getOrNull(0) == ('d').toString() && tag.getOrNull(1) in expectedDTags
+                                })
+                    }
                 }
             } catch (exception: MercuryApiException) {
                 throw exception
@@ -235,7 +269,7 @@ class MercuryApiClient(
             }
         }
 
-    private fun decodeEvent(body: String): NostrEvent? {
+    private fun decodeEvent(body: String, eventId: String? = null): NostrEvent? {
         val element = json.parseToJsonElement(body)
         val eventElement =
             if (element is JsonObject && "data" in element) {
@@ -246,7 +280,12 @@ class MercuryApiClient(
 
         return when (eventElement) {
             null, JsonNull -> null
-            else -> json.decodeFromJsonElement(eventElement)
+            else -> json.decodeFromJsonElement<NostrEvent>(eventElement).let { event ->
+                NostrEventVerifier.verify(
+                    event,
+                    context = NostrEventContext(requestedEventId = eventId),
+                )?.event
+            }
         }
     }
 
@@ -260,13 +299,25 @@ class MercuryApiClient(
             }
 
         return when (listElement) {
-            is JsonArray -> json.decodeFromJsonElement(listElement)
+            is JsonArray -> json.decodeFromJsonElement<List<NostrEvent>>(listElement).mapNotNull { event ->
+                NostrEventVerifier.verify(event)?.event
+            }
             null, JsonNull -> emptyList()
             else -> throw MercuryApiException("Mercury returned an invalid event response.")
         }
     }
 
     private fun url(path: String): String = baseUrl + path
+
+    private fun okhttp3.ResponseBody.readLimitedUtf8(): String {
+        if (contentLength() > MAX_HTTP_RESPONSE_BYTES) {
+            throw MercuryApiException("Mercury response exceeded the size limit.")
+        }
+        if (source().request(MAX_HTTP_RESPONSE_BYTES + 1L)) {
+            throw MercuryApiException("Mercury response exceeded the size limit.")
+        }
+        return string()
+    }
 
     private fun List<String>.normalizedHexKeys(): List<String> =
         mapNotNull { candidate ->
@@ -314,7 +365,8 @@ class MercuryApiClient(
         }
     }
 
-    private fun String?.cleaned(): String? = this?.trim()?.takeIf(String::isNotEmpty)
+    private fun String?.cleaned(): String? =
+        this?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_SEARCH_LENGTH }
 
     private fun String.searchTermLength(): Int = trim('"', '\'').trim().length
 
@@ -340,6 +392,8 @@ class MercuryApiClient(
 
     private companion object {
         const val FILTER_BATCH_SIZE = 100
+        const val MAX_SEARCH_LENGTH = 256
+        const val MAX_HTTP_RESPONSE_BYTES = 8L * 1024 * 1024
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }

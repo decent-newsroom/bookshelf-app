@@ -8,6 +8,7 @@ import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -50,6 +51,51 @@ class ChapterHtmlCacheTest {
 
         assertEquals(ChapterHtmlCacheStats(), stats)
         assertFalse(File(cachePath).exists())
+    }
+
+    @Test
+    fun oversizedSourceIsNotRenderedOrCached() = runBlocking {
+        val renderer = RecordingRenderer("<p>Hello</p>")
+        val cache = ChapterHtmlCache(temporaryFolder.root, renderer, maxSourceBytes = 4)
+
+        val result = cache.renderBook(bookDetail(content = "Hello"))
+
+        assertEquals("Hello", result.chapters.single().content)
+        assertNull(result.chapters.single().renderedHtml)
+        assertEquals(0, renderer.renderCount)
+        assertEquals(ChapterHtmlCacheStats(), cache.stats())
+    }
+
+    @Test
+    fun oversizedRenderedHtmlIsNotExposedOrCached() = runBlocking {
+        val renderer = RecordingRenderer("123456789")
+        val cache = ChapterHtmlCache(temporaryFolder.root, renderer, maxEntryBytes = 8)
+
+        val result = cache.renderBook(bookDetail(content = "Hello"))
+
+        assertNull(result.chapters.single().renderedHtml)
+        assertNull(result.chapters.single().renderedHtmlCachePath)
+        assertEquals(1, renderer.renderCount)
+        assertEquals(ChapterHtmlCacheStats(), cache.stats())
+    }
+
+    @Test
+    fun cachePrunesLeastRecentlyUsedEntries() = runBlocking {
+        val renderer = RecordingRenderer("<p>Hello</p>")
+        val cache = ChapterHtmlCache(temporaryFolder.root, renderer, maxEntries = 1)
+        val first = cache.renderBook(bookDetail(content = "First"))
+        val firstFile = File(requireNotNull(first.chapters.single().renderedHtmlCachePath))
+        firstFile.setLastModified(1L)
+
+        val second = cache.renderBook(bookDetail(content = "Second"))
+        val secondFile = File(requireNotNull(second.chapters.single().renderedHtmlCachePath))
+
+        assertFalse(firstFile.exists())
+        assertTrue(secondFile.isFile)
+        assertEquals(1, cache.stats().entryCount)
+        assertTrue(
+            secondFile.parentFile?.listFiles()?.none { it.extension.equals("tmp", ignoreCase = true) } == true,
+        )
     }
 
     private class RecordingRenderer(private val html: String) : ChapterRenderer {

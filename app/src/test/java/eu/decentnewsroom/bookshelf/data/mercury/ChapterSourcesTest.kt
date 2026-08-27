@@ -25,14 +25,14 @@ class ChapterSourcesTest {
             """
             WSS://MERCURY-RELAY.IMWALD.EU/
             wss://mercury-relay.imwald.eu
-            ws://localhost:8080/nostr
+            wss://relay.example/nostr
             """.trimIndent(),
         )
 
         assertEquals(
             listOf(
                 "wss://mercury-relay.imwald.eu",
-                "ws://localhost:8080/nostr",
+                "wss://relay.example/nostr",
             ),
             result,
         )
@@ -41,6 +41,21 @@ class ChapterSourcesTest {
     @Test(expected = IllegalArgumentException::class)
     fun relayUrlsRejectHttpSources() {
         ChapterRelayUrls.parse("https://mercury-relay.imwald.eu")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun relayUrlsRejectCleartextWebSockets() {
+        ChapterRelayUrls.parse("ws://relay.example")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun relayUrlsRejectMoreThanEightUniqueSources() {
+        ChapterRelayUrls.parse((1..9).joinToString("\n") { index -> "wss://relay$index.example" })
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun relayUrlsRejectOversizedUrls() {
+        ChapterRelayUrls.parse("wss://${"a".repeat(2_049)}.example")
     }
 
     @Test

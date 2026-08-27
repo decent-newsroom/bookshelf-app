@@ -1,5 +1,7 @@
 package eu.decentnewsroom.bookshelf.data.nostr
 
+import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.vitorpamplona.quartz.utils.Secp256k1InstanceKotlin
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.runBlocking
@@ -12,6 +14,9 @@ import java.io.File
 import java.nio.file.Files
 
 class NostrProfileTest {
+    private val privateKey = ByteArray(32) { 7 }
+    private val pubkey = Secp256k1InstanceKotlin.compressedPubKeyFor(privateKey).copyOfRange(1, 33).toHex()
+
     @Test
     fun profileUsesDisplayNameBeforeNameAndNormalizesWhitespace() {
         val profile = profileEvent(
@@ -75,12 +80,20 @@ class NostrProfileTest {
     }
 
     private fun profileEvent(content: String): NostrEvent =
-        NostrEvent(
-            id = "b".repeat(64),
-            pubkey = "a".repeat(64),
-            createdAt = 123L,
-            kind = BookKinds.PROFILE_METADATA,
-            content = content,
-            sig = "c".repeat(128),
-        )
+        EventHasher.hashId(pubkey, 123L, BookKinds.PROFILE_METADATA, emptyArray(), content).let { id ->
+            NostrEvent(
+                id = id,
+                pubkey = pubkey,
+                createdAt = 123L,
+                kind = BookKinds.PROFILE_METADATA,
+                content = content,
+                sig = Secp256k1InstanceKotlin.signSchnorr(id.hexBytes(), privateKey, ByteArray(32)).toHex(),
+            )
+        }
+
+    private fun ByteArray.toHex(): String =
+        joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+    private fun String.hexBytes(): ByteArray =
+        chunked(2).map { pair -> pair.toInt(16).toByte() }.toByteArray()
 }

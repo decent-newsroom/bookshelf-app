@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="database" path="." />
-        <include domain="sharedpref" path="." />
+        <!-- Bookshelf data reveals reading interests and signer identity metadata. -->
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="bookshelf" />
     </cloud-backup>
     <device-transfer>
-        <include domain="database" path="." />
-        <include domain="sharedpref" path="." />
+        <!-- Device-to-device transfer is user-controlled; preserve the reading UX. -->
+        <include domain="file" path="bookshelf/local-v1.json" />
+        <include domain="sharedpref" path="bookshelf_reader.xml" />
+        <include domain="sharedpref" path="bookshelf_chapter_sources.xml" />
+        <!-- Nostr signer authorization is never transferred; the user must reauthorize. -->
     </device-transfer>
 </data-extraction-rules>

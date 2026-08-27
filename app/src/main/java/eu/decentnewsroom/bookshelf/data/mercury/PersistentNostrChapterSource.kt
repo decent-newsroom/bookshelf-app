@@ -3,6 +3,8 @@ package eu.decentnewsroom.bookshelf.data.mercury
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import eu.decentnewsroom.bookshelf.data.nostr.NostrEventContext
+import eu.decentnewsroom.bookshelf.data.nostr.NostrEventVerifier
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -60,7 +62,9 @@ class PersistentNostrChapterSource(
                 .flatMap { it.getOrDefault(emptyList()) }
                 .groupBy(::chapterCoordinate)
                 .values
-                .mapNotNull { events -> events.maxByOrNull(NostrEvent::createdAt) }
+                .mapNotNull { events ->
+                    events.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
+                }
         }
 
     override fun close() {
@@ -106,9 +110,7 @@ class PersistentNostrChapterSource(
                             val event = message.getOrNull(2)?.let { element ->
                                 runCatching { RELAY_JSON.decodeFromJsonElement<NostrEvent>(element) }.getOrNull()
                             }
-                            if (event != null) {
-                                subscription.record(event)
-                            }
+                            if (event != null) subscription.record(event)
                         }
 
                         "EOSE", "CLOSED" -> subscription.complete()
@@ -185,20 +187,27 @@ class PersistentNostrChapterSource(
     private class ChapterSubscription(references: List<ChapterReference>) {
         val id = "chapters-${UUID.randomUUID()}"
         val result = CompletableDeferred<List<NostrEvent>>()
-        private val expectedIds = references.mapNotNull(ChapterReference::eventId).map(String::lowercase).toSet()
         private val expectedCoordinates = references.map(ChapterReference::coordinate).toSet()
+        private val idBoundCoordinates = references
+            .filter { it.eventId != null }
+            .associate { it.coordinate to it.eventId!!.lowercase() }
         private val events = ConcurrentHashMap<String, NostrEvent>()
 
         fun record(event: NostrEvent) {
-            val coordinate = chapterCoordinate(event) ?: return
-            if (event.kind != BookKinds.PUBLICATION_CONTENT) {
-                return
-            }
-            if (event.id.lowercase() !in expectedIds && coordinate !in expectedCoordinates) {
+            val verified = NostrEventVerifier.verify(
+                event,
+                context = NostrEventContext(expectedKind = BookKinds.PUBLICATION_CONTENT),
+            )?.event ?: return
+            val coordinate = chapterCoordinate(verified) ?: return
+            if (coordinate !in expectedCoordinates) return
+            if (idBoundCoordinates[coordinate] != null && idBoundCoordinates[coordinate] != verified.id) {
                 return
             }
             events.compute(coordinate) { _, current ->
-                if (current == null || event.createdAt > current.createdAt) event else current
+                if (current == null ||
+                    verified.createdAt > current.createdAt ||
+                    (verified.createdAt == current.createdAt && verified.id > current.id)
+                ) verified else current
             }
         }
 
@@ -252,7 +261,9 @@ private fun closeSubscriptionMessage(subscriptionId: String): String =
     JsonArray(listOf(JsonPrimitive("CLOSE"), JsonPrimitive(subscriptionId))).toString()
 
 private fun parseRelayMessage(text: String): JsonArray? =
-    runCatching { Json.decodeFromString<JsonArray>(text) }.getOrNull()
+    text.takeIf { it.toByteArray(Charsets.UTF_8).size <= NostrEventVerifier.MAX_MESSAGE_BYTES }?.let {
+        runCatching { Json.decodeFromString<JsonArray>(it) }.getOrNull()
+    }
 
 private fun kotlinx.serialization.json.JsonElement.asString(): String? =
     (this as? JsonPrimitive)?.content

@@ -59,8 +59,15 @@ class NostrProfileCache private constructor(
         runCatching {
             val file = profileFile(normalizedPubkey)
             if (!file.isFile) return@runCatching null
-            json.decodeFromString<NostrEvent>(file.readText(Charsets.UTF_8))
-                .takeIf { it.isProfileFor(normalizedPubkey) }
+            json.decodeFromString<NostrEvent>(file.readText(Charsets.UTF_8)).let {
+                NostrEventVerifier.verify(
+                    it,
+                    context = NostrEventContext(
+                        expectedKind = BookKinds.PROFILE_METADATA,
+                        expectedPubkey = normalizedPubkey,
+                    ),
+                )?.event
+            }
         }.getOrNull()
     }
 
@@ -68,6 +75,13 @@ class NostrProfileCache private constructor(
         val normalizedPubkey = normalizePubkey(event.pubkey)
         require(event.isProfileFor(normalizedPubkey)) { "Only kind:0 profile events can be cached." }
 
+        NostrEventVerifier.requireVerified(
+            event,
+            context = NostrEventContext(
+                expectedKind = BookKinds.PROFILE_METADATA,
+                expectedPubkey = normalizedPubkey,
+            ),
+        )
         cacheDirectory.mkdirs()
         val file = profileFile(normalizedPubkey)
         val temporary = File(cacheDirectory, file.name + ".tmp")

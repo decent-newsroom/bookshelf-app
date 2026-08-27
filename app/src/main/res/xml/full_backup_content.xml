@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 11 and lower use this single ruleset for both cloud backup and
+    device transfer. Exclude all durable app data so identity and reading
+    history cannot enter a backup provider or an uncontrolled transfer.
+    Android 12+ uses data_extraction_rules.xml to permit explicit,
+    user-controlled device-to-device transfer of non-identity data.
+-->
+<full-backup-content>
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="bookshelf" />
+</full-backup-content>

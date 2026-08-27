@@ -44,7 +44,7 @@ Do not commit temporary Gradle user homes or generated build/cache output.
 
 ## Release Tags
 
-GitHub Actions builds signed APK and AAB release artifacts when a tag is pushed, then attaches them to a GitHub release for that tag.
+GitHub Actions runs unit tests in a read-only `build-test` job, then builds signed APK and AAB release artifacts in the dependent signing/release job when a tag is pushed. Only that release job receives signing secrets and `contents: write`; the build/test job has `contents: read` and cannot publish. The signing job publishes checksums alongside the artifacts in the GitHub release.
 
 Configure these repository secrets before pushing a release tag:
 
@@ -65,3 +65,12 @@ Create a release by pushing a tag, for example:
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+The release workflow pins its actions to immutable commit SHAs. The Gradle
+wrapper also pins the official Gradle 9.7.1 binary distribution checksum; when
+upgrading Gradle, obtain the new value from [Gradle's official checksum
+reference](https://gradle.org/release-checksums/) and update
+`gradle-wrapper.properties` in the same change. The pinned action revisions are
+documented by the upstream [checkout v4.4.0 commit](https://github.com/actions/checkout/commit/11d5960a326750d5838078e36cf38b85af677262)
+and [setup-java v4 commit](https://github.com/actions/setup-java/commit/cf277c60eb25467037889841efdb72551f06f6c3).
+The same verifier checks the checked-in wrapper JAR checksum before CI builds.

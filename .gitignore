@@ -3,6 +3,7 @@
 build/
 app/build/
 local.properties
+.env
 .idea/
 *.iml
 *.log
@@ -11,4 +12,3 @@ keystores/
 *.jks
 *.keystore
 *.p12
-

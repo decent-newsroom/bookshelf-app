@@ -139,6 +139,14 @@ class QuartzBookshelfRelaySync(
         require(event.kind == BookKinds.DIRECTORY) { "Signer returned the wrong event kind." }
         BookshelfDirectoryRules.assertValidDirectory(event.tags, event.content)
 
+        NostrEventVerifier.requireVerified(
+            event,
+            context = NostrEventContext(
+                expectedKind = BookKinds.DIRECTORY,
+                expectedPubkey = event.pubkey,
+                expectedDTag = BookshelfDirectoryRules.IDENTIFIER,
+            ),
+        )
         return event
     }
 

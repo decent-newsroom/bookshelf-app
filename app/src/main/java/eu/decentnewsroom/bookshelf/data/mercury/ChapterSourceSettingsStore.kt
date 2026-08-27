@@ -38,26 +38,39 @@ object ChapterRelayUrls {
             "wss://thecitadel.nostr1.com",
         )
 
-    fun parse(rawRelayUrls: String): List<String> =
-        normalize(rawRelayUrls.lineSequence().toList())
+    fun parse(rawRelayUrls: String): List<String> {
+        require(rawRelayUrls.length <= MAX_TOTAL_LENGTH) {
+            "Chapter source settings are too large."
+        }
+        return normalize(rawRelayUrls.lineSequence().toList())
+    }
 
-    fun normalize(relayUrls: Iterable<String>): List<String> =
-        relayUrls
-            .mapNotNull { candidate ->
-                candidate.trim().takeIf(String::isNotEmpty)?.let(::normalizeRelayUrl)
+    fun normalize(relayUrls: Iterable<String>): List<String> {
+        val normalized = linkedSetOf<String>()
+        relayUrls.forEach { candidate ->
+            val relayUrl = candidate.trim().takeIf(String::isNotEmpty)?.let(::normalizeRelayUrl)
+                ?: return@forEach
+            require(normalized.size < MAX_RELAY_COUNT || relayUrl in normalized) {
+                "At most $MAX_RELAY_COUNT chapter relay URLs are allowed."
             }
-            .distinct()
+            normalized += relayUrl
+        }
+        return normalized.toList()
+    }
 
     private fun normalizeRelayUrl(candidate: String): String {
+        require(candidate.length <= MAX_URL_LENGTH) {
+            "Chapter relay URLs must be at most $MAX_URL_LENGTH characters."
+        }
         val uri = runCatching { URI(candidate) }.getOrNull()
         require(
             uri != null &&
-                uri.scheme?.lowercase(Locale.US) in setOf("ws", "wss") &&
+                uri.scheme?.lowercase(Locale.US) == "wss" &&
                 !uri.host.isNullOrBlank() &&
                 uri.userInfo == null &&
                 uri.fragment == null,
         ) {
-            "Chapter sources must be valid ws:// or wss:// relay URLs."
+            "Chapter sources must be valid wss:// relay URLs."
         }
 
         val normalizedScheme = uri.scheme.lowercase(Locale.US)
@@ -78,4 +91,8 @@ object ChapterRelayUrls {
             normalized
         }
     }
+
+    private const val MAX_RELAY_COUNT = 8
+    private const val MAX_URL_LENGTH = 2_048
+    private const val MAX_TOTAL_LENGTH = MAX_RELAY_COUNT * (MAX_URL_LENGTH + 1)
 }

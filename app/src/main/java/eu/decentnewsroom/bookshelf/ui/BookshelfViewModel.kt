@@ -355,6 +355,9 @@ class BookshelfViewModel(
                     id = UUID.randomUUID().toString(),
                     session = session,
                     unsignedEventJson = relaySync.unsignedDirectoryJson(draft),
+                    createdAt = draft.createdAt,
+                    kind = draft.kind,
+                    content = draft.content,
                     tags = draft.tags,
                     fallbackBook = book,
                 )
@@ -401,6 +404,7 @@ class BookshelfViewModel(
                     "Signer changed the collection tags."
                 }
 
+                check(event.kind == pending.kind && event.content == pending.content && event.createdAt == pending.createdAt)
                 val report = relaySync.publishDirectory(event)
                 val applied = applyDirectoryTags(event.tags, fallbackBooks = listOf(pending.fallbackBook))
                 val publishMessage =
@@ -603,6 +607,9 @@ data class PendingDirectorySignRequest(
     val id: String,
     val session: NostrSignerSession,
     val unsignedEventJson: String,
+    val createdAt: Long,
+    val kind: Int,
+    val content: String,
     val tags: List<List<String>>,
     val fallbackBook: BookSummary,
 )
