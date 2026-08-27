@@ -102,6 +102,6 @@ class ChapterHtmlCache private constructor(
 
     private companion object {
         const val CACHE_DIRECTORY = "chapter-html"
-        const val CACHE_VERSION = "asciidoc-kmp-html-v2"
+        const val CACHE_VERSION = "asciidoc-kmp-fragment-v3"
     }
 }

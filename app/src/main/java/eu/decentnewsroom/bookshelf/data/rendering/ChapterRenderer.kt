@@ -3,6 +3,9 @@ package eu.decentnewsroom.bookshelf.data.rendering
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.markup.poet.asciidoc.parser.DefaultAsciidocParser
+import org.markup.poet.asciidoc.render.CssMode
+import org.markup.poet.asciidoc.render.OutputOptions
+import org.markup.poet.asciidoc.render.RenderConfig
 import org.markup.poet.asciidoc.render.DefaultBlockRenderer
 import org.markup.poet.asciidoc.render.DefaultHtmlBuilder
 import org.markup.poet.asciidoc.render.DefaultHtmlEscaper
@@ -30,6 +33,14 @@ class AsciidoctorChapterRenderer : ChapterRenderer {
             val inlineRenderer = DefaultInlineRenderer(builder)
             val renderer = DefaultHtmlRenderer(DefaultBlockRenderer(builder, inlineRenderer), inlineRenderer)
 
-            RenderedChapter.Html(renderer.render(document).getOrThrow())
+            val config = RenderConfig(
+                outputOptions = OutputOptions(
+                    standalone = false,
+                    cssMode = CssMode.NONE,
+                    includeMetadata = false,
+                ),
+            )
+
+            RenderedChapter.Html(renderer.render(document, config).getOrThrow())
         }
 }

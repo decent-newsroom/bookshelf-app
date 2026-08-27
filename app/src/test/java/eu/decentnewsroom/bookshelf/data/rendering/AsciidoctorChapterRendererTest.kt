@@ -7,7 +7,7 @@ import org.junit.Test
 
 class AsciidoctorChapterRendererTest {
     @Test
-    fun convertsAsciiDocToHtml() = runBlocking {
+    fun convertsAsciiDocToHtmlFragment() = runBlocking {
         val rendered = AsciidoctorChapterRenderer().render("*bold* and _italic_")
 
         assertTrue(rendered is RenderedChapter.Html)
@@ -15,5 +15,10 @@ class AsciidoctorChapterRendererTest {
         assertTrue(html.contains("<strong>bold</strong>"))
         assertTrue(html.contains("<em>italic</em>"))
         assertFalse(html.contains("_italic_"))
+        assertFalse(html.contains("<!DOCTYPE"))
+        assertFalse(html.contains("<html"))
+        assertFalse(html.contains("<title>"))
+        assertFalse(html.contains("<style>"))
+        assertFalse(html.contains(":root"))
     }
 }

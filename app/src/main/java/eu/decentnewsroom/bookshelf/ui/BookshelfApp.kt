@@ -1,10 +1,5 @@
 package eu.decentnewsroom.bookshelf.ui
 
-import android.graphics.Typeface
-import android.text.Html
-import android.text.method.LinkMovementMethod
-import android.util.TypedValue
-import android.widget.TextView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,17 +60,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.fromHtml
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
@@ -1093,25 +1091,26 @@ private fun HtmlChapterText(
     preferences: ReaderPreferences,
     colors: ReaderColors,
 ) {
-    AndroidView(
+    val annotatedText = remember(html, colors.accent) {
+        AnnotatedString.fromHtml(
+            htmlString = html,
+            linkStyles = TextLinkStyles(
+                style = SpanStyle(
+                    color = colors.accent,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            ),
+        )
+    }
+    Text(
+        text = annotatedText,
         modifier = Modifier.fillMaxWidth(),
-        factory = { context ->
-            TextView(context).apply {
-                setIncludeFontPadding(false)
-                linksClickable = true
-                movementMethod = LinkMovementMethod.getInstance()
-                typeface = Typeface.SERIF
-            }
-        },
-        update = { view ->
-            view.text = Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT)
-            view.setTextColor(colors.text.toArgb())
-            view.setLinkTextColor(colors.accent.toArgb())
-            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, preferences.fontSizeSp)
-            view.setLineSpacing(0f, preferences.lineHeightMultiplier)
-            view.typeface = Typeface.SERIF
-            view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        },
+        style = MaterialTheme.typography.bodyLarge.copy(
+            color = colors.text,
+            fontFamily = FontFamily.Serif,
+            fontSize = preferences.fontSizeSp.sp,
+            lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
+        ),
     )
 }
 

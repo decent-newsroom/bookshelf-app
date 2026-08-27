@@ -16,7 +16,7 @@ Bookshelf is a native Android app for the Mercury-backed Nostr bookshelf. It is 
 
 Chapter event contents are expected to be AsciiDoc. `AsciidoctorChapterRenderer` renders chapter HTML, and `ChapterHtmlCache` stores rendered output under `context.cacheDir/chapter-html`.
 
-The renderer uses the Android-compatible Kotlin Multiplatform `asciidoc-kmp` parser and HTML renderer. Do not replace it with the JRuby-backed AsciidoctorJ artifact: AsciidoctorJ's desktop JVM tests can pass while its runtime initialization fails on Android, causing the reader to fall back to raw chapter text.
+The renderer uses the Android-compatible Kotlin Multiplatform `asciidoc-kmp` parser and produces body-only, CSS-free HTML fragments. The reader converts those fragments to Compose `AnnotatedString` values so rich text and links stay native to Compose and do not intercept reader gestures through an embedded view. Do not replace it with the JRuby-backed AsciidoctorJ artifact: AsciidoctorJ's desktop JVM tests can pass while its runtime initialization fails on Android, causing the reader to fall back to raw chapter text.
 
 `BookshelfViewModel.openBook` renders and caches the loaded `BookDetail` before exposing it to the reader. `BookChapter.renderedHtml` is the preferred UI content, with raw `content` as a fallback.
 
