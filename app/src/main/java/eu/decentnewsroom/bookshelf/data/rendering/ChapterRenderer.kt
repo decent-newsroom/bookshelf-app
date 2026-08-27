@@ -2,10 +2,12 @@ package eu.decentnewsroom.bookshelf.data.rendering
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.asciidoctor.Asciidoctor
-import org.asciidoctor.Attributes
-import org.asciidoctor.Options
-import org.asciidoctor.SafeMode
+import org.markup.poet.asciidoc.parser.DefaultAsciidocParser
+import org.markup.poet.asciidoc.render.DefaultBlockRenderer
+import org.markup.poet.asciidoc.render.DefaultHtmlBuilder
+import org.markup.poet.asciidoc.render.DefaultHtmlEscaper
+import org.markup.poet.asciidoc.render.DefaultHtmlRenderer
+import org.markup.poet.asciidoc.render.DefaultInlineRenderer
 
 sealed interface RenderedChapter {
     data class PlainText(val text: String) : RenderedChapter
@@ -21,27 +23,13 @@ class PlainTextChapterRenderer : ChapterRenderer {
 }
 
 class AsciidoctorChapterRenderer : ChapterRenderer {
-    private val asciidoctor: Asciidoctor by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        Asciidoctor.Factory.create()
-    }
-
     override suspend fun render(source: String): RenderedChapter =
         withContext(Dispatchers.Default) {
-            RenderedChapter.Html(asciidoctor.convert(source, conversionOptions()))
-        }
+            val document = DefaultAsciidocParser().parse(source).document
+            val builder = DefaultHtmlBuilder(DefaultHtmlEscaper())
+            val inlineRenderer = DefaultInlineRenderer(builder)
+            val renderer = DefaultHtmlRenderer(DefaultBlockRenderer(builder, inlineRenderer), inlineRenderer)
 
-    private fun conversionOptions(): Options =
-        Options
-            .builder()
-            .backend("html5")
-            .safe(SafeMode.SECURE)
-            .standalone(false)
-            .toFile(false)
-            .attributes(
-                Attributes
-                    .builder()
-                    .showTitle(true)
-                    .build(),
-            )
-            .build()
+            RenderedChapter.Html(renderer.render(document).getOrThrow())
+        }
 }

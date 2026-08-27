@@ -49,7 +49,7 @@ Chapter event content is expected to be AsciiDoc. `AsciidoctorChapterRenderer` c
 - `BookChapter.renderedHtml` is preferred by the UI; raw `content` is the fallback.
 - `BookshelfViewModel.openBook` renders/caches the complete loaded detail before publishing it to UI state.
 - Cache clearing stays explicit, user-visible, and limited to the chapter HTML cache.
-- The `META-INF` exclusions in `app/build.gradle.kts` are required because AsciidoctorJ brings JRuby resources with duplicate package entries.
+- Rendering uses the Kotlin Multiplatform `asciidoc-kmp` parser and HTML renderer so the conversion runs directly on Android without a JRuby runtime.
 
 ## Saved Books and Nostr Identity
 
