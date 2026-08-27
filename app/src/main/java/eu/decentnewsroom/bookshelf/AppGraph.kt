@@ -2,8 +2,10 @@ package eu.decentnewsroom.bookshelf
 
 import android.content.Context
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
+import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiClient
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
+import eu.decentnewsroom.bookshelf.data.mercury.PersistentNostrChapterSource
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.NostrRelayClient
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSessionStore
@@ -29,19 +31,17 @@ object AppGraph {
             .Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            .pingInterval(30, TimeUnit.SECONDS)
             .build()
 
     private var readerSettingsStore: ReaderSettingsStore? = null
+    private var chapterSourceSettingsStore: ChapterSourceSettingsStore? = null
+    private var mercuryBooksStore: MercuryBookRepository? = null
     private var relaySyncStore: BookshelfRelaySync? = null
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
 
-    val mercuryBooks =
-        MercuryBookRepository(
-            apiClient = MercuryApiClient(
-                httpClient = httpClient,
-                mercuryApiBaseUrl = MERCURY_BASE_URL,
-            ),
-        )
+    val mercuryBooks: MercuryBookRepository
+        get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
 
     val localBookshelf = LocalBookshelfStore()
 
@@ -51,6 +51,9 @@ object AppGraph {
     val readerSettings: ReaderSettingsStore
         get() = readerSettingsStore ?: error("AppGraph.initialize(context) must be called before using reader settings.")
 
+    val chapterSourceSettings: ChapterSourceSettingsStore
+        get() = chapterSourceSettingsStore ?: error("AppGraph.initialize(context) must be called before using chapter source settings.")
+
     val chapterHtmlCache: ChapterHtmlCache
         get() = chapterHtmlCacheStore ?: error("AppGraph.initialize(context) must be called before using chapter HTML cache.")
 
@@ -59,6 +62,22 @@ object AppGraph {
 
         if (readerSettingsStore == null) {
             readerSettingsStore = ReaderSettingsStore(appContext)
+        }
+        if (chapterSourceSettingsStore == null) {
+            chapterSourceSettingsStore = ChapterSourceSettingsStore(appContext)
+        }
+        if (mercuryBooksStore == null) {
+            val sourceSettings = checkNotNull(chapterSourceSettingsStore)
+            mercuryBooksStore = MercuryBookRepository(
+                apiClient = MercuryApiClient(
+                    httpClient = httpClient,
+                    mercuryApiBaseUrl = MERCURY_BASE_URL,
+                ),
+                chapterEventSource = PersistentNostrChapterSource(
+                    httpClient = httpClient,
+                    relayUrls = { sourceSettings.relayUrls.value },
+                ),
+            )
         }
         if (chapterHtmlCacheStore == null) {
             chapterHtmlCacheStore = ChapterHtmlCache(appContext)

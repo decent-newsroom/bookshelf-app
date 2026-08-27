@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
+import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
@@ -30,6 +31,7 @@ class BookshelfViewModel(
     private val chapterHtmlCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
     private val localBookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
+    private val chapterSourceSettings: ChapterSourceSettingsStore = AppGraph.chapterSourceSettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(BookshelfUiState())
@@ -59,6 +61,11 @@ class BookshelfViewModel(
         viewModelScope.launch {
             readerSettings.progress.collect { progress ->
                 _uiState.update { it.copy(readingProgress = progress) }
+            }
+        }
+        viewModelScope.launch {
+            chapterSourceSettings.relayUrls.collect { relayUrls ->
+                _uiState.update { it.copy(chapterRelayUrls = relayUrls) }
             }
         }
         viewModelScope.launch {
@@ -188,6 +195,25 @@ class BookshelfViewModel(
                     }
                 }
         }
+    }
+
+    fun setChapterRelayUrls(rawRelayUrls: String) {
+        runCatching { chapterSourceSettings.setRelayUrls(rawRelayUrls) }
+            .onSuccess {
+                _uiState.update {
+                    it.copy(
+                        error = null,
+                        syncMessage = "Chapter sources updated.",
+                    )
+                }
+            }.onFailure { failure ->
+                _uiState.update {
+                    it.copy(
+                        error = failure.message ?: "Could not update chapter sources.",
+                        syncMessage = null,
+                    )
+                }
+            }
     }
 
     fun completeExternalSignerLogin(session: NostrSignerSession) {
@@ -480,6 +506,7 @@ data class BookshelfUiState(
     val pendingDirectorySignRequest: PendingDirectorySignRequest? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
+    val chapterRelayUrls: List<String> = emptyList(),
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
     val isClearingChapterCache: Boolean = false,
 )
