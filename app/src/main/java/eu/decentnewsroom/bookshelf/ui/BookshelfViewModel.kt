@@ -162,7 +162,7 @@ class BookshelfViewModel(
                         if (outcome.results.isEmpty()) {
                             "Mercury returned an incomplete response. Try again."
                         } else {
-                            "Showing partial results; Mercury is temporarily busy."
+                            null
                         }
                     BookSearchStatus.UNAVAILABLE -> "Mercury is temporarily busy. Try again shortly."
                 }

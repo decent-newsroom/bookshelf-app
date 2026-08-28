@@ -397,11 +397,6 @@ private fun SearchScreen(
                     onOpen = { onOpen(result.book) },
                     onToggleSaved = { onToggleSaved(result.book) },
                 )
-                Text(
-                    text = result.provenance.joinToString(" · ") { it.name.lowercase().replace('_', ' ') },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
                 result.matchedChapterTitle?.let { title ->
                     Text(
                         text = "Chapter: $title",
