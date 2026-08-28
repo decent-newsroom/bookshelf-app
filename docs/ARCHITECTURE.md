@@ -85,6 +85,7 @@ Chapter event content is expected to be AsciiDoc. `AsciidoctorChapterRenderer` c
 - `BookChapter.renderedHtml` is preferred by the UI; raw `content` is the fallback.
 - `BookshelfViewModel.openBook` renders/caches the complete loaded detail before publishing it to UI state.
 - Cache clearing stays explicit, user-visible, and limited to the chapter HTML cache.
+- Transient operation confirmations, including cache clearing, are presented by the app-level snackbar host with a dismiss action and short timeout; they are consumed after presentation rather than rendered as persistent screen content.
 - AsciiDoc sources above 2 MiB and rendered fragments above 4 MiB are not cached or exposed as rendered HTML. Serialized atomic writes are pruned by last access to a 64 MiB / 1,000-entry ceiling.
 - Rendering uses the Kotlin Multiplatform `asciidoc-kmp` parser to produce CSS-free HTML fragments without a JRuby runtime. The reader converts each fragment to a Compose `AnnotatedString`; no embedded Android `TextView` participates in reader gestures.
 

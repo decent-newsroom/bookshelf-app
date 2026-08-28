@@ -45,6 +45,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -102,6 +105,7 @@ import kotlin.math.roundToInt
 @Composable
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     BackHandler(enabled = state.selectedBook != null) { viewModel.closeBook() }
     BackHandler(enabled = state.selectedBook == null && state.isSearchOpen) { viewModel.closeSearch() }
     val context = LocalContext.current
@@ -145,6 +149,16 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         }
     }
 
+    LaunchedEffect(state.syncMessage) {
+        val message = state.syncMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            message = message,
+            withDismissAction = true,
+            duration = SnackbarDuration.Short,
+        )
+        viewModel.dismissSyncMessage(message)
+    }
+
     val startExternalSignerLogin: () -> Unit = {
         if (!signerAvailable) {
             viewModel.reportExternalSignerFailure("No Android Nostr signer found.")
@@ -160,6 +174,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     BookshelfTheme(theme = state.readerPreferences.theme) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (state.selectedBook == null) {
                     BookshelfBottomBar(
@@ -370,10 +385,6 @@ private fun SearchScreen(
             item { Notice(message) }
         }
 
-        state.syncMessage?.let { message ->
-            item { Notice(message) }
-        }
-
         if (state.isPublishingDirectory) {
             item { LoadingInline("Sharing bookshelf...") }
         }
@@ -484,8 +495,6 @@ private fun SettingsScreen(
         )
 
         state.error?.let { message -> Notice(message) }
-        state.syncMessage?.let { message -> Notice(message) }
-
         Text(
             text = "Appearance",
             style = MaterialTheme.typography.titleMedium,

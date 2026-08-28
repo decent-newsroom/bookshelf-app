@@ -248,6 +248,16 @@ class BookshelfViewModel(
         }
     }
 
+    fun dismissSyncMessage(message: String) {
+        _uiState.update { state ->
+            if (state.syncMessage == message) {
+                state.copy(syncMessage = null)
+            } else {
+                state
+            }
+        }
+    }
+
     fun setChapterRelayUrls(rawRelayUrls: String) {
         runCatching { chapterSourceSettings.setRelayUrls(rawRelayUrls) }
             .onSuccess {
