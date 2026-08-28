@@ -14,6 +14,27 @@ The main source boundaries are:
 - `data/nostr`: Android signer integration and directory relay synchronization.
 - `ui`: Compose screens and reader presentation.
 
+## Mercury Search
+
+Search discovery uses the typed `BookSearchQuery` and returns transient
+`BookSearchResult` values. A normal all-scope query makes one metadata
+`q` request and, when the term is at least four characters, one chapter
+section request. Structured scopes select one corresponding metadata field;
+chapter-content scope selects only the section request. Exact publication and
+chapter coordinates use author-plus-`#d` filters, never a broad author
+window.
+
+Mercury search responses are accepted only for kinds 30040 (publication
+indexes) and 30041 (chapter sections). Results retain provenance, an optional
+matched chapter coordinate/title, and a maximum 320-character excerpt derived
+only from the verified section event returned by the search. Metadata and
+section channels are merged by bounded rank fusion while preserving the
+ordering supplied by Mercury. Reciprocal-rank fusion uses k=60, so a result
+present in both channels gains score without allowing absolute endpoint
+weights to override channel rank. Duplicate publication coordinates combine
+provenance and keep the newest index event. Search discovery never fetches or
+renders complete chapters; that remains the `openBook` boundary.
+
 ## Book and Chapter Loading
 
 Search and publication-index lookup use the Mercury HTTP API. Opening a book then follows this flow:
@@ -103,6 +124,7 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0006-bound-untrusted-content-resource-use.md`](decisions/0006-bound-untrusted-content-resource-use.md)
 - [`decisions/0007-private-cloud-backup-with-explicit-device-transfer.md`](decisions/0007-private-cloud-backup-with-explicit-device-transfer.md)
 - [`decisions/0008-untrusted-content-navigation-and-cover-privacy.md`](decisions/0008-untrusted-content-navigation-and-cover-privacy.md)
+- [`decisions/0009-typed-explainable-mercury-search.md`](decisions/0009-typed-explainable-mercury-search.md)
 
 ## Curated Discovery Shelves
 

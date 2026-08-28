@@ -86,6 +86,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
+import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.domain.BookDetail
@@ -377,13 +378,36 @@ private fun SearchScreen(
             item { LoadingInline("Sharing bookshelf...") }
         }
 
-        items(state.searchResults, key = BookSummary::coordinate) { book ->
-            BookCard(
-                book = book,
-                isSaved = state.savedCoordinates.contains(book.coordinate),
-                onOpen = { onOpen(book) },
-                onToggleSaved = { onToggleSaved(book) },
-            )
+        items(state.searchResults, key = { it.book.coordinate }) { result ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                BookCard(
+                    book = result.book,
+                    isSaved = state.savedCoordinates.contains(result.book.coordinate),
+                    onOpen = { onOpen(result.book) },
+                    onToggleSaved = { onToggleSaved(result.book) },
+                )
+                Text(
+                    text = result.provenance.joinToString(" · ") { it.name.lowercase().replace('_', ' ') },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                result.matchedChapterTitle?.let { title ->
+                    Text(
+                        text = "Chapter: $title",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                result.excerpt?.let { excerpt ->
+                    Text(
+                        text = excerpt,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

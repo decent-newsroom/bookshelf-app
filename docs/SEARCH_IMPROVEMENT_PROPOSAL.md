@@ -1,6 +1,6 @@
 # Mercury Search Improvement Proposal
 
-- Status: Proposed; not implemented
+- Status: Partially implemented; reliability and UI follow-ups remain
 - Date: 2026-08-28
 - API reference: [Mercury/swagger.json](Mercury/swagger.json), Mercury Index-Relay 0.2.30
 
@@ -8,7 +8,7 @@
 
 Improve search relevance and explainability while reducing avoidable Mercury API load and making searches useful during transient 503 Service Unavailable responses.
 
-This is follow-up planning, not implemented architecture. ARCHITECTURE.md remains the source of truth. When this proposal is implemented, update it and add an accepted ADR for the chosen search aggregation, failure, and reader-navigation invariants.
+The typed query/result-model slice is implemented. ARCHITECTURE.md remains the source of truth for current behavior; see ADR 0009. Reliability, filters, and matched-chapter navigation below remain follow-up planning.
 
 ## Current Behavior
 
@@ -31,6 +31,12 @@ The specification has no cursor, offset, total count, highlights, or snippets. S
 ## Proposed Design
 
 ### 1. Typed Query Planning
+
+Implemented in the first search-model slice: typed BookSearchQuery/SearchScope,
+single metadata q plus eligible section request, exact coordinate routing,
+expected-kind checks, deterministic merging, provenance, and bounded verified
+section excerpts. Retries, cancellation, caching, and UI filter chips remain
+unimplemented.
 
 Replace repository-specific raw-text heuristics with a typed request representing:
 

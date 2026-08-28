@@ -17,7 +17,9 @@ class MercuryBookRepository(
     private val apiClient: MercuryApiClient,
     private val chapterEventSource: ChapterEventSource? = null,
 ) {
-    suspend fun search(query: String): List<BookSummary> = coroutineScope {
+    suspend fun search(query: String): List<BookSummary> = search(BookSearchQuery.from(query)).map(BookSearchResult::book)
+
+    suspend fun search(query: BookSearchQuery): List<BookSearchResult> = coroutineScope {
         val plan = SearchPlan.from(query)
         if (plan.isEmpty) {
             return@coroutineScope emptyList()
@@ -34,46 +36,74 @@ class MercuryBookRepository(
             }
         val coordinateResult =
             plan.publicationCoordinate?.let { coordinate ->
-                async { apiClient.getPublicationsByAuthors(listOf(coordinate.pubkey), PUBLICATION_COORDINATE_LIMIT) }
+                async { apiClient.getPublicationsByCoordinates(listOf(PublicationCoordinate(coordinate.pubkey, coordinate.identifier))) }
             }
         val sectionSearchResult =
             plan.sectionQuery?.let { sectionQuery ->
                 async { apiClient.searchPublicationSections(sectionQuery, SECTION_SEARCH_LIMIT) }
             }
+        val exactChapterResult =
+            plan.chapterCoordinate?.let { coordinate ->
+                async { apiClient.getChaptersByCoordinates(listOf(coordinate.coordinate)) }
+            }
 
         val hits = linkedMapOf<String, SearchHit>()
         var sequence = 0
 
-        fun record(book: BookSummary, score: Int) {
+        fun record(
+            book: BookSummary,
+            provenance: Set<MatchProvenance>,
+            metadataRank: Int? = null,
+            sectionRank: Int? = null,
+            chapterCoordinate: String? = null,
+            chapterTitle: String? = null,
+            excerpt: String? = null,
+        ) {
             val existing = hits[book.coordinate]
             if (existing == null) {
-                hits[book.coordinate] = SearchHit(book = book, score = score, sequence = sequence)
+                hits[book.coordinate] = SearchHit(
+                    book = book,
+                    provenance = provenance,
+                    metadataRank = metadataRank,
+                    sectionRank = sectionRank,
+                    chapterCoordinate = chapterCoordinate,
+                    chapterTitle = chapterTitle,
+                    excerpt = excerpt,
+                    sequence = sequence,
+                )
                 sequence += 1
                 return
             }
 
             hits[book.coordinate] = existing.copy(
                 book = if (book.createdAt > existing.book.createdAt) book else existing.book,
-                score = maxOf(score, existing.score),
+                provenance = existing.provenance + provenance,
+                metadataRank = minOfNullable(existing.metadataRank, metadataRank),
+                sectionRank = minOfNullable(existing.sectionRank, sectionRank),
+                chapterCoordinate = existing.chapterCoordinate ?: chapterCoordinate,
+                chapterTitle = existing.chapterTitle ?: chapterTitle,
+                excerpt = existing.excerpt ?: excerpt,
             )
         }
 
         exactEventResult?.await().orEmpty().forEachIndexed { index, event ->
-            mapIndexEvent(event)?.let { book -> record(book, SCORE_EXACT_EVENT - index) }
+            mapIndexEvent(event)?.let { book -> record(book, setOf(MatchProvenance.EXACT_EVENT), metadataRank = index) }
         }
 
         val publicationCoordinate = plan.publicationCoordinate
         coordinateResult?.await().orEmpty().forEachIndexed { index, event ->
             val book = mapIndexEvent(event) ?: return@forEachIndexed
             if (publicationCoordinate != null && book.coordinate == publicationCoordinate.coordinate) {
-                record(book, SCORE_EXACT_COORDINATE - index)
+                record(book, setOf(MatchProvenance.EXACT_COORDINATE), metadataRank = index)
             }
         }
 
         publicationSearchResults.awaitAll().forEachIndexed { searchIndex, events ->
-            val baseScore = publicationSearches[searchIndex].score
+            val search = publicationSearches[searchIndex]
             events.forEachIndexed { index, event ->
-                mapIndexEvent(event)?.let { book -> record(book, baseScore - index) }
+                mapIndexEvent(event)?.let {
+                    book -> record(book, metadataProvenance(book, query.normalizedText, search.provenance), metadataRank = index)
+                }
             }
         }
 
@@ -84,7 +114,12 @@ class MercuryBookRepository(
                 sectionRanks.putIfAbsent(coordinate, index)
             }
         }
-        sectionSearchResult?.await().orEmpty().forEachIndexed { index, event ->
+        val sectionEvents = sectionSearchResult?.await().orEmpty()
+        val exactChapterEvents = exactChapterResult?.await().orEmpty()
+        exactChapterEvents.forEachIndexed { index, event ->
+            publicationContentCoordinate(event)?.let { coordinate -> sectionRanks[coordinate] = index }
+        }
+        sectionEvents.forEachIndexed { index, event ->
             publicationContentCoordinate(event)?.let { coordinate ->
                 sectionRanks.putIfAbsent(coordinate, index)
             }
@@ -97,7 +132,22 @@ class MercuryBookRepository(
             ).forEachIndexed { index, event ->
                 val book = mapIndexEvent(event) ?: return@forEachIndexed
                 val sectionRank = book.chapterRefs.mapNotNull { sectionRanks[it.coordinate] }.minOrNull() ?: index
-                record(book, SCORE_SECTION - sectionRank)
+                val sectionEvent = (sectionEvents + exactChapterEvents).firstOrNull {
+                    publicationContentCoordinate(it) in book.chapterRefs.map(ChapterReference::coordinate)
+                }
+                val chapterCoordinate = sectionEvent?.let(::publicationContentCoordinate)
+                val chapterTitle = sectionEvent?.let { firstTagValue(it.tags, "title") ?: firstTagValue(it.tags, "T") }
+                val excerpt = sectionEvent?.let { boundedExcerpt(it.content, plan.sectionQuery) }
+                val provenance = sectionEvent?.let { sectionProvenance(it, plan.sectionQuery) }
+                    ?: setOf(MatchProvenance.CHAPTER_BODY)
+                record(
+                    book,
+                    provenance,
+                    sectionRank = sectionRank,
+                    chapterCoordinate = chapterCoordinate,
+                    chapterTitle = chapterTitle,
+                    excerpt = excerpt,
+                )
             }
         }
 
@@ -108,11 +158,20 @@ class MercuryBookRepository(
                     .thenByDescending { it.book.createdAt },
             )
             .take(MAX_SEARCH_RESULTS)
-            .map(SearchHit::book)
+            .mapIndexed { rank, hit ->
+                BookSearchResult(
+                    book = hit.book,
+                    provenance = hit.provenance,
+                    matchedChapterCoordinate = hit.chapterCoordinate,
+                    matchedChapterTitle = hit.chapterTitle,
+                    excerpt = hit.excerpt,
+                    rank = rank,
+                )
+            }
     }
 
     suspend fun getBook(eventId: String): BookDetail? {
-        val indexEvent = apiClient.getEvent(eventId.lowercase()) ?: return null
+        val indexEvent = apiClient.getEvent(eventId.lowercase(), BookKinds.PUBLICATION_INDEX) ?: return null
         val book = mapIndexEvent(indexEvent) ?: return null
         val refs = book.chapterRefs.take(MAX_CHAPTERS)
         val eventsById = mutableMapOf<String, NostrEvent>()
@@ -369,6 +428,68 @@ class MercuryBookRepository(
             tag.getOrNull(1)?.trim()?.takeIf { tag.getOrNull(0) == name }
         }
 
+    private fun sectionProvenance(event: NostrEvent, query: String?): Set<MatchProvenance> {
+        val rawNeedle = query?.trim()?.takeIf(String::isNotBlank)
+            ?: return setOf(MatchProvenance.CHAPTER_BODY)
+        val quoted = isQuotedPhrase(rawNeedle)
+        val needle = rawNeedle.trim { it == 34.toChar() || it == 39.toChar() }
+        val title = firstTagValue(event.tags, "title") ?: firstTagValue(event.tags, "T").orEmpty()
+        val matches = linkedSetOf<MatchProvenance>()
+        if (matchesSearchTerms(title, needle, quoted)) matches += MatchProvenance.CHAPTER_TITLE
+        if (matchesSearchTerms(event.content, needle, quoted)) matches += MatchProvenance.CHAPTER_BODY
+        return matches.ifEmpty { setOf(MatchProvenance.CHAPTER_BODY) }
+    }
+
+    private fun metadataProvenance(
+        book: BookSummary,
+        query: String,
+        fallback: MatchProvenance,
+    ): Set<MatchProvenance> {
+        val needle = query.trim().trim { it == 34.toChar() || it == 39.toChar() }
+        if (needle.isBlank()) return setOf(fallback)
+        val matches = linkedSetOf<MatchProvenance>()
+        if (book.title.contains(needle, ignoreCase = true)) matches += MatchProvenance.TITLE
+        if (book.authors.any { it.contains(needle, ignoreCase = true) }) matches += MatchProvenance.AUTHOR
+        if (book.topics.any { it.contains(needle, ignoreCase = true) }) matches += MatchProvenance.SUBJECT
+        if (book.identifier.contains(needle, ignoreCase = true)) matches += MatchProvenance.IDENTIFIER
+        return matches.ifEmpty { setOf(fallback) }
+    }
+
+    private fun boundedExcerpt(content: String, query: String?, maxLength: Int = MAX_EXCERPT_LENGTH): String? {
+        val rawNeedle = query?.trim()?.takeIf(String::isNotBlank) ?: return null
+        val quoted = isQuotedPhrase(rawNeedle)
+        val needle = rawNeedle.trim { it == 34.toChar() || it == 39.toChar() }
+        val compact = content.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').replace(Regex(" +"), " ").trim()
+        if (compact.isBlank() || !matchesSearchTerms(compact, needle, quoted)) return null
+        val matchIndex = compact.indexOf(needle.split(Regex("\\s+")).first(), ignoreCase = true).coerceAtLeast(0)
+        val start = (matchIndex - maxLength / 3).coerceAtLeast(0)
+        val end = (start + maxLength).coerceAtMost(compact.length)
+        val prefix = if (start > 0) "…" else ""
+        val suffix = if (end < compact.length) "…" else ""
+        return (prefix + compact.substring(start, end).trim() + suffix).take(maxLength)
+    }
+
+    private fun matchesSearchTerms(value: String, query: String, quoted: Boolean = false): Boolean {
+        val terms = query.split(Regex("\\s+")).filter(String::isNotBlank)
+        return if (terms.size <= 1 || quoted) {
+            value.contains(query, ignoreCase = true)
+        } else {
+            terms.all { value.contains(it, ignoreCase = true) }
+        }
+    }
+
+    private fun isQuotedPhrase(value: String): Boolean =
+        value.length >= 2 &&
+            ((value.first() == 34.toChar() && value.last() == 34.toChar()) ||
+                (value.first() == 39.toChar() && value.last() == 39.toChar()))
+
+    private fun <T : Comparable<T>> minOfNullable(first: T?, second: T?): T? =
+        when {
+            first == null -> second
+            second == null -> first
+            else -> minOf(first, second)
+        }
+
     private fun firstNonEmptyTagValue(tags: List<List<String>>, names: List<String>): String? =
         names.firstNotNullOfOrNull { name -> firstTagValue(tags, name)?.takeIf(String::isNotEmpty) }
 
@@ -438,13 +559,22 @@ class MercuryBookRepository(
 
     private data class SearchHit(
         val book: BookSummary,
-        val score: Int,
+        val provenance: Set<MatchProvenance>,
+        val metadataRank: Int?,
+        val sectionRank: Int?,
+        val chapterCoordinate: String?,
+        val chapterTitle: String?,
+        val excerpt: String?,
         val sequence: Int,
-    )
+    ) {
+        val score: Double
+            get() = (metadataRank?.let { 1.0 / (RRF_K + it + 1) } ?: 0.0) +
+                (sectionRank?.let { 1.0 / (RRF_K + it + 1) } ?: 0.0)
+    }
 
     private data class PublicationSearch(
         val request: MercuryPublicationSearch,
-        val score: Int,
+        val provenance: MatchProvenance,
     )
 
     private data class ParsedCoordinate(
@@ -453,28 +583,6 @@ class MercuryBookRepository(
         val pubkey: String,
         val identifier: String,
     )
-
-    private data class FieldQuery(
-        val name: String,
-        val value: String,
-    ) {
-        fun toPublicationSearch(): PublicationSearch =
-            when (name) {
-                "title" -> PublicationSearch(MercuryPublicationSearch(title = value), SCORE_TITLE)
-                "author" -> PublicationSearch(MercuryPublicationSearch(author = value), SCORE_AUTHOR)
-                "subject", "topic" -> PublicationSearch(MercuryPublicationSearch(subject = slugify(value) ?: value), SCORE_SUBJECT)
-                "language", "lang" -> PublicationSearch(MercuryPublicationSearch(language = value.lowercase(Locale.US)), SCORE_LANGUAGE)
-                "identifier", "id", "source", "url" -> PublicationSearch(MercuryPublicationSearch(identifier = value), SCORE_IDENTIFIER)
-                "d", "slug" -> PublicationSearch(MercuryPublicationSearch(d = slugify(value) ?: value), SCORE_IDENTIFIER)
-                else -> PublicationSearch(MercuryPublicationSearch(q = value), SCORE_METADATA)
-            }
-
-        fun sectionSearchText(): String? =
-            when (name) {
-                "author", "subject", "topic", "language", "lang" -> null
-                else -> value
-            }
-    }
 
     private data class SearchPlan(
         val publicationSearches: List<PublicationSearch>,
@@ -488,99 +596,56 @@ class MercuryBookRepository(
                 publicationCoordinate == null && chapterCoordinate == null
 
         companion object {
-            fun from(rawQuery: String): SearchPlan {
-                val query = rawQuery.trim()
-                if (query.isBlank() || query.length > MAX_SEARCH_QUERY_LENGTH) {
-                    return SearchPlan(
-                        publicationSearches = emptyList(),
-                        sectionQuery = null,
-                        exactEventId = null,
-                        publicationCoordinate = null,
-                        chapterCoordinate = null,
+            fun from(query: BookSearchQuery): SearchPlan {
+                val raw = query.normalizedText
+                val coordinate = parseCoordinate(query.coordinate ?: raw)
+                val eventId = query.eventId ?: raw.lowercase(Locale.US).takeIf { HEX_64.matches(it) }
+                if ((raw.isBlank() && coordinate == null && eventId == null && query.language == null) || raw.length > MAX_SEARCH_QUERY_LENGTH) {
+                    return SearchPlan(emptyList(), null, eventId, null, null)
+                }
+                val searchText = raw
+                val metadataSearch = when (query.scope) {
+                    SearchScope.TITLE -> PublicationSearch(MercuryPublicationSearch(title = searchText), MatchProvenance.TITLE)
+                    SearchScope.AUTHOR -> PublicationSearch(MercuryPublicationSearch(author = searchText), MatchProvenance.AUTHOR)
+                    SearchScope.SUBJECT -> PublicationSearch(MercuryPublicationSearch(subject = slugify(searchText) ?: searchText), MatchProvenance.SUBJECT)
+                    SearchScope.IDENTIFIER -> PublicationSearch(MercuryPublicationSearch(identifier = searchText), MatchProvenance.IDENTIFIER)
+                    SearchScope.SLUG -> PublicationSearch(MercuryPublicationSearch(d = slugify(searchText) ?: searchText), MatchProvenance.IDENTIFIER)
+                    SearchScope.METADATA, SearchScope.ALL -> PublicationSearch(
+                        MercuryPublicationSearch(q = searchText.takeIf(String::isNotBlank), language = query.language?.lowercase(Locale.US)),
+                        MatchProvenance.METADATA,
                     )
+                    SearchScope.CHAPTER_CONTENT -> null
                 }
-
-                val fieldQuery = parseFieldQuery(query)
-                val searchText = fieldQuery?.value ?: query
-                val coordinate = parseCoordinate(searchText)
-                val publicationSearches = mutableListOf<PublicationSearch>()
-
-                if (fieldQuery != null) {
-                    publicationSearches += fieldQuery.toPublicationSearch()
-                    publicationSearches += PublicationSearch(MercuryPublicationSearch(q = searchText), SCORE_METADATA_FALLBACK)
-                } else {
-                    publicationSearches += PublicationSearch(MercuryPublicationSearch(q = query), SCORE_METADATA)
-                    publicationSearches += PublicationSearch(MercuryPublicationSearch(title = query), SCORE_TITLE)
-                    publicationSearches += PublicationSearch(MercuryPublicationSearch(author = query), SCORE_AUTHOR)
-
-                    if (looksLikeIdentifier(query)) {
-                        publicationSearches += PublicationSearch(MercuryPublicationSearch(identifier = query), SCORE_IDENTIFIER)
-                    }
-
-                    slugify(query)?.let { slug ->
-                        publicationSearches += PublicationSearch(MercuryPublicationSearch(d = slug), SCORE_IDENTIFIER)
-                        publicationSearches += PublicationSearch(MercuryPublicationSearch(subject = slug), SCORE_SUBJECT)
-                    }
-
-                    if (LANGUAGE_CODE.matches(query)) {
-                        publicationSearches += PublicationSearch(
-                            MercuryPublicationSearch(language = query.lowercase(Locale.US)),
-                            SCORE_LANGUAGE,
-                        )
-                    }
+                val metadata = if (coordinate == null && eventId == null) listOfNotNull(metadataSearch) else emptyList()
+                val section = when (query.scope) {
+                    SearchScope.ALL, SearchScope.CHAPTER_CONTENT -> searchText.takeIf(::canSearchSections)
+                    else -> null
                 }
-
-                val sectionQuery = if (fieldQuery == null) query else fieldQuery.sectionSearchText()
-
                 return SearchPlan(
-                    publicationSearches = publicationSearches.distinctBy(PublicationSearch::request).take(MAX_PUBLICATION_SEARCHES),
-                    sectionQuery = sectionQuery?.takeIf(::canSearchSections),
-                    exactEventId = searchText.lowercase(Locale.US).takeIf { HEX_64.matches(it) },
+                    publicationSearches = metadata,
+                    sectionQuery = section,
+                    exactEventId = eventId,
                     publicationCoordinate = coordinate?.takeIf { it.kind == BookKinds.PUBLICATION_INDEX },
                     chapterCoordinate = coordinate?.takeIf { it.kind == BookKinds.PUBLICATION_CONTENT },
                 )
             }
+
         }
     }
 
     private companion object {
         const val MAX_SEARCH_RESULTS = 40
         const val MAX_SEARCH_QUERY_LENGTH = 256
+        const val MAX_EXCERPT_LENGTH = 320
+        const val RRF_K = 60.0
         const val MAX_CHAPTERS = 500
-        const val MAX_PUBLICATION_SEARCHES = 8
         const val PUBLICATION_SEARCH_LIMIT = 60
         const val SECTION_SEARCH_LIMIT = 60
         const val SECTION_PUBLICATION_LIMIT = 100
-        const val PUBLICATION_COORDINATE_LIMIT = 100
-        const val SCORE_EXACT_EVENT = 1_200
-        const val SCORE_EXACT_COORDINATE = 1_150
-        const val SCORE_METADATA = 1_000
-        const val SCORE_IDENTIFIER = 960
-        const val SCORE_TITLE = 940
-        const val SCORE_AUTHOR = 900
-        const val SCORE_SUBJECT = 850
-        const val SCORE_LANGUAGE = 800
-        const val SCORE_METADATA_FALLBACK = 760
-        const val SCORE_SECTION = 700
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
         val ROMAN_NUMERAL = Regex("^[ivxlcdm]+$", RegexOption.IGNORE_CASE)
-        val FIELD_QUERY = Regex(
-            "^\\s*(title|author|subject|topic|language|lang|identifier|id|source|url|d|slug)\\s*:\\s*(.+?)\\s*$",
-            RegexOption.IGNORE_CASE,
-        )
-        val LANGUAGE_CODE = Regex("^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$")
         val GUTENBERG_IDENTIFIER = Regex("^pg(\\d+)(?:[-_].*)?$", RegexOption.IGNORE_CASE)
         val GUTENBERG_URL_PATH = Regex("/(?:ebooks|files|cache/epub)/(\\d+)(?:/|$)")
-
-        fun parseFieldQuery(query: String): FieldQuery? {
-            val match = FIELD_QUERY.matchEntire(query) ?: return null
-            val value = match.groupValues[2].trim().takeIf(String::isNotEmpty) ?: return null
-
-            return FieldQuery(
-                name = match.groupValues[1].lowercase(Locale.US),
-                value = value,
-            )
-        }
 
         fun parseCoordinate(value: String): ParsedCoordinate? {
             val parts = value.trim().split(":", limit = 3)
@@ -611,15 +676,6 @@ class MercuryBookRepository(
                     .trim('-')
 
             return slug.takeIf { it.length >= 2 }
-        }
-
-        fun looksLikeIdentifier(value: String): Boolean {
-            val trimmed = value.trim()
-            val uri = runCatching { URI(trimmed) }.getOrNull()
-            val isUrl = uri?.scheme?.lowercase(Locale.US) in setOf("http", "https") && !uri?.host.isNullOrBlank()
-
-            return isUrl || HEX_64.matches(trimmed) || parseCoordinate(trimmed) != null ||
-                trimmed.startsWith("pg", ignoreCase = true)
         }
 
         fun canSearchSections(value: String): Boolean = value.trim().trim('"', '\'').length >= 4

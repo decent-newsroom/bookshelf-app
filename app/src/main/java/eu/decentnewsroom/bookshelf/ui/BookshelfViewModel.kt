@@ -10,6 +10,8 @@ import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
+import eu.decentnewsroom.bookshelf.data.mercury.BookSearchQuery
+import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
@@ -150,7 +152,7 @@ class BookshelfViewModel(
             }
 
             try {
-                val books = repository.search(query)
+                val books = repository.search(BookSearchQuery.from(query))
                 _uiState.update {
                     it.copy(
                         isSearching = false,
@@ -626,7 +628,7 @@ data class BookshelfUiState(
     val isSearchOpen: Boolean = false,
     val query: String = "",
     val isSearching: Boolean = false,
-    val searchResults: List<BookSummary> = emptyList(),
+    val searchResults: List<BookSearchResult> = emptyList(),
     val searchMessage: String? = null,
     val savedBooks: List<BookSummary> = emptyList(),
     val savedCoordinates: Set<String> = emptySet(),

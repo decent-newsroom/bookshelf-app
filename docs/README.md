@@ -6,8 +6,9 @@ This directory records architectural context and implementation decisions that s
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) describes the current application boundaries, data flows, invariants, and operational notes.
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) covers local development, verification, and release mechanics.
-- [`SEARCH_IMPROVEMENT_PROPOSAL.md`](SEARCH_IMPROVEMENT_PROPOSAL.md) records the proposed Mercury search and 503-resilience refactor. It is planning material, not implemented architecture.
+- [`SEARCH_IMPROVEMENT_PROPOSAL.md`](SEARCH_IMPROVEMENT_PROPOSAL.md) records the Mercury search and 503-resilience refactor, with implemented and follow-up slices called out.
 - [`decisions/`](decisions/) contains architecture decision records (ADRs) explaining why consequential choices were made.
+- ADR 0009 records the accepted typed, explainable Mercury search boundary.
 
 ## Keeping These Notes Current
 

@@ -78,7 +78,7 @@ class MercuryBookRepositorySearchTest {
             assertEquals(listOf("Metadata Book", "Section Book"), results.map { it.title })
             assertTrue(
                 requests.any {
-                    it.path == "/api/publications/search" && it.body.contains("\"title\":\"$query\"")
+                    it.path == "/api/publications/search" && it.body.contains("\"q\":\"$query\"")
                 },
             )
             assertTrue(
@@ -91,6 +91,209 @@ class MercuryBookRepositorySearchTest {
                     it.path == "/api/events/filter" && it.body.contains("\"#a\":[\"$sectionCoordinate\"]")
                 },
             )
+        }
+    }
+
+    @Test
+    fun typedFreeTextUsesOneMetadataAndOneEligibleSectionRequest() = runBlocking {
+        val metadataBook = publicationEvent(
+            pubkey = testPubkey(1),
+            identifier = "metadata-book",
+            title = "Metadata Book",
+            author = "Author Name",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:${testPubkey(1)}:chapter-one"),
+        )
+        val sectionPubkey = testPubkey(2)
+        val sectionBook = publicationEvent(
+            pubkey = testPubkey(3),
+            identifier = "section-book",
+            title = "Section Book",
+            author = "Other Author",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:$sectionPubkey:chapter-one"),
+        )
+        val sectionEvent = eventJson(
+            pubkey = sectionPubkey,
+            kind = BookKinds.PUBLICATION_CONTENT,
+            tags = listOf(listOf("d", "chapter-one"), listOf("title", "Hidden Chapter")),
+            content = "Prefix hidden needle suffix.",
+        )
+        val server = RecordingHttpServer { request ->
+            when (request.path) {
+                "/api/publications/search" -> eventListJson(metadataBook)
+                "/api/publications/sections/search" -> eventListJson(sectionEvent)
+                "/api/events/filter" -> eventListJson(sectionBook)
+                else -> "[]"
+            }
+        }
+        var chapterSourceCalled = false
+        server.use {
+            val repository = MercuryBookRepository(
+                apiClient = MercuryApiClient(OkHttpClient(), server.baseUrl),
+                chapterEventSource = object : ChapterEventSource {
+                    override suspend fun fetchChapters(references: List<ChapterReference>): List<NostrEvent> {
+                        chapterSourceCalled = true
+                        return emptyList()
+                    }
+                },
+            )
+            val results = repository.search(BookSearchQuery("hidden needle"))
+            val requests = server.requests.toList()
+            assertEquals(3, requests.size)
+            assertEquals(1, requests.count { it.path == "/api/publications/search" })
+            assertEquals(1, requests.count { it.path == "/api/publications/sections/search" })
+            assertEquals(1, requests.count { it.path == "/api/events/filter" })
+            assertTrue(requests.single { it.path == "/api/publications/search" }.body.contains("hidden needle"))
+            assertFalse(requests.single { it.path == "/api/publications/search" }.body.contains("title"))
+            assertEquals("Prefix hidden needle suffix.", results.last().excerpt)
+            assertTrue(results.last().provenance.contains(MatchProvenance.CHAPTER_BODY))
+            assertFalse(chapterSourceCalled)
+        }
+    }
+
+    @Test
+    fun structuredDSearchUsesMercuryDFieldOnly() = runBlocking {
+        val server = RecordingHttpServer { "[]" }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            repository.search(BookSearchQuery.from("d:book-slug"))
+            val request = server.requests.single()
+            assertEquals("/api/publications/search", request.path)
+            assertTrue(request.body.contains("book-slug"))
+            assertFalse(request.body.contains("identifier"))
+            assertFalse(server.requests.any { it.path == "/api/publications/sections/search" })
+        }
+    }
+
+    @Test
+    fun wrongKindsFromSearchEndpointsAreRejectedAtDecodeBoundary() = runBlocking {
+        val pubkey = testPubkey(4)
+        val wrongIndex = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")))
+        val wrongSection = eventJson(pubkey, BookKinds.PUBLICATION_INDEX, listOf(listOf("d", "book"), listOf("title", "Book"), listOf("a", "${BookKinds.PUBLICATION_CONTENT}:$pubkey:chapter")))
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(wrongIndex) else eventListJson(wrongSection)
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            assertTrue(repository.search(BookSearchQuery("hidden needle")).isEmpty())
+        }
+    }
+
+    @Test
+    fun exactChapterCoordinatePreservesColonInIdentifier() = runBlocking {
+        val pubkey = testPubkey(5)
+        val identifier = "chapter:part:one"
+        val coordinate = "${BookKinds.PUBLICATION_CONTENT}:$pubkey:$identifier"
+        val chapter = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", identifier), listOf("title", "Exact Chapter")), "Exact body")
+        val book = publicationEvent(
+            pubkey = testPubkey(6),
+            identifier = "book",
+            title = "Exact Book",
+            author = "Author",
+            chapterCoordinates = listOf(coordinate),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/events/filter" && request.body.contains("#d") && request.body.contains("chapter:part:one")) {
+                eventListJson(chapter)
+            } else if (request.path == "/api/events/filter") {
+                eventListJson(book)
+            } else {
+                "[]"
+            }
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val results = repository.search(BookSearchQuery(coordinate = coordinate))
+            val chapterRequest = server.requests.first { it.body.contains("#d") && it.body.contains("chapter:part:one") }
+            assertTrue(chapterRequest.body.contains("chapter:part:one"))
+            assertEquals("Exact Chapter", results.single().matchedChapterTitle)
+        }
+    }
+
+    @Test
+    fun exactPublicationEventIdReturnsOnlyTheRequestedIndex() = runBlocking {
+        val book = publicationEvent(testPubkey(1), "exact-book", "Exact Book", "Author", listOf(BookKinds.PUBLICATION_CONTENT.toString() + ":" + testPubkey(1) + ":chapter"))
+        val id = book.substringAfter("\"id\":\"").substringBefore("\"")
+        val server = RecordingHttpServer { request -> if (request.path == "/api/events/" + id) book else "[]" }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val results = repository.search(BookSearchQuery(eventId = id))
+            assertEquals("Exact Book", results.single().book.title)
+            assertTrue(server.requests.single().path == "/api/events/" + id)
+        }
+    }
+
+    @Test
+    fun exactChapterEventIdResolvesBackToItsPublication() = runBlocking {
+        val pubkey = testPubkey(2)
+        val chapter = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter"), listOf("title", "Exact Chapter")), "Exact body")
+        val chapterId = chapter.substringAfter("\"id\":\"").substringBefore("\"")
+        val coordinate = BookKinds.PUBLICATION_CONTENT.toString() + ":" + pubkey + ":chapter"
+        val book = publicationEvent(testPubkey(3), "book", "Resolved Book", "Author", listOf(coordinate))
+        val server = RecordingHttpServer { request ->
+            when {
+                request.path == "/api/events/" + chapterId -> chapter
+                request.path == "/api/events/filter" -> eventListJson(book)
+                else -> "[]"
+            }
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val results = repository.search(BookSearchQuery(eventId = chapterId))
+            assertEquals("Resolved Book", results.single().book.title)
+            assertEquals("Exact Chapter", results.single().matchedChapterTitle)
+        }
+    }
+
+    @Test
+    fun quotedPhrasesRequireContiguousTextWhileUnquotedTermsMayBeSeparated() = runBlocking {
+        val chapterPubkey = testPubkey(4)
+        val chapterCoordinate = BookKinds.PUBLICATION_CONTENT.toString() + ":" + chapterPubkey + ":chapter"
+        val chapter = eventJson(chapterPubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter"), listOf("title", "Chapter")), "hidden words between needle")
+        val book = publicationEvent(testPubkey(5), "book", "Book", "Author", listOf(chapterCoordinate))
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/sections/search") eventListJson(chapter)
+            else if (request.path == "/api/events/filter") eventListJson(book)
+            else "[]"
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val separated = repository.search(BookSearchQuery("hidden needle"))
+            val phrase = repository.search(BookSearchQuery("\"hidden needle\""))
+            assertEquals("hidden words between needle", separated.single().excerpt)
+            assertEquals(null, phrase.singleOrNull()?.excerpt)
+        }
+    }
+
+    @Test
+    fun reciprocalRankFusionDedupesOverlapAndRewardsBothChannels() = runBlocking {
+        val overlapPubkey = testPubkey(1)
+        val overlapCoordinate = BookKinds.PUBLICATION_CONTENT.toString() + ":" + overlapPubkey + ":overlap-chapter"
+        val overlap = publicationEvent(overlapPubkey, "overlap", "Needle Overlap", "Author", listOf(overlapCoordinate))
+        val metadataPubkey = testPubkey(2)
+        val metadataCoordinate = BookKinds.PUBLICATION_CONTENT.toString() + ":" + metadataPubkey + ":metadata-chapter"
+        val metadataOnly = publicationEvent(metadataPubkey, "metadata", "Needle Metadata", "Author", listOf(metadataCoordinate))
+        val sectionPubkey = testPubkey(3)
+        val sectionCoordinate = BookKinds.PUBLICATION_CONTENT.toString() + ":" + sectionPubkey + ":section-chapter"
+        val sectionOnly = publicationEvent(sectionPubkey, "section", "Section Only", "Author", listOf(sectionCoordinate))
+        val section = eventJson(sectionPubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "section-chapter"), listOf("title", "Section")), "needle appears, then overlap appears")
+        val overlapSection = eventJson(overlapPubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "overlap-chapter"), listOf("title", "Overlap")), "needle appears, then overlap appears")
+        val server = RecordingHttpServer { request ->
+            when (request.path) {
+                "/api/publications/search" -> eventListJson(overlap, metadataOnly)
+                "/api/publications/sections/search" -> eventListJson(overlapSection, section)
+                "/api/events/filter" -> eventListJson(overlap, sectionOnly)
+                else -> "[]"
+            }
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val results = repository.search(BookSearchQuery("needle overlap"))
+            assertEquals(3, results.size)
+            assertEquals(overlapPubkey, results.first().book.pubkey)
+            assertEquals(0, results.first().rank)
+            assertEquals(1, results.count { it.book.coordinate == results.first().book.coordinate })
+            assertTrue(results.first().provenance.contains(MatchProvenance.TITLE))
+            assertTrue(results.first().provenance.contains(MatchProvenance.CHAPTER_BODY))
         }
     }
 

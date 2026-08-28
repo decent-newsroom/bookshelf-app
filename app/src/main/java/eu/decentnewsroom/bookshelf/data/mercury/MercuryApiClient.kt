@@ -50,6 +50,7 @@ class MercuryApiClient(
                 .post(json.encodeToString(requestBody).toRequestBody(JSON_MEDIA_TYPE))
                 .header("Accept", "application/json")
                 .build(),
+            expectedKind = BookKinds.PUBLICATION_INDEX,
         )
     }
 
@@ -69,6 +70,7 @@ class MercuryApiClient(
                 )
                 .header("Accept", "application/json")
                 .build(),
+            expectedKind = BookKinds.PUBLICATION_CONTENT,
         )
     }
 
@@ -91,7 +93,7 @@ class MercuryApiClient(
             }
     }
 
-    suspend fun getEvent(eventId: String): NostrEvent? =
+    suspend fun getEvent(eventId: String, expectedKind: Int? = null): NostrEvent? =
         withContext(Dispatchers.IO) {
             val request =
                 Request
@@ -110,7 +112,7 @@ class MercuryApiClient(
                         throw MercuryApiException("Mercury returned HTTP ${response.code}.")
                     }
 
-                    decodeEvent(response.body.readLimitedUtf8(), eventId)
+                    decodeEvent(response.body.readLimitedUtf8(), eventId, expectedKind)
                 }
             } catch (exception: MercuryApiException) {
                 throw exception
@@ -161,6 +163,38 @@ class MercuryApiClient(
                     ),
                     expectedAuthors = listOf(pubkey),
                     expectedDTags = identifiers,
+                )
+            }
+        }
+    }
+
+    /** Resolves only the requested replaceable chapter coordinates. */
+    suspend fun getChaptersByCoordinates(coordinates: List<String>): List<NostrEvent> {
+        val normalized = coordinates.mapNotNull { candidate ->
+            val parts = candidate.trim().split(":", limit = 3)
+            if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_CONTENT ||
+                !HEX_64.matches(parts[1]) || parts[2].isBlank()) {
+                null
+            } else {
+                "" + BookKinds.PUBLICATION_CONTENT + ":" + parts[1].lowercase() + ":" + parts[2]
+            }
+        }.distinct()
+        val grouped = normalized.mapNotNull { coordinate ->
+            val parts = coordinate.split(":", limit = 3)
+            parts.takeIf { it.size == 3 }?.let { it[1] to it[2] }
+        }.groupBy({ it.first }, { it.second })
+        return grouped.flatMap { (pubkey, allDTags) ->
+            allDTags.distinct().chunked(FILTER_BATCH_SIZE).flatMap { dTags ->
+                filterEvents(
+                    MercuryFilterRequest(
+                        authors = listOf(pubkey),
+                        kinds = listOf(BookKinds.PUBLICATION_CONTENT),
+                        limit = dTags.size.coerceToMercuryLimit(),
+                        dTags = dTags,
+                    ),
+                    expectedAuthors = listOf(pubkey),
+                    expectedKind = BookKinds.PUBLICATION_CONTENT,
+                    expectedDTags = dTags,
                 )
             }
         }
@@ -252,7 +286,7 @@ class MercuryApiClient(
                         throw MercuryApiException("Mercury returned HTTP ${response.code}.")
                     }
 
-                    decodeEventList(response.body.readLimitedUtf8()).filter { event ->
+                    decodeEventList(response.body.readLimitedUtf8(), expectedKind).filter { event ->
                         (expectedIds.isEmpty() || event.id in expectedIds) &&
                             (expectedAuthors.isEmpty() || event.pubkey in expectedAuthors) &&
                             (expectedKind == null || event.kind == expectedKind) &&
@@ -269,7 +303,7 @@ class MercuryApiClient(
             }
         }
 
-    private fun decodeEvent(body: String, eventId: String? = null): NostrEvent? {
+    private fun decodeEvent(body: String, eventId: String? = null, expectedKind: Int? = null): NostrEvent? {
         val element = json.parseToJsonElement(body)
         val eventElement =
             if (element is JsonObject && "data" in element) {
@@ -283,13 +317,13 @@ class MercuryApiClient(
             else -> json.decodeFromJsonElement<NostrEvent>(eventElement).let { event ->
                 NostrEventVerifier.verify(
                     event,
-                    context = NostrEventContext(requestedEventId = eventId),
+                    context = NostrEventContext(requestedEventId = eventId, expectedKind = expectedKind),
                 )?.event
             }
         }
     }
 
-    private fun decodeEventList(body: String): List<NostrEvent> {
+    private fun decodeEventList(body: String, expectedKind: Int? = null): List<NostrEvent> {
         val element = json.parseToJsonElement(body)
         val listElement =
             if (element is JsonObject && "data" in element) {
@@ -300,7 +334,7 @@ class MercuryApiClient(
 
         return when (listElement) {
             is JsonArray -> json.decodeFromJsonElement<List<NostrEvent>>(listElement).mapNotNull { event ->
-                NostrEventVerifier.verify(event)?.event
+                NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = expectedKind))?.event
             }
             null, JsonNull -> emptyList()
             else -> throw MercuryApiException("Mercury returned an invalid event response.")
