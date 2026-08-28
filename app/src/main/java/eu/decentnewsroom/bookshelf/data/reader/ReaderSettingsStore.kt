@@ -46,22 +46,22 @@ class ReaderSettingsStore(context: Context) {
         updateReaderPreferences { preferences -> preferences.copy(theme = theme) }
     }
 
-    fun recordProgress(book: BookDetail, firstVisibleItemIndex: Int) {
+    fun recordProgress(book: BookDetail, chapterIndex: Int) {
         val chapterCount = book.chapters.size
         if (chapterCount <= 0) {
             return
         }
 
-        val chapterIndex = (firstVisibleItemIndex - 1).coerceIn(0, chapterCount - 1)
+        val normalizedChapterIndex = normalizedReaderChapterIndex(chapterIndex, chapterCount)
         val coordinate = book.summary.coordinate
         val existing = _progress.value[coordinate]
-        if (existing?.currentChapterIndex == chapterIndex && existing.chapterCount == chapterCount) {
+        if (existing?.currentChapterIndex == normalizedChapterIndex && existing.chapterCount == chapterCount) {
             return
         }
 
         val next = ReadingProgress(
             bookCoordinate = coordinate,
-            currentChapterIndex = chapterIndex,
+            currentChapterIndex = normalizedChapterIndex,
             chapterCount = chapterCount,
             updatedAtMillis = System.currentTimeMillis(),
         )
@@ -103,3 +103,6 @@ class ReaderSettingsStore(context: Context) {
         const val MAX_LINE_HEIGHT_MULTIPLIER = 2.0f
     }
 }
+
+internal fun normalizedReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int =
+    if (chapterCount <= 0) 0 else chapterIndex.coerceIn(0, chapterCount - 1)

@@ -205,7 +205,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         onBack = viewModel::closeBook,
                         onTabSelected = viewModel::selectTab,
                         onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
-                        onProgressChanged = viewModel::recordReaderProgress,
+                        onChapterProgressChanged = viewModel::recordReaderProgress,
                         onFontSizeChanged = viewModel::setReaderFontSize,
                         onLineHeightChanged = viewModel::setReaderLineHeight,
                         onThemeChanged = viewModel::setReaderTheme,
@@ -612,7 +612,7 @@ private fun ReaderScreen(
     onBack: () -> Unit,
     onTabSelected: (BookshelfTab) -> Unit,
     onToggleSaved: () -> Unit,
-    onProgressChanged: (BookDetail, Int) -> Unit,
+    onChapterProgressChanged: (BookDetail, Int) -> Unit,
     onFontSizeChanged: (Float) -> Unit,
     onLineHeightChanged: (Float) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
@@ -632,7 +632,7 @@ private fun ReaderScreen(
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
             .collect { index ->
-                onProgressChanged(
+                onChapterProgressChanged(
                     detail,
                     chapterIndexForReaderListItem(index, detail.chapters.size),
                 )
@@ -1363,14 +1363,14 @@ private fun readerListItemIndexForChapter(chapterIndex: Int, chapterCount: Int):
         coerceReaderChapterIndex(chapterIndex, chapterCount) + ReaderHeaderItemCount
     }
 
-private fun chapterIndexForReaderListItem(listItemIndex: Int, chapterCount: Int): Int =
+internal fun chapterIndexForReaderListItem(listItemIndex: Int, chapterCount: Int): Int =
     if (chapterCount <= 0) {
         0
     } else {
         (listItemIndex - ReaderHeaderItemCount).coerceIn(0, chapterCount - 1)
     }
 
-private fun coerceReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int =
+internal fun coerceReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int =
     if (chapterCount <= 0) {
         0
     } else {

@@ -477,8 +477,8 @@ class BookshelfViewModel(
         }
     }
 
-    fun recordReaderProgress(book: BookDetail, firstVisibleItemIndex: Int) {
-        readerSettings.recordProgress(book, firstVisibleItemIndex)
+    fun recordReaderProgress(book: BookDetail, chapterIndex: Int) {
+        readerSettings.recordProgress(book, chapterIndex)
     }
 
     fun setReaderFontSize(fontSizeSp: Float) {
