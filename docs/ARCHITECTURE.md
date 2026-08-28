@@ -35,6 +35,21 @@ weights to override channel rank. Duplicate publication coordinates combine
 provenance and keep the newest index event. Search discovery never fetches or
 renders complete chapters; that remains the `openBook` boundary.
 
+Independent Mercury search branches return a `BookSearchOutcome` classified as
+complete, partial, or unavailable. A search-only resilience controller limits
+the process to two active Mercury search calls, retries HTTP 503 once with
+bounded exponential backoff and jitter, honors bounded `Retry-After`, and
+opens a five-second cooldown after repeated 503 responses. Non-503 failures
+are not retried. Successful branches remain visible when a peer branch fails.
+
+Only complete outcomes are stored in a process-memory cache: normalized query
+keys expire after 30 seconds and the cache holds at most 20 entries. Query
+text, excerpts, and search history are never persisted. `BookshelfViewModel`
+cancels a previous search when a newer query is submitted, the search panel is
+closed, or the user changes tabs. These controls reduce client-contributed
+load and visible transient failures; they do not substitute for Mercury
+server capacity.
+
 ## Book and Chapter Loading
 
 Search and publication-index lookup use the Mercury HTTP API. Opening a book then follows this flow:
@@ -108,7 +123,7 @@ The app opts into explicit backup rules for both supported Android generations. 
 
 ## Verification Notes
 
-The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules and Nostr request construction. `ChapterLinkPolicyTest` and `TrustedCoverImagePolicyTest` cover untrusted navigation and automatic-cover host filtering. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup and the no-chapter-fetch discovery invariant.
+The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules and Nostr request construction. `ChapterLinkPolicyTest` and `TrustedCoverImagePolicyTest` cover untrusted navigation and automatic-cover host filtering. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup, partial 503 outcomes, the short search cache, and the no-chapter-fetch discovery invariant. `MercurySearchResilienceTest` covers attempt caps, Retry-After, non-503 behavior, and cooldown.
 
 ## Nostr Event Trust Boundary
 
@@ -125,6 +140,7 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0007-private-cloud-backup-with-explicit-device-transfer.md`](decisions/0007-private-cloud-backup-with-explicit-device-transfer.md)
 - [`decisions/0008-untrusted-content-navigation-and-cover-privacy.md`](decisions/0008-untrusted-content-navigation-and-cover-privacy.md)
 - [`decisions/0009-typed-explainable-mercury-search.md`](decisions/0009-typed-explainable-mercury-search.md)
+- [`decisions/0010-resilient-mercury-search.md`](decisions/0010-resilient-mercury-search.md)
 
 ## Curated Discovery Shelves
 

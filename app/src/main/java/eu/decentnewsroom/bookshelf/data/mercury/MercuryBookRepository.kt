@@ -7,46 +7,86 @@ import eu.decentnewsroom.bookshelf.domain.BookReference
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.URI
 import java.util.Locale
 
 class MercuryBookRepository(
     private val apiClient: MercuryApiClient,
     private val chapterEventSource: ChapterEventSource? = null,
+    private val searchResilience: MercurySearchResilience = MercurySearchResilience(),
+    nowMillis: () -> Long = System::currentTimeMillis,
+    searchCacheTtlMillis: Long = SEARCH_CACHE_TTL_MILLIS,
 ) {
-    suspend fun search(query: String): List<BookSummary> = search(BookSearchQuery.from(query)).map(BookSearchResult::book)
+    private val searchCache = BookSearchCache(nowMillis, searchCacheTtlMillis, MAX_SEARCH_CACHE_ENTRIES)
+    suspend fun search(query: String): List<BookSummary> =
+        search(BookSearchQuery.from(query)).map(BookSearchResult::book)
 
-    suspend fun search(query: BookSearchQuery): List<BookSearchResult> = coroutineScope {
-        val plan = SearchPlan.from(query)
-        if (plan.isEmpty) {
-            return@coroutineScope emptyList()
+    suspend fun search(query: BookSearchQuery): List<BookSearchResult> {
+        val outcome = searchOutcome(query)
+        if (outcome.status == BookSearchStatus.UNAVAILABLE) {
+            throw MercuryApiException(
+                message = "Mercury search is temporarily unavailable.",
+                retryAfterMillis = outcome.retryAfterMillis,
+            )
         }
+        return outcome.results
+    }
+
+    suspend fun searchOutcome(query: BookSearchQuery): BookSearchOutcome {
+        val normalizedQuery = query.normalizedForCache()
+        searchCache.get(normalizedQuery)?.let { return it }
+        val outcome = performSearch(normalizedQuery)
+        if (outcome.status == BookSearchStatus.COMPLETE) searchCache.put(normalizedQuery, outcome)
+        return outcome
+    }
+
+    private suspend fun performSearch(query: BookSearchQuery): BookSearchOutcome = supervisorScope {
+        val plan = SearchPlan.from(query)
+        if (plan.isEmpty) return@supervisorScope BookSearchOutcome(emptyList(), BookSearchStatus.COMPLETE)
 
         val publicationSearches = plan.publicationSearches
-        val publicationSearchResults =
-            publicationSearches.map { search ->
-                async { apiClient.searchPublications(search.request, PUBLICATION_SEARCH_LIMIT) }
+        val publicationResults = publicationSearches.map { search ->
+            async { runSearchBranch { apiClient.searchPublications(search.request, PUBLICATION_SEARCH_LIMIT) } }
+        }
+        val exactResult = plan.exactEventId?.let { id ->
+            async { runSearchBranch { apiClient.getEvent(id)?.let(::listOf).orEmpty() } }
+        }
+        val coordinateResult = plan.publicationCoordinate?.let { coordinate ->
+            async {
+                runSearchBranch {
+                    apiClient.getPublicationsByCoordinates(
+                        listOf(PublicationCoordinate(coordinate.pubkey, coordinate.identifier)),
+                    )
+                }
             }
-        val exactEventResult =
-            plan.exactEventId?.let { eventId ->
-                async { apiClient.getEvent(eventId)?.let(::listOf).orEmpty() }
-            }
-        val coordinateResult =
-            plan.publicationCoordinate?.let { coordinate ->
-                async { apiClient.getPublicationsByCoordinates(listOf(PublicationCoordinate(coordinate.pubkey, coordinate.identifier))) }
-            }
-        val sectionSearchResult =
-            plan.sectionQuery?.let { sectionQuery ->
-                async { apiClient.searchPublicationSections(sectionQuery, SECTION_SEARCH_LIMIT) }
-            }
-        val exactChapterResult =
-            plan.chapterCoordinate?.let { coordinate ->
-                async { apiClient.getChaptersByCoordinates(listOf(coordinate.coordinate)) }
-            }
+        }
+        val sectionResult = plan.sectionQuery?.let { q ->
+            async { runSearchBranch { apiClient.searchPublicationSections(q, SECTION_SEARCH_LIMIT) } }
+        }
+        val chapterResult = plan.chapterCoordinate?.let { coordinate ->
+            async { runSearchBranch { apiClient.getChaptersByCoordinates(listOf(coordinate.coordinate)) } }
+        }
 
+        val attempt = SearchAttempt()
+        fun events(branch: SearchBranch<List<NostrEvent>>?): List<NostrEvent> {
+            if (branch == null) return emptyList()
+            attempt.record(branch)
+            return when (branch) {
+                is SearchBranch.Success -> branch.value
+                is SearchBranch.Failure -> emptyList()
+            }
+        }
+
+        val exactEvents = events(exactResult?.await())
+        val coordinateEvents = events(coordinateResult?.await())
+        val publicationEventLists = publicationResults.map { events(it.await()) }
+        val sectionEvents = events(sectionResult?.await())
+        val chapterEvents = events(chapterResult?.await())
         val hits = linkedMapOf<String, SearchHit>()
         var sequence = 0
 
@@ -62,96 +102,83 @@ class MercuryBookRepository(
             val existing = hits[book.coordinate]
             if (existing == null) {
                 hits[book.coordinate] = SearchHit(
-                    book = book,
-                    provenance = provenance,
-                    metadataRank = metadataRank,
-                    sectionRank = sectionRank,
-                    chapterCoordinate = chapterCoordinate,
-                    chapterTitle = chapterTitle,
-                    excerpt = excerpt,
-                    sequence = sequence,
+                    book, provenance, metadataRank, sectionRank, chapterCoordinate,
+                    chapterTitle, excerpt, sequence++,
                 )
-                sequence += 1
-                return
+            } else {
+                hits[book.coordinate] = existing.copy(
+                    book = if (book.createdAt > existing.book.createdAt) book else existing.book,
+                    provenance = existing.provenance + provenance,
+                    metadataRank = minOfNullable(existing.metadataRank, metadataRank),
+                    sectionRank = minOfNullable(existing.sectionRank, sectionRank),
+                    chapterCoordinate = existing.chapterCoordinate ?: chapterCoordinate,
+                    chapterTitle = existing.chapterTitle ?: chapterTitle,
+                    excerpt = existing.excerpt ?: excerpt,
+                )
             }
-
-            hits[book.coordinate] = existing.copy(
-                book = if (book.createdAt > existing.book.createdAt) book else existing.book,
-                provenance = existing.provenance + provenance,
-                metadataRank = minOfNullable(existing.metadataRank, metadataRank),
-                sectionRank = minOfNullable(existing.sectionRank, sectionRank),
-                chapterCoordinate = existing.chapterCoordinate ?: chapterCoordinate,
-                chapterTitle = existing.chapterTitle ?: chapterTitle,
-                excerpt = existing.excerpt ?: excerpt,
-            )
         }
 
-        exactEventResult?.await().orEmpty().forEachIndexed { index, event ->
-            mapIndexEvent(event)?.let { book -> record(book, setOf(MatchProvenance.EXACT_EVENT), metadataRank = index) }
+        exactEvents.forEachIndexed { index, event ->
+            mapIndexEvent(event)?.let { record(it, setOf(MatchProvenance.EXACT_EVENT), metadataRank = index) }
         }
-
         val publicationCoordinate = plan.publicationCoordinate
-        coordinateResult?.await().orEmpty().forEachIndexed { index, event ->
+        coordinateEvents.forEachIndexed { index, event ->
             val book = mapIndexEvent(event) ?: return@forEachIndexed
             if (publicationCoordinate != null && book.coordinate == publicationCoordinate.coordinate) {
                 record(book, setOf(MatchProvenance.EXACT_COORDINATE), metadataRank = index)
             }
         }
-
-        publicationSearchResults.awaitAll().forEachIndexed { searchIndex, events ->
+        publicationEventLists.forEachIndexed { searchIndex, publicationEvents ->
             val search = publicationSearches[searchIndex]
-            events.forEachIndexed { index, event ->
-                mapIndexEvent(event)?.let {
-                    book -> record(book, metadataProvenance(book, query.normalizedText, search.provenance), metadataRank = index)
+            publicationEvents.forEachIndexed { index, event ->
+                mapIndexEvent(event)?.let { book ->
+                    record(book, metadataProvenance(book, query.normalizedText, search.provenance), metadataRank = index)
                 }
             }
         }
 
         val sectionRanks = linkedMapOf<String, Int>()
-        plan.chapterCoordinate?.let { coordinate -> sectionRanks[coordinate.coordinate] = 0 }
-        exactEventResult?.await().orEmpty().forEachIndexed { index, event ->
-            publicationContentCoordinate(event)?.let { coordinate ->
-                sectionRanks.putIfAbsent(coordinate, index)
-            }
+        plan.chapterCoordinate?.let { sectionRanks[it.coordinate] = 0 }
+        exactEvents.forEachIndexed { index, event ->
+            publicationContentCoordinate(event)?.let { sectionRanks.putIfAbsent(it, index) }
         }
-        val sectionEvents = sectionSearchResult?.await().orEmpty()
-        val exactChapterEvents = exactChapterResult?.await().orEmpty()
-        exactChapterEvents.forEachIndexed { index, event ->
-            publicationContentCoordinate(event)?.let { coordinate -> sectionRanks[coordinate] = index }
+        chapterEvents.forEachIndexed { index, event ->
+            publicationContentCoordinate(event)?.let { sectionRanks[it] = index }
         }
         sectionEvents.forEachIndexed { index, event ->
-            publicationContentCoordinate(event)?.let { coordinate ->
-                sectionRanks.putIfAbsent(coordinate, index)
-            }
+            publicationContentCoordinate(event)?.let { sectionRanks.putIfAbsent(it, index) }
         }
 
         if (sectionRanks.isNotEmpty()) {
-            apiClient.getPublicationsReferencingChapters(
-                chapterCoordinates = sectionRanks.keys.toList(),
-                limit = SECTION_PUBLICATION_LIMIT,
-            ).forEachIndexed { index, event ->
+            val references = events(
+                runSearchBranch {
+                    apiClient.getPublicationsReferencingChapters(
+                        chapterCoordinates = sectionRanks.keys.toList(),
+                        limit = SECTION_PUBLICATION_LIMIT,
+                    )
+                },
+            )
+            references.forEachIndexed { index, event ->
                 val book = mapIndexEvent(event) ?: return@forEachIndexed
                 val sectionRank = book.chapterRefs.mapNotNull { sectionRanks[it.coordinate] }.minOrNull() ?: index
-                val sectionEvent = (sectionEvents + exactChapterEvents).firstOrNull {
+                val sectionEvent = (sectionEvents + chapterEvents).firstOrNull {
                     publicationContentCoordinate(it) in book.chapterRefs.map(ChapterReference::coordinate)
                 }
-                val chapterCoordinate = sectionEvent?.let(::publicationContentCoordinate)
-                val chapterTitle = sectionEvent?.let { firstTagValue(it.tags, "title") ?: firstTagValue(it.tags, "T") }
-                val excerpt = sectionEvent?.let { boundedExcerpt(it.content, plan.sectionQuery) }
-                val provenance = sectionEvent?.let { sectionProvenance(it, plan.sectionQuery) }
-                    ?: setOf(MatchProvenance.CHAPTER_BODY)
                 record(
-                    book,
-                    provenance,
+                    book = book,
+                    provenance = sectionEvent?.let { sectionProvenance(it, plan.sectionQuery) }
+                        ?: setOf(MatchProvenance.CHAPTER_BODY),
                     sectionRank = sectionRank,
-                    chapterCoordinate = chapterCoordinate,
-                    chapterTitle = chapterTitle,
-                    excerpt = excerpt,
+                    chapterCoordinate = sectionEvent?.let(::publicationContentCoordinate),
+                    chapterTitle = sectionEvent?.let {
+                        firstTagValue(it.tags, "title") ?: firstTagValue(it.tags, "T")
+                    },
+                    excerpt = sectionEvent?.let { boundedExcerpt(it.content, plan.sectionQuery) },
                 )
             }
         }
 
-        hits.values
+        val results = hits.values
             .sortedWith(
                 compareByDescending<SearchHit> { it.score }
                     .thenBy { it.sequence }
@@ -168,7 +195,18 @@ class MercuryBookRepository(
                     rank = rank,
                 )
             }
+
+        BookSearchOutcome(results, attempt.status, attempt.retryAfterMillis)
     }
+
+    private suspend fun <T> runSearchBranch(block: suspend () -> T): SearchBranch<T> =
+        try {
+            SearchBranch.Success(searchResilience.execute(block))
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: MercuryApiException) {
+            SearchBranch.Failure(exception)
+        }
 
     suspend fun getBook(eventId: String): BookDetail? {
         val indexEvent = apiClient.getEvent(eventId.lowercase(), BookKinds.PUBLICATION_INDEX) ?: return null
@@ -634,6 +672,8 @@ class MercuryBookRepository(
     }
 
     private companion object {
+        const val SEARCH_CACHE_TTL_MILLIS = 30_000L
+        const val MAX_SEARCH_CACHE_ENTRIES = 20
         const val MAX_SEARCH_RESULTS = 40
         const val MAX_SEARCH_QUERY_LENGTH = 256
         const val MAX_EXCERPT_LENGTH = 320
@@ -681,3 +721,71 @@ class MercuryBookRepository(
         fun canSearchSections(value: String): Boolean = value.trim().trim('"', '\'').length >= 4
     }
 }
+private sealed interface SearchBranch<out T> {
+    data class Success<T>(val value: T) : SearchBranch<T>
+    data class Failure(val exception: MercuryApiException) : SearchBranch<Nothing>
+}
+
+private class SearchAttempt {
+    private var successCount = 0
+    private var failureCount = 0
+    var retryAfterMillis: Long? = null
+        private set
+
+    val status: BookSearchStatus
+        get() = when {
+            failureCount == 0 -> BookSearchStatus.COMPLETE
+            successCount > 0 -> BookSearchStatus.PARTIAL
+            else -> BookSearchStatus.UNAVAILABLE
+        }
+
+    fun record(branch: SearchBranch<*>) {
+        when (branch) {
+            is SearchBranch.Success -> successCount += 1
+            is SearchBranch.Failure -> {
+                failureCount += 1
+                branch.exception.retryAfterMillis?.let {
+                    retryAfterMillis = maxOf(retryAfterMillis ?: 0, it)
+                }
+            }
+        }
+    }
+}
+
+private class BookSearchCache(
+    private val nowMillis: () -> Long,
+    private val ttlMillis: Long,
+    private val maxEntries: Int,
+) {
+    private data class Entry(val outcome: BookSearchOutcome, val expiresAtMillis: Long)
+    private val mutex = Mutex()
+    private val entries = linkedMapOf<BookSearchQuery, Entry>()
+
+    suspend fun get(query: BookSearchQuery): BookSearchOutcome? = mutex.withLock {
+        removeExpired()
+        entries[query]?.outcome
+    }
+
+    suspend fun put(query: BookSearchQuery, outcome: BookSearchOutcome) {
+        if (ttlMillis <= 0 || maxEntries <= 0) return
+        mutex.withLock {
+            removeExpired()
+            entries.remove(query)
+            while (entries.size >= maxEntries) entries.remove(entries.keys.first())
+            entries[query] = Entry(outcome, nowMillis() + ttlMillis)
+        }
+    }
+
+    private fun removeExpired() {
+        val now = nowMillis()
+        entries.entries.removeAll { it.value.expiresAtMillis <= now }
+    }
+}
+
+private fun BookSearchQuery.normalizedForCache(): BookSearchQuery =
+    copy(
+        text = normalizedText,
+        language = language?.trim()?.lowercase(Locale.US),
+        eventId = eventId?.lowercase(Locale.US),
+        coordinate = coordinate?.trim(),
+    )

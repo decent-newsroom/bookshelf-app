@@ -12,6 +12,7 @@ import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchQuery
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
+import eu.decentnewsroom.bookshelf.data.mercury.BookSearchStatus
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
@@ -26,6 +27,7 @@ import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,6 +51,7 @@ class BookshelfViewModel(
         ),
     )
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -111,7 +114,10 @@ class BookshelfViewModel(
     }
 
     fun selectTab(tab: BookshelfTab) {
-        _uiState.update { it.copy(tab = tab, selectedBook = null, error = null, isSearchOpen = false) }
+        searchJob?.cancel()
+        _uiState.update {
+            it.copy(tab = tab, selectedBook = null, error = null, isSearchOpen = false, isSearching = false)
+        }
     }
 
     fun openSearch() {
@@ -119,7 +125,8 @@ class BookshelfViewModel(
     }
 
     fun closeSearch() {
-        _uiState.update { it.copy(isSearchOpen = false) }
+        searchJob?.cancel()
+        _uiState.update { it.copy(isSearchOpen = false, isSearching = false) }
     }
 
     fun retryShelves() {
@@ -132,9 +139,11 @@ class BookshelfViewModel(
 
     fun submitSearch() {
         val query = _uiState.value.query.trim()
+        searchJob?.cancel()
         if (query.length < 2) {
             _uiState.update {
                 it.copy(
+                    isSearching = false,
                     searchMessage = "Enter at least two characters to search.",
                     searchResults = emptyList(),
                 )
@@ -142,24 +151,30 @@ class BookshelfViewModel(
             return
         }
 
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isSearching = true,
-                    searchMessage = null,
-                    error = null,
-                )
-            }
-
+        searchJob = viewModelScope.launch {
+            _uiState.update { it.copy(isSearching = true, searchMessage = null, error = null) }
             try {
-                val books = repository.search(BookSearchQuery.from(query))
+                val outcome = repository.searchOutcome(BookSearchQuery.from(query))
+                val message = when (outcome.status) {
+                    BookSearchStatus.COMPLETE ->
+                        if (outcome.results.isEmpty()) "No matching books." else null
+                    BookSearchStatus.PARTIAL ->
+                        if (outcome.results.isEmpty()) {
+                            "Mercury returned an incomplete response. Try again."
+                        } else {
+                            "Showing partial results; Mercury is temporarily busy."
+                        }
+                    BookSearchStatus.UNAVAILABLE -> "Mercury is temporarily busy. Try again shortly."
+                }
                 _uiState.update {
                     it.copy(
                         isSearching = false,
-                        searchResults = books,
-                        searchMessage = if (books.isEmpty()) "No matching books." else null,
+                        searchResults = outcome.results,
+                        searchMessage = message,
                     )
                 }
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: MercuryApiException) {
                 _uiState.update {
                     it.copy(

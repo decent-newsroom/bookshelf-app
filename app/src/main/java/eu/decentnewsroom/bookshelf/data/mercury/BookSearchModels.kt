@@ -82,3 +82,19 @@ data class BookSearchResult(
 ) {
     val summary: BookSummary get() = book
 }
+
+enum class BookSearchStatus {
+    COMPLETE,
+    PARTIAL,
+    UNAVAILABLE,
+}
+
+/**
+ * A search may return useful matches even when one Mercury branch is unavailable.
+ * Only complete outcomes are eligible for the repository's short-lived cache.
+ */
+data class BookSearchOutcome(
+    val results: List<BookSearchResult>,
+    val status: BookSearchStatus,
+    val retryAfterMillis: Long? = null,
+)

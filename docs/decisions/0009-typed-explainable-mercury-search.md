@@ -28,5 +28,5 @@ ordering. Saved books continue to persist only BookSummary.
 
 Search uses fewer requests and can explain chapter matches without fetching
 or rendering complete chapters. The current UI displays the provenance,
-chapter title, and excerpt. Retries, caching, latest-query cancellation,
-filter chips, and matched-chapter navigation remain follow-up work.
+chapter title, and excerpt. Search reliability is specified by ADR 0010. Filter chips and
+matched-chapter navigation remain follow-up work.

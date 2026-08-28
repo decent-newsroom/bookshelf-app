@@ -421,6 +421,62 @@ class MercuryBookRepositorySearchTest {
     }
 
     @Test
+    fun searchReturnsPartialMetadataResultsWhenSectionSearchGets503() = runBlocking {
+        val book = publicationEvent(
+            pubkey = testPubkey(1),
+            identifier = "partial-book",
+            title = "Partial Book",
+            author = "Writer",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:${testPubkey(1)}:chapter-one"),
+        )
+        val server = RecordingHttpServer { request ->
+            when (request.path) {
+                "/api/publications/search" -> eventListJson(book)
+                "/api/publications/sections/search" ->
+                    TestHttpResponse(503, "Service Unavailable", "", mapOf("Retry-After" to "3"))
+                else -> "[]"
+            }
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(
+                apiClient = MercuryApiClient(OkHttpClient(), server.baseUrl),
+                searchResilience = MercurySearchResilience(
+                    MercurySearchRetryConfig(maxAttempts = 1, cooldownThreshold = 10),
+                ),
+            )
+            val outcome = repository.searchOutcome(BookSearchQuery.from("partial book"))
+            assertEquals(BookSearchStatus.PARTIAL, outcome.status)
+            assertEquals(listOf("Partial Book"), outcome.results.map { it.book.title })
+            assertEquals(3_000L, outcome.retryAfterMillis)
+        }
+    }
+
+    @Test
+    fun completeSearchOutcomeIsCachedForRepeatedNormalizedQuery() = runBlocking {
+        val book = publicationEvent(
+            pubkey = testPubkey(2),
+            identifier = "cached-book",
+            title = "Cached Book",
+            author = "Writer",
+            chapterCoordinates = listOf("${BookKinds.PUBLICATION_CONTENT}:${testPubkey(2)}:chapter-one"),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(book) else "[]"
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val first = repository.searchOutcome(BookSearchQuery.from("  cached book  "))
+            val second = repository.searchOutcome(BookSearchQuery.from("cached book"))
+            assertEquals(BookSearchStatus.COMPLETE, first.status)
+            assertEquals(first, second)
+            assertEquals(1, server.requests.count { it.path == "/api/publications/search" })
+            assertEquals(1, server.requests.count { it.path == "/api/publications/sections/search" })
+        }
+    }
+
+    @Test
     fun searchInfersGutenbergCoverFromPublicationIdentifier() = runBlocking {
         val pubkey = testPubkey(5)
         val book = publicationEvent(
@@ -444,7 +500,7 @@ class MercuryBookRepositorySearchTest {
     }
 
     private class RecordingHttpServer(
-        private val responder: (RecordedHttpRequest) -> String,
+        private val responder: (RecordedHttpRequest) -> Any,
     ) : Closeable {
         private val closed = AtomicBoolean(false)
         private val socket = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
@@ -510,10 +566,19 @@ class MercuryBookRepositorySearchTest {
                 )
                 requests += request
 
-                val body = responder(request).toByteArray(Charsets.UTF_8)
+                val response = when (val raw = responder(request)) {
+                    is String -> TestHttpResponse(200, "OK", raw)
+                    is TestHttpResponse -> raw
+                    else -> error("Unsupported test response")
+                }
+                val body = response.body.toByteArray(Charsets.UTF_8)
+                val extraHeaders = response.headers.entries.joinToString(separator = "") {
+                    "${it.key}: ${it.value}\r\n"
+                }
                 val headers =
-                    "HTTP/1.1 200 OK\r\n" +
+                    "HTTP/1.1 ${response.statusCode} ${response.reason}\r\n" +
                         "Content-Type: application/json\r\n" +
+                        extraHeaders +
                         "Content-Length: ${body.size}\r\n" +
                         "Connection: close\r\n" +
                         "\r\n"
@@ -524,6 +589,13 @@ class MercuryBookRepositorySearchTest {
             }
         }
     }
+
+    private data class TestHttpResponse(
+        val statusCode: Int,
+        val reason: String,
+        val body: String,
+        val headers: Map<String, String> = emptyMap(),
+    )
 
     private data class RecordedHttpRequest(
         val path: String,

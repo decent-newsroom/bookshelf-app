@@ -8,7 +8,7 @@ This directory records architectural context and implementation decisions that s
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) covers local development, verification, and release mechanics.
 - [`SEARCH_IMPROVEMENT_PROPOSAL.md`](SEARCH_IMPROVEMENT_PROPOSAL.md) records the Mercury search and 503-resilience refactor, with implemented and follow-up slices called out.
 - [`decisions/`](decisions/) contains architecture decision records (ADRs) explaining why consequential choices were made.
-- ADR 0009 records the accepted typed, explainable Mercury search boundary.
+- ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching.
 
 ## Keeping These Notes Current
 

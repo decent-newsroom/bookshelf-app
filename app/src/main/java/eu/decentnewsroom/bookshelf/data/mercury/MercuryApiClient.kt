@@ -18,8 +18,15 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
-class MercuryApiException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+class MercuryApiException(
+    message: String,
+    cause: Throwable? = null,
+    val statusCode: Int? = null,
+    val retryAfterMillis: Long? = null,
+) : RuntimeException(message, cause)
 
 data class PublicationCoordinate(val pubkey: String, val identifier: String) {
     val coordinate: String get() = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$identifier"
@@ -109,7 +116,7 @@ class MercuryApiClient(
                         return@withContext null
                     }
                     if (!response.isSuccessful) {
-                        throw MercuryApiException("Mercury returned HTTP ${response.code}.")
+                        throw response.toMercuryApiException()
                     }
 
                     decodeEvent(response.body.readLimitedUtf8(), eventId, expectedKind)
@@ -283,7 +290,7 @@ class MercuryApiClient(
             try {
                 httpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw MercuryApiException("Mercury returned HTTP ${response.code}.")
+                        throw response.toMercuryApiException()
                     }
 
                     decodeEventList(response.body.readLimitedUtf8(), expectedKind).filter { event ->
@@ -342,6 +349,32 @@ class MercuryApiClient(
     }
 
     private fun url(path: String): String = baseUrl + path
+
+    private fun okhttp3.Response.toMercuryApiException(): MercuryApiException =
+        MercuryApiException(
+            message = "Mercury returned HTTP $code.",
+            statusCode = code,
+            retryAfterMillis = if (code == HTTP_SERVICE_UNAVAILABLE) retryAfterMillis() else null,
+        )
+
+    private fun okhttp3.Response.retryAfterMillis(): Long? {
+        val value = header("Retry-After")?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        value.toLongOrNull()?.let { seconds ->
+            if (seconds < 0) return null
+            return if (seconds > Long.MAX_VALUE / MILLIS_PER_SECOND) {
+                Long.MAX_VALUE
+            } else {
+                seconds * MILLIS_PER_SECOND
+            }
+        }
+
+        val retryAtMillis = runCatching {
+            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
+                .toInstant()
+                .toEpochMilli()
+        }.getOrNull() ?: return null
+        return (retryAtMillis - System.currentTimeMillis()).coerceAtLeast(0)
+    }
 
     private fun okhttp3.ResponseBody.readLimitedUtf8(): String {
         if (contentLength() > MAX_HTTP_RESPONSE_BYTES) {
@@ -428,6 +461,8 @@ class MercuryApiClient(
         const val FILTER_BATCH_SIZE = 100
         const val MAX_SEARCH_LENGTH = 256
         const val MAX_HTTP_RESPONSE_BYTES = 8L * 1024 * 1024
+        const val HTTP_SERVICE_UNAVAILABLE = 503
+        const val MILLIS_PER_SECOND = 1_000L
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }

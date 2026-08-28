@@ -1,6 +1,6 @@
 # Mercury Search Improvement Proposal
 
-- Status: Partially implemented; reliability and UI follow-ups remain
+- Status: Query/result and reliability slices implemented; filter and navigation follow-ups remain
 - Date: 2026-08-28
 - API reference: [Mercury/swagger.json](Mercury/swagger.json), Mercury Index-Relay 0.2.30
 
@@ -8,15 +8,13 @@
 
 Improve search relevance and explainability while reducing avoidable Mercury API load and making searches useful during transient 503 Service Unavailable responses.
 
-The typed query/result-model slice is implemented. ARCHITECTURE.md remains the source of truth for current behavior; see ADR 0009. Reliability, filters, and matched-chapter navigation below remain follow-up planning.
+The typed query/result-model and 503-resilience slices are implemented. ARCHITECTURE.md remains the source of truth for current behavior; see ADRs 0009 and 0010. Filter chips and matched-chapter navigation remain follow-up planning.
 
 ## Current Behavior
 
-MercuryBookRepository.search builds a SearchPlan from raw text. An ordinary query may fan out into concurrent publication requests for q, title, author, identifier, d, subject, and language, plus section search. Matching kind 30041 sections are resolved back to kind 30040 publication indexes through bounded #a filters.
+MercuryBookRepository builds a typed SearchPlan. An ordinary eligible query issues one publication q request and one section request; kind 30041 hits are resolved to kind 30040 indexes only when needed. Results retain provenance, matched-chapter context, bounded excerpts, and deterministic fused ranking.
 
-The repository deduplicates and ranks publications but returns only BookSummary, losing whether a result matched metadata, a chapter title, or chapter content. Advanced prefixes such as author: and language: exist but are not clearly exposed in the UI.
-
-The parallel work uses a regular coroutineScope. One failed request, including one 503, can cancel the complete search even if another endpoint returned valid results. Superseded and repeated queries are not cancelled, cached, or globally concurrency-limited.
+Independent branches are supervised and reported as complete, partial, or unavailable. Search-only Mercury calls share a two-request process-wide concurrency gate, one bounded 503 retry with jitter and Retry-After support, and a short cooldown after repeated 503 responses. Complete normalized outcomes are cached in memory for 30 seconds with a 20-entry ceiling. BookshelfViewModel cancels superseded or closed searches so stale work cannot overwrite newer state.
 
 ## Mercury Capabilities and Limits
 
@@ -35,7 +33,7 @@ The specification has no cursor, offset, total count, highlights, or snippets. S
 Implemented in the first search-model slice: typed BookSearchQuery/SearchScope,
 single metadata q plus eligible section request, exact coordinate routing,
 expected-kind checks, deterministic merging, provenance, and bounded verified
-section excerpts. Retries, cancellation, caching, and UI filter chips remain
+section excerpts. UI filter chips and matched-chapter navigation remain
 unimplemented.
 
 Replace repository-specific raw-text heuristics with a typed request representing:
@@ -75,7 +73,7 @@ Preserve Mercury ordering inside each response. Merge metadata and section chann
 
 Search must not fetch every chapter or render chapter content. BookshelfViewModel.openBook remains the full chapter-loading and rendering boundary.
 
-### 4. 503 and Transient-Failure Resilience
+### 4. 503 and Transient-Failure Resilience (Implemented)
 
 Reducing fan-out is the primary load reduction. The first implementation slice should also:
 
@@ -101,14 +99,14 @@ Distinguish complete results, partial results, Mercury busy/retrying, total unav
 
 ## Delivery Slices
 
-### Slice 1: Reliability and Request Reduction
+### Slice 1: Reliability and Request Reduction (Implemented)
 
 - Typed query planning and reduced fan-out.
 - Exact coordinate filtering and expected-kind checks at the Mercury boundary.
 - Latest-query cancellation, supervised partial results, bounded 503 retry/backoff, concurrency limiting, cooldown, and in-memory caching.
 - Existing result-card UI retained initially.
 
-### Slice 2: Explainable Results and Filters
+### Slice 2: Explainable Results and Filters (Partially Implemented)
 
 - BookSearchResult, provenance, bounded excerpts, and deterministic rank fusion.
 - Search scope chips, language filtering, exact-phrase help, and partial-result messages.
