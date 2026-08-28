@@ -150,6 +150,7 @@ class MercuryBookRepository(
         }
 
         if (sectionRanks.isNotEmpty()) {
+            val matchedSectionEvents = exactEvents + chapterEvents + sectionEvents
             val references = events(
                 runSearchBranch {
                     apiClient.getPublicationsReferencingChapters(
@@ -161,7 +162,7 @@ class MercuryBookRepository(
             references.forEachIndexed { index, event ->
                 val book = mapIndexEvent(event) ?: return@forEachIndexed
                 val sectionRank = book.chapterRefs.mapNotNull { sectionRanks[it.coordinate] }.minOrNull() ?: index
-                val sectionEvent = (sectionEvents + chapterEvents).firstOrNull {
+                val sectionEvent = matchedSectionEvents.firstOrNull {
                     publicationContentCoordinate(it) in book.chapterRefs.map(ChapterReference::coordinate)
                 }
                 record(

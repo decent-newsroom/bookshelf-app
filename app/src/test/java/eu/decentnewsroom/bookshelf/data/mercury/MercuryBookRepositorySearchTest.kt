@@ -240,6 +240,7 @@ class MercuryBookRepositorySearchTest {
             val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
             val results = repository.search(BookSearchQuery(eventId = chapterId))
             assertEquals("Resolved Book", results.single().book.title)
+            assertEquals(coordinate, results.single().matchedChapterCoordinate)
             assertEquals("Exact Chapter", results.single().matchedChapterTitle)
         }
     }
