@@ -28,6 +28,49 @@ class MercuryBookRepositorySearchTest {
     private val signingKeys = (1..6).associate { marker -> testPubkey(marker) to ByteArray(32) { marker.toByte() } }
 
     @Test
+    fun preferredBooksApiIsUsedBeforeMercuryFallback() = runBlocking {
+        val preferredBook = publicationEvent(testPubkey(1), "preferred-book", "Preferred Book", "Author", emptyList())
+        val fallbackBook = publicationEvent(testPubkey(2), "fallback-book", "Fallback Book", "Author", emptyList())
+        val preferred = RecordingHttpServer { eventListJson(preferredBook) }
+        val fallback = RecordingHttpServer { eventListJson(fallbackBook) }
+
+        preferred.use {
+            fallback.use {
+                val repository = MercuryBookRepository(
+                    MercuryApiClient(OkHttpClient(), preferred.baseUrl + "/books", listOf(fallback.baseUrl)),
+                )
+
+                assertEquals(listOf("Preferred Book"), repository.search("title: Preferred").map { it.title })
+                assertEquals("/books/api/publications/search", preferred.requests.single().path)
+                assertTrue(fallback.requests.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun mercuryFallbackServesWhenPreferredBooksApiReturns5xx() = runBlocking {
+        val fallbackBook = publicationEvent(testPubkey(1), "fallback-book", "Fallback Book", "Author", emptyList())
+        val preferred = RecordingHttpServer { TestHttpResponse(503, "Service Unavailable", "{}") }
+        val fallback = RecordingHttpServer { eventListJson(fallbackBook) }
+
+        preferred.use {
+            fallback.use {
+                val repository = MercuryBookRepository(
+                    MercuryApiClient(OkHttpClient(), preferred.baseUrl + "/books", listOf(fallback.baseUrl)),
+                )
+
+                assertEquals(listOf("Fallback Book"), repository.search("title: Fallback").map { it.title })
+                assertEquals(1, preferred.requests.size)
+                assertEquals("/api/publications/search", fallback.requests.single().path)
+            }
+        }
+    }
+
+    @Test
+    fun apiEndpointDoesNotImplyWebSocketRelay() {
+        assertEquals(null, MercuryApiClient(OkHttpClient(), "https://decentnewsroom.com/books").getRelayHint())
+    }
+    @Test
     fun searchUsesPublicationAndSectionEndpoints() = runBlocking {
         val query = "hidden needle"
         val metadataPubkey = testPubkey(1)

@@ -20,7 +20,8 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 object AppGraph {
-    private const val MERCURY_BASE_URL = "https://mercury-relay.imwald.eu"
+    private const val DECENT_NEWSROOM_BOOKS_API_BASE_URL = "https://decentnewsroom.com/books"
+    private const val MERCURY_FALLBACK_API_BASE_URL = "https://mercury-relay.imwald.eu"
     private const val MERCURY_RELAY_URL = "wss://mercury-relay.imwald.eu"
 
     private val defaultRelays =
@@ -89,7 +90,9 @@ object AppGraph {
             mercuryBooksStore = MercuryBookRepository(
                 apiClient = MercuryApiClient(
                     httpClient = httpClient,
-                    mercuryApiBaseUrl = MERCURY_BASE_URL,
+                    mercuryApiBaseUrl = DECENT_NEWSROOM_BOOKS_API_BASE_URL,
+                    fallbackApiBaseUrls = listOf(MERCURY_FALLBACK_API_BASE_URL),
+                    relayHint = MERCURY_RELAY_URL,
                 ),
                 chapterEventSource = PersistentNostrChapterSource(
                     httpClient = httpClient,

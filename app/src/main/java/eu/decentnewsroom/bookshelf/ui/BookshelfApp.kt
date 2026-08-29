@@ -510,7 +510,7 @@ private fun SettingsScreen(
             }
         }
 
-        Notice("Mercury search: https://mercury-relay.imwald.eu")
+        Notice("Books search: https://decentnewsroom.com/books/api (Mercury fallback available)")
         Text(
             text = "Chapter sources",
             style = MaterialTheme.typography.titleMedium,

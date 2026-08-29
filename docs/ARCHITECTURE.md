@@ -24,6 +24,14 @@ chapter-content scope selects only the section request. Exact publication and
 chapter coordinates use author-plus-`#d` filters, never a broad author
 window.
 
+HTTP requests use an ordered API chain. The preferred endpoint is
+`https://decentnewsroom.com/books/api`; the legacy Mercury API remains an
+HTTPS fallback for transport failures and HTTP 5xx responses. A successful
+HTTP response, including an empty result or 4xx validation failure, is
+authoritative and does not issue a duplicate request. The preferred endpoint
+is HTTP-only: it is never converted into a WebSocket relay URL. Chapter relay
+connections remain governed solely by the separate chapter-source settings.
+
 Mercury search responses are accepted only for kinds 30040 (publication
 indexes) and 30041 (chapter sections). Results retain provenance, an optional
 matched chapter coordinate/title, and a maximum 320-character excerpt derived
@@ -142,6 +150,7 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0008-untrusted-content-navigation-and-cover-privacy.md`](decisions/0008-untrusted-content-navigation-and-cover-privacy.md)
 - [`decisions/0009-typed-explainable-mercury-search.md`](decisions/0009-typed-explainable-mercury-search.md)
 - [`decisions/0010-resilient-mercury-search.md`](decisions/0010-resilient-mercury-search.md)
+- [`decisions/0011-preferred-books-api-with-mercury-fallback.md`](decisions/0011-preferred-books-api-with-mercury-fallback.md)
 
 ## Curated Discovery Shelves
 

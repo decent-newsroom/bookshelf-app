@@ -4,6 +4,7 @@ import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import eu.decentnewsroom.bookshelf.data.nostr.NostrEventContext
 import eu.decentnewsroom.bookshelf.data.nostr.NostrEventVerifier
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -18,6 +19,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -36,8 +38,32 @@ data class PublicationCoordinate(val pubkey: String, val identifier: String) {
 class MercuryApiClient(
     private val httpClient: OkHttpClient,
     mercuryApiBaseUrl: String,
+    fallbackApiBaseUrls: List<String> = emptyList(),
+    private val relayHint: String? = null,
 ) {
     private val baseUrl = mercuryApiBaseUrl.trimEnd('/')
+    private val apiBaseUrls = (listOf(baseUrl) + fallbackApiBaseUrls.map { it.trimEnd('/') }).distinct()
+    private val endpointHttpClient =
+        httpClient.newBuilder().addInterceptor { chain ->
+            val original = chain.request()
+            var lastFailure: Throwable? = null
+            for ((index, endpoint) in apiBaseUrls.withIndex()) {
+                val request = if (index == 0) original else original.withApiBaseUrl(endpoint)
+                try {
+                    val response = chain.proceed(request)
+                    if (response.code !in 500..599 || index == apiBaseUrls.lastIndex) {
+                        return@addInterceptor response
+                    }
+                    response.close()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    lastFailure = exception
+                    if (index == apiBaseUrls.lastIndex) throw exception
+                }
+            }
+            throw checkNotNull(lastFailure)
+        }.build()
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -111,7 +137,7 @@ class MercuryApiClient(
                     .build()
 
             try {
-                httpClient.newCall(request).execute().use { response ->
+                endpointHttpClient.newCall(request).execute().use { response ->
                     if (response.code == 404) {
                         return@withContext null
                     }
@@ -222,21 +248,8 @@ class MercuryApiClient(
         )
     }
 
-    fun getRelayHint(): String? {
-        val scheme =
-            when {
-                baseUrl.startsWith("https://") -> "wss://"
-                baseUrl.startsWith("http://") -> "ws://"
-                baseUrl.startsWith("wss://") -> "wss://"
-                baseUrl.startsWith("ws://") -> "ws://"
-                else -> return null
-            }
-
-        val withoutScheme = baseUrl.substringAfter("://")
-        val hostAndPort = withoutScheme.substringBefore("/")
-
-        return scheme + hostAndPort
-    }
+    /** API endpoints do not imply a corresponding WebSocket relay. */
+    fun getRelayHint(): String? = relayHint
 
     private suspend fun getEventsByIdsAndKind(eventIds: List<String>, kind: Int): List<NostrEvent> {
         val normalized = eventIds.normalizedHexKeys()
@@ -288,7 +301,7 @@ class MercuryApiClient(
     ): List<NostrEvent> =
         withContext(Dispatchers.IO) {
             try {
-                httpClient.newCall(request).execute().use { response ->
+                endpointHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw response.toMercuryApiException()
                     }
@@ -348,8 +361,18 @@ class MercuryApiClient(
         }
     }
 
-    private fun url(path: String): String = baseUrl + path
+    private fun Request.withApiBaseUrl(apiBaseUrl: String): Request {
+        val fallbackBase = apiBaseUrl.toHttpUrl()
+        val primaryPath = baseUrl.toHttpUrl().encodedPath.trimEnd('/')
+        val suffix = url.encodedPath.removePrefix(primaryPath).ifBlank { "/" }
+        val target = fallbackBase.newBuilder()
+            .encodedPath(fallbackBase.encodedPath.trimEnd('/') + suffix)
+            .query(url.encodedQuery)
+            .build()
+        return newBuilder().url(target).build()
+    }
 
+    private fun url(path: String): String = baseUrl + path
     private fun okhttp3.Response.toMercuryApiException(): MercuryApiException =
         MercuryApiException(
             message = "Mercury returned HTTP $code.",
