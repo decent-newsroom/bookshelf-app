@@ -26,9 +26,9 @@ object AppGraph {
 
     private val defaultRelays =
         listOf(
-            MERCURY_RELAY_URL,
-            "wss://nos.lol",
-            "wss://relay.damus.io",
+            "wss://relay.decentnewsroom.com",
+            "wss://thecitadel.nostr1.com",
+            "wss://pipe.imwald.eu",
         )
 
     private val httpClient =
