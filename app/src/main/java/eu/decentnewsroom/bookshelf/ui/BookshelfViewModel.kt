@@ -206,12 +206,15 @@ class BookshelfViewModel(
             try {
                 val detail = chapterHtmlCache.renderBook(repository.getBook(book))
                 val cacheStats = chapterHtmlCache.stats()
+                if (localBookshelf.isSaved(detail.summary.coordinate)) {
+                    readerSettings.recordBookOpened(detail)
+                }
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false,
                         selectedBook = detail,
                         chapterCacheStats = cacheStats,
-                        error = if (detail == null) "Book not available." else null,
+                        error = null,
                     )
                 }
             } catch (exception: MercuryApiException) {
@@ -769,6 +772,19 @@ data class BookshelfUiState(
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
     val isClearingChapterCache: Boolean = false,
 )
+
+data class ContinueReadingBook(
+    val book: BookSummary,
+    val progress: ReadingProgress,
+)
+
+internal fun mostRecentlyOpenedSavedBook(
+    savedBooks: List<BookSummary>,
+    readingProgress: Map<String, ReadingProgress>,
+): ContinueReadingBook? =
+    savedBooks
+        .mapNotNull { book -> readingProgress[book.coordinate]?.let { ContinueReadingBook(book, it) } }
+        .maxByOrNull { it.progress.updatedAtMillis }
 
 /** Compares user-editable tags while allowing required publish-only metadata. */
 internal fun hasExpectedEditableDirectoryTags(

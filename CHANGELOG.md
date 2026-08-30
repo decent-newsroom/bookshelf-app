@@ -5,8 +5,9 @@ All notable user-facing changes to Bookshelf are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.1.12
 
+- Add a Home **Continue reading** card for the most recently opened saved book, including durable chapter progress and resume behavior.
 - Fix signed local bookshelf directories being rejected before publication because their required publish-only metadata was compared as an editable collection tag.
 - Add an explicit, retryable **Sync to relays** action for publishing the current local My Books directory after signer or relay failures, while retaining a separate pull action.
 

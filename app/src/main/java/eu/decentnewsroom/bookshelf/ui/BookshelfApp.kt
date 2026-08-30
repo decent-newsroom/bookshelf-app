@@ -254,6 +254,10 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         state.tab == BookshelfTab.Home -> HomeScreen(
                             shelves = state.curatedShelves,
                             isLoading = state.isLoadingShelves,
+                            continueReading = mostRecentlyOpenedSavedBook(
+                                savedBooks = state.savedBooks,
+                                readingProgress = state.readingProgress,
+                            ),
                             message = state.shelfMessage,
                             profileName = state.nostrProfile?.preferredName,
                             onSearch = viewModel::openSearch,
@@ -308,6 +312,7 @@ private fun BookshelfBottomBar(
 private fun HomeScreen(
     shelves: List<CuratedShelf>,
     isLoading: Boolean,
+    continueReading: ContinueReadingBook?,
     message: String?,
     profileName: String?,
     onSearch: () -> Unit,
@@ -328,6 +333,7 @@ private fun HomeScreen(
                 TextButton(onClick = onSearch) { Text("Search") }
             }
         }
+        continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }) } }
         if (isLoading && shelves.isEmpty()) item { LoadingInline("Loading shelves...") }
         message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); TextButton(onClick = onRetry) { Text("Retry") } } } }
         shelves.forEach { shelf ->
@@ -338,6 +344,59 @@ private fun HomeScreen(
                         items(shelf.books, key = BookSummary::coordinate) { book -> ShelfBookCard(book, onOpen = { onOpen(book) }) }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueReadingCard(
+    continueReading: ContinueReadingBook,
+    onOpen: () -> Unit,
+) {
+    val book = continueReading.book
+    val progress = continueReading.progress
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BookCover(book, Modifier.size(width = 64.dp, height = 92.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "Continue reading",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                LinearProgressIndicator(
+                    progress = { progress.progressFraction.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(999.dp)),
+                )
+                Text(
+                    text = "Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
         }
     }

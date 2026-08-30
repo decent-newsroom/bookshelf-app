@@ -72,6 +72,31 @@ class ReaderSettingsStore(context: Context) {
         saveProgress(progress)
     }
 
+
+    /** Records a saved book as the reader's most recently opened book. */
+    fun recordBookOpened(book: BookDetail) {
+        val chapterCount = book.chapters.size
+        if (chapterCount <= 0) {
+            return
+        }
+
+        val coordinate = book.summary.coordinate
+        val existing = _progress.value[coordinate]
+        val next = ReadingProgress(
+            bookCoordinate = coordinate,
+            currentChapterIndex = normalizedReaderChapterIndex(
+                existing?.currentChapterIndex ?: 0,
+                chapterCount,
+            ),
+            chapterCount = chapterCount,
+            updatedAtMillis = System.currentTimeMillis(),
+        )
+        val progress = _progress.value.toMutableMap()
+        progress[coordinate] = next
+        _progress.value = progress
+        saveProgress(progress)
+    }
+
     private fun updateReaderPreferences(update: (ReaderPreferences) -> ReaderPreferences) {
         val next = update(_readerPreferences.value)
         _readerPreferences.value = next
