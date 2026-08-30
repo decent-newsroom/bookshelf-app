@@ -204,7 +204,7 @@ class BookshelfViewModel(
             }
 
             try {
-                val detail = repository.getBook(book.id)?.let { chapterHtmlCache.renderBook(it) }
+                val detail = chapterHtmlCache.renderBook(repository.getBook(book))
                 val cacheStats = chapterHtmlCache.stats()
                 _uiState.update {
                     it.copy(
@@ -221,6 +221,16 @@ class BookshelfViewModel(
                         error = exception.message ?: "Mercury is unavailable.",
                     )
                 }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingBook = false,
+                        error = "Could not open this book.",
+                    )
+                }
+
             }
         }
     }

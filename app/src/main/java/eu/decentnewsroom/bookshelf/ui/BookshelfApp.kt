@@ -265,6 +265,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             books = state.savedBooks,
                             savedCoordinates = state.savedCoordinates,
                             onOpen = viewModel::openBook,
+                            error = state.error,
                             onToggleSaved = viewModel::toggleSaved,
                         )
 
@@ -452,6 +453,7 @@ private fun MyBooksScreen(
     books: List<BookSummary>,
     savedCoordinates: Set<String>,
     onOpen: (BookSummary) -> Unit,
+    error: String?,
     onToggleSaved: (BookSummary) -> Unit,
 ) {
     if (books.isEmpty()) {
@@ -478,6 +480,7 @@ private fun MyBooksScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            error?.let { Notice(it) }
         }
 
         items(books, key = BookSummary::coordinate) { book ->

@@ -213,6 +213,14 @@ class MercuryBookRepository(
     suspend fun getBook(eventId: String): BookDetail? {
         val indexEvent = apiClient.getEvent(eventId.lowercase(), BookKinds.PUBLICATION_INDEX) ?: return null
         val book = mapIndexEvent(indexEvent) ?: return null
+        return getBook(book)
+    }
+
+    /**
+     * Opens an already-resolved publication index without requiring its event to be mirrored by Mercury.
+     * This lets independently published books saved through a verified relay retain their chapter relay hints.
+     */
+    suspend fun getBook(book: BookSummary): BookDetail {
         val refs = book.chapterRefs.take(MAX_CHAPTERS)
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()

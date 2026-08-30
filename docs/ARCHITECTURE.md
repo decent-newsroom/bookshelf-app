@@ -63,7 +63,7 @@ server capacity.
 
 Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.
 
-1. Load and map the kind `30040` publication index through `MercuryApiClient` and `MercuryBookRepository`.
+1. Open the already-resolved kind `30040` publication index. Search and Home summaries originate from Mercury; My Books may originate from a verified bookshelf relay, so opening never requires Mercury to mirror the same index event.
 2. Ask `PersistentNostrChapterSource` for the referenced kind `30041` chapter events.
 3. Query configured relays plus valid `wss://` hints from the publication's chapter `a` tags by event ID and by author/`d`-tag coordinate. Merge duplicate results by coordinate, keeping the newest `created_at` value.
 4. Use Mercury HTTP only for references not resolved by relays. A chapter HTTP failure does not discard chapters already received over WebSocket.
