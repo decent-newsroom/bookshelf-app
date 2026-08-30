@@ -30,7 +30,8 @@ HTTPS fallback for transport failures and HTTP 5xx responses. A successful
 HTTP response, including an empty result or 4xx validation failure, is
 authoritative and does not issue a duplicate request. The preferred endpoint
 is HTTP-only: it is never converted into a WebSocket relay URL. Chapter relay
-connections remain governed solely by the separate chapter-source settings.
+connections use the separate chapter-source settings as their baseline, with
+valid relay hints from the loaded publication index added for that fetch.
 
 Mercury search responses are accepted only for kinds 30040 (publication
 indexes) and 30041 (chapter sections). Results retain provenance, an optional
@@ -64,7 +65,7 @@ Search and curated-shelf publication lookup use the Mercury HTTP API. My Books r
 
 1. Load and map the kind `30040` publication index through `MercuryApiClient` and `MercuryBookRepository`.
 2. Ask `PersistentNostrChapterSource` for the referenced kind `30041` chapter events.
-3. Query configured relays by event ID and by author/`d`-tag coordinate. Merge duplicate results by coordinate, keeping the newest `created_at` value.
+3. Query configured relays plus valid `wss://` hints from the publication's chapter `a` tags by event ID and by author/`d`-tag coordinate. Merge duplicate results by coordinate, keeping the newest `created_at` value.
 4. Use Mercury HTTP only for references not resolved by relays. A chapter HTTP failure does not discard chapters already received over WebSocket.
 5. Map events into `BookChapter` values. Missing events remain explicit unavailable chapters so publication order is preserved.
 6. Render available AsciiDoc chapters and cache the HTML before exposing the `BookDetail` to the reader UI.
@@ -75,7 +76,7 @@ The reader's publication index and chapter relay path remains separate from the 
 
 `PersistentNostrChapterSource` maintains one OkHttp WebSocket per active relay URL. Connections are reused across book loads and kept alive by the shared client's ping interval. Each fetch creates an independent Nostr subscription and sends `CLOSE` for that subscription after `EOSE` or timeout; it does not close the underlying socket. The directory/profile relay client has a signer-neutral NIP-42 authentication boundary: it recognizes `AUTH` challenges, stores them without prompting the signer, and can perform one lazy authenticated retry for a protected publish or read when an authenticator is injected.
 
-Concurrent subscriptions are multiplexed by subscription ID. A connection failure completes affected subscriptions, and the next fetch attempts a fresh connection. When settings are changed, the current relay list is read on the next chapter fetch; removed connections are then closed and newly configured connections are created on demand.
+Concurrent subscriptions are multiplexed by subscription ID. A connection failure completes affected subscriptions, and the next fetch attempts a fresh connection. When settings are changed, the current relay list is read on the next chapter fetch; removed connections are then closed and newly configured connections are created on demand. Each fetch adds normalized, valid `wss://` hints from its chapter `a` tags after the configured list, deduplicates them, and caps the combined list at eight relays. Invalid hints are ignored.
 
 Chapter relay defaults are:
 
@@ -83,7 +84,7 @@ Chapter relay defaults are:
 - `wss://thecitadel.nostr1.com`
 - `wss://njump.me`
 
-`ChapterSourceSettingsStore` persists the ordered list in app-private `SharedPreferences`. Settings accepts up to eight `wss://` URLs, normalizes and deduplicates entries, and allows an empty list to disable relay chapter loading while retaining Mercury HTTPS fallback.
+`ChapterSourceSettingsStore` persists the ordered list in app-private `SharedPreferences`. Settings accepts up to eight `wss://` URLs and normalizes and deduplicates entries. An empty saved list falls back to the built-in chapter relay defaults; valid publication hints are then appended within the same eight-relay limit.
 
 Chapter relays are separate from the relays used for kind `30045` bookshelf-directory synchronization. The two features have different settings, event kinds, failure behavior, and connection lifecycles.
 
@@ -111,19 +112,19 @@ platform URI handler, the reader shows the normalized destination host and
 requires an explicit confirmation. Malformed, cleartext, custom-scheme,
 relative, and user-info URLs are ignored safely.
 
-Cover art is an automatic network request, so author-provided `image` tags are
-accepted only when they are HTTPS URLs on the explicit Gutenberg host allowlist
-(`gutenberg.org`, `www.gutenberg.org`, `images.gutenberg.org`, or
-`aleph.gutenberg.org`). Rejected or missing cover URLs leave the monogram
-fallback visible. Inferred Project Gutenberg covers continue to use the
-trusted `www.gutenberg.org` endpoint. This policy does not add permissions or
-make arbitrary author hosts reachable by the image loader.
+Cover art is an automatic network request. A kind `30040` publication's
+`image` tag takes precedence over inferred Project Gutenberg artwork when it
+is an absolute HTTPS URL with a host and no user-info. This supports complete
+independent publication indexes such as ones that provide a publisher-hosted
+cover. Rejected or missing image URLs leave the monogram fallback visible;
+Gutenberg indexes without an image tag continue to infer the standard
+`www.gutenberg.org` cover URL.
 
 ## Saved Books and Nostr Identity
 
 Saved-book state is device-local and does not require a Nostr login. `LocalBookshelfStore` atomically persists normalized directory tags and the corresponding `BookSummary` values under `context.filesDir/bookshelf/local-v1.json`; My Books is restored on process restart and remains intact on sign-out or relay failure.
 
-With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its default outbound relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`; user relay-list discovery is not yet implemented. Saving or removing a book commits locally before requesting a signature. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
+With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its default outbound relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`; user relay-list discovery is not yet implemented. Saving or removing a book commits locally before requesting a signature. Published directory drafts contain exactly one `client` tag with the value `Bookshelf`; it is metadata only and is not persisted with the editable collection tags. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
 
 NIP-42 authentication is represented by `NostrRelayAuthenticator`, which signs
 canonical kind `22242` drafts containing exactly the relay and challenge tags.
@@ -145,7 +146,7 @@ The app opts into explicit backup rules for both supported Android generations. 
 
 ## Verification Notes
 
-The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules and Nostr request construction. `ChapterLinkPolicyTest` and `TrustedCoverImagePolicyTest` cover untrusted navigation and automatic-cover host filtering. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup, partial 503 outcomes, the short search cache, and the no-chapter-fetch discovery invariant. `MercurySearchResilienceTest` covers attempt caps, Retry-After, non-503 behavior, and cooldown.
+The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules, hint merging, and Nostr request construction. `ChapterLinkPolicyTest` and `TrustedCoverImagePolicyTest` cover untrusted navigation and automatic-cover URL validation. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup, independent-publication image and relay tags, partial 503 outcomes, the short search cache, and the no-chapter-fetch discovery invariant. `MercurySearchResilienceTest` covers attempt caps, Retry-After, non-503 behavior, and cooldown.
 
 ## Nostr Event Trust Boundary
 
@@ -165,6 +166,8 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0010-resilient-mercury-search.md`](decisions/0010-resilient-mercury-search.md)
 - [`decisions/0011-preferred-books-api-with-mercury-fallback.md`](decisions/0011-preferred-books-api-with-mercury-fallback.md)
 - [`decisions/0012-nip42-relay-authentication.md`](decisions/0012-nip42-relay-authentication.md)
+- [`decisions/0013-my-books-publication-relay-lookup.md`](decisions/0013-my-books-publication-relay-lookup.md)
+- [`decisions/0014-publication-image-and-chapter-relay-hints.md`](decisions/0014-publication-image-and-chapter-relay-hints.md)
 
 ## Curated Discovery Shelves
 

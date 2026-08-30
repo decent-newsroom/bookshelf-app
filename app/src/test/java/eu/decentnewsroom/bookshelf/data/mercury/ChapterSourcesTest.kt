@@ -39,6 +39,41 @@ class ChapterSourcesTest {
         )
     }
 
+    @Test
+    fun hintedRelaysAreMergedWithDefaultsAndInvalidHintsAreIgnored() {
+        val result = ChapterRelayUrls.mergeWithHints(
+            defaultRelayUrls = listOf("wss://default.example"),
+            relayHints = listOf("WSS://HINT.EXAMPLE/", "wss://default.example", "https://invalid.example"),
+        )
+
+        assertEquals(
+            listOf("wss://default.example", "wss://hint.example"),
+            result,
+        )
+    }
+
+    @Test
+    fun hintedRelaysNeverExceedTheConnectionLimit() {
+        val result = ChapterRelayUrls.mergeWithHints(
+            defaultRelayUrls = listOf("wss://default.example"),
+            relayHints = (1..10).map { "wss://hint$it.example" },
+        )
+
+        assertEquals(8, result.size)
+        assertEquals("wss://default.example", result.first())
+    }
+
+    @Test
+    fun emptyConfiguredRelayListUsesDefaultsBeforeAddingHints() {
+        assertEquals(
+            ChapterRelayUrls.DEFAULTS + "wss://hint.example",
+            ChapterRelayUrls.mergeWithHints(
+                defaultRelayUrls = emptyList(),
+                relayHints = listOf("wss://hint.example"),
+            ),
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun relayUrlsRejectHttpSources() {
         ChapterRelayUrls.parse("https://mercury-relay.imwald.eu")

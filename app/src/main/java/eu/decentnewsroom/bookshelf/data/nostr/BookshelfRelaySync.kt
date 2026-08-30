@@ -127,13 +127,13 @@ class QuartzBookshelfRelaySync(
         tags: List<List<String>>,
         createdAt: Long,
     ): DirectoryEventDraft {
-        val normalizedTags = BookshelfDirectoryRules.normalizeEditableTags(tags)
-        BookshelfDirectoryRules.assertValidDirectory(normalizedTags, "")
+        val publishedTags = BookshelfDirectoryRules.tagsForPublishing(tags)
+        BookshelfDirectoryRules.assertValidDirectory(publishedTags, "")
 
         return DirectoryEventDraft(
             pubkey = pubkey.lowercase(),
             createdAt = createdAt,
-            tags = normalizedTags,
+            tags = publishedTags,
         )
     }
 

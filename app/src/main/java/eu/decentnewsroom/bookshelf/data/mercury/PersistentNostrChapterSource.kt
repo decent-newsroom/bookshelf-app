@@ -44,7 +44,13 @@ class PersistentNostrChapterSource(
                 return@coroutineScope emptyList()
             }
 
-            val activeConnections = connectionsFor(ChapterRelayUrls.normalize(relayUrls()))
+            val activeConnections =
+                connectionsFor(
+                    ChapterRelayUrls.mergeWithHints(
+                        defaultRelayUrls = relayUrls(),
+                        relayHints = normalizedReferences.map(ChapterReference::relay),
+                    ),
+                )
             if (activeConnections.isEmpty()) {
                 return@coroutineScope emptyList()
             }

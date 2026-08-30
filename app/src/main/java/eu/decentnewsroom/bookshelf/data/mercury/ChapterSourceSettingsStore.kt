@@ -59,6 +59,25 @@ object ChapterRelayUrls {
         return normalized.toList()
     }
 
+    /**
+     * Adds valid, publication-provided relay hints to the configured relay list.
+     * Hints are untrusted, so malformed entries are ignored and they can never
+     * increase a fetch beyond the normal relay connection limit.
+     */
+    fun mergeWithHints(defaultRelayUrls: Iterable<String>, relayHints: Iterable<String?>): List<String> {
+        val configuredRelays = normalize(defaultRelayUrls)
+        val merged = (configuredRelays.ifEmpty { DEFAULTS }).toCollection(linkedSetOf())
+        relayHints.forEach { hint ->
+            val relayUrl =
+                hint?.let { runCatching { normalizeRelayUrl(it.trim()) }.getOrNull() }
+                    ?: return@forEach
+            if (merged.size < MAX_RELAY_COUNT || relayUrl in merged) {
+                merged += relayUrl
+            }
+        }
+        return merged.toList()
+    }
+
     private fun normalizeRelayUrl(candidate: String): String {
         require(candidate.length <= MAX_URL_LENGTH) {
             "Chapter relay URLs must be at most $MAX_URL_LENGTH characters."

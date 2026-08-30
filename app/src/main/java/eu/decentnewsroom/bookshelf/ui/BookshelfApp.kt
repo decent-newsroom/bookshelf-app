@@ -551,7 +551,7 @@ private fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             label = { Text("WebSocket relays") },
             supportingText = {
-                Text("One wss:// relay URL per line. Leave empty to use Mercury HTTPS only.")
+                Text("One wss:// relay URL per line. Leave empty to use the default chapter relays.")
             },
             minLines = 2,
             maxLines = 5,

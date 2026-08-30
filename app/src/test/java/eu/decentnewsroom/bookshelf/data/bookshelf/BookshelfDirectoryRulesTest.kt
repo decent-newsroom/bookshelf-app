@@ -28,7 +28,29 @@ class BookshelfDirectoryRulesTest {
     @Test
     fun validDirectoryRequiresStableIdentifierAndEmptyContent() {
         val book = bookSummary()
-        val tags = BookshelfDirectoryRules.toggleBook(BookshelfDirectoryRules.emptyTags(), book)
+        val tags =
+            BookshelfDirectoryRules.tagsForPublishing(
+                BookshelfDirectoryRules.toggleBook(BookshelfDirectoryRules.emptyTags(), book),
+            )
+
+        BookshelfDirectoryRules.assertValidDirectory(tags, "")
+    }
+
+    @Test
+    fun publishingTagsOverrideExistingClientTag() {
+        val tags =
+            BookshelfDirectoryRules.tagsForPublishing(
+                BookshelfDirectoryRules.emptyTags() + listOf(listOf("client", "Another client")),
+            )
+
+        assertEquals(listOf("client", BookshelfDirectoryRules.CLIENT_NAME), tags.last())
+        assertEquals(1, tags.count { it.firstOrNull() == "client" })
+        BookshelfDirectoryRules.assertValidDirectory(tags, "")
+    }
+
+    @Test
+    fun validDirectoryAllowsOneTitleTag() {
+        val tags = BookshelfDirectoryRules.tagsForPublishing(BookshelfDirectoryRules.emptyTags()) + listOf(listOf("title", "My Books"))
 
         BookshelfDirectoryRules.assertValidDirectory(tags, "")
     }

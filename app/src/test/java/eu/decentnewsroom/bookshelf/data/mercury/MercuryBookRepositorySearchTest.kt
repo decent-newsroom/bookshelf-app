@@ -507,6 +507,40 @@ class MercuryBookRepositorySearchTest {
     }
 
     @Test
+    fun independentPublicationUsesItsImageTagAndChapterRelayHint() = runBlocking {
+        val pubkey = testPubkey(4)
+        val coverUrl = "https://raw.githubusercontent.com/21-lessons/book/main/cover.jpg"
+        val hintedRelay = "wss://thecitadel.nostr1.com"
+        val book = publicationEvent(
+            pubkey = pubkey,
+            identifier = "21-lessons-by-der-gigi-v-1",
+            title = "21 Lessons",
+            author = "Der Gigi",
+            chapterCoordinates = emptyList(),
+            extraTags = listOf(
+                listOf("image", coverUrl),
+                listOf(
+                    "a",
+                    "${BookKinds.PUBLICATION_CONTENT}:$pubkey:21-lessons-title-page-1-by-der-gigi-v-1",
+                    hintedRelay,
+                ),
+            ),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(book) else "[]"
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+
+            val result = repository.search("21 Lessons").single()
+
+            assertEquals(coverUrl, result.coverImageUrl)
+            assertEquals(hintedRelay, result.chapterRefs.single().relay)
+        }
+    }
+
+    @Test
     fun searchReturnsPartialMetadataResultsWhenSectionSearchGets503() = runBlocking {
         val book = publicationEvent(
             pubkey = testPubkey(1),

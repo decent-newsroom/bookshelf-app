@@ -7,6 +7,7 @@ import java.net.URI
 
 object BookshelfDirectoryRules {
     const val IDENTIFIER = "my-book-collection"
+    const val CLIENT_NAME = "Bookshelf"
     const val MAX_ITEMS = 500
 
     fun emptyTags(): List<List<String>> = listOf(listOf("d", IDENTIFIER))
@@ -84,12 +85,18 @@ object BookshelfDirectoryRules {
         return normalized
     }
 
+    /** Adds the metadata required on a directory event without persisting it locally. */
+    fun tagsForPublishing(tags: List<List<String>>): List<List<String>> =
+        normalizeEditableTags(tags) + listOf(listOf("client", CLIENT_NAME))
+
     fun assertValidDirectory(tags: List<List<String>>, content: String) {
         require(content.isEmpty()) { "Directory content must be empty." }
-        require(tags.size <= MAX_ITEMS + 1) { "Directory tags are invalid or exceed the item limit." }
+        require(tags.size <= MAX_ITEMS + 3) { "Directory tags are invalid or exceed the item limit." }
 
         var dTagCount = 0
         var itemCount = 0
+        var clientTagCount = 0
+        var titleTagCount = 0
 
         tags.forEach { tag ->
             require(tag.isNotEmpty()) { "Directory tags must be arrays." }
@@ -110,12 +117,22 @@ object BookshelfDirectoryRules {
                     itemCount++
                 }
 
-                else -> error("Directory events may contain only d, a, and e tags.")
+                "client" -> {
+                    require(tag == listOf("client", CLIENT_NAME)) { "Directory client tag is invalid." }
+                    clientTagCount++
+                }
+
+                "title" -> {
+                    require(tag.getOrNull(1)?.isNotBlank() == true) { "Directory title tag is invalid." }
+                    titleTagCount++
+                }
+
+                else -> error("Directory events may contain only d, a, e, client, and title tags.")
             }
         }
 
-        require(dTagCount == 1 && itemCount <= MAX_ITEMS) {
-            "Directory must contain one identifier and no more than $MAX_ITEMS items."
+        require(dTagCount == 1 && clientTagCount == 1 && titleTagCount <= 1 && itemCount <= MAX_ITEMS) {
+            "Directory must contain one identifier, one Bookshelf client tag, at most one title tag, and no more than $MAX_ITEMS items."
         }
     }
 
