@@ -374,7 +374,7 @@ private fun SearchScreen(
         }
 
         if (state.isSearching) {
-            item { LoadingInline("Searching Mercury...") }
+            item { LoadingInline("Searching...") }
         }
 
         state.searchMessage?.let { message ->
