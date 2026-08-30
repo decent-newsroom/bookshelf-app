@@ -81,6 +81,7 @@ Chapter relay defaults are:
 
 - `wss://mercury-relay.imwald.eu`
 - `wss://thecitadel.nostr1.com`
+- `wss://njump.me`
 
 `ChapterSourceSettingsStore` persists the ordered list in app-private `SharedPreferences`. Settings accepts up to eight `wss://` URLs, normalizes and deduplicates entries, and allows an empty list to disable relay chapter loading while retaining Mercury HTTPS fallback.
 

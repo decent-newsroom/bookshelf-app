@@ -14,6 +14,7 @@ class ChapterSourcesTest {
             listOf(
                 "wss://mercury-relay.imwald.eu",
                 "wss://thecitadel.nostr1.com",
+                "wss://njump.me",
             ),
             ChapterRelayUrls.DEFAULTS,
         )
