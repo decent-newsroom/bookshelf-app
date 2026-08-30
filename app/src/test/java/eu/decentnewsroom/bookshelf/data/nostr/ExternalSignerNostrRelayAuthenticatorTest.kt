@@ -2,6 +2,7 @@ package eu.decentnewsroom.bookshelf.data.nostr
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -37,13 +38,16 @@ class ExternalSignerNostrRelayAuthenticatorTest {
 
     @Test
     fun mismatchedResponseFailsPendingRequest() = runBlocking {
-        val authenticator = ExternalSignerNostrRelayAuthenticator(session)
-        val signing = async { authenticator.signAuthEvent(draft) }
-        while (authenticator.pending.value == null) yield()
+        supervisorScope {
+            val authenticator = ExternalSignerNostrRelayAuthenticator(session)
+            val signing = async { authenticator.signAuthEvent(draft) }
+            while (authenticator.pending.value == null) yield()
 
-        authenticator.completePending("wrong-id", "{}")
-        assertNotNull(runCatching { signing.await() }.exceptionOrNull())
-        assertTrue(authenticator.pending.value == null)
+            authenticator.completePending("wrong-id", "{}")
+            val failure = runCatching { signing.await() }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(authenticator.pending.value == null)
+        }
     }
 
     @Test
@@ -58,7 +62,7 @@ class ExternalSignerNostrRelayAuthenticatorTest {
     }
 
     @Test
-    fun concurrentChallengesAreSerialized() = runBlocking {
+    fun concurrentChallengesAreSerialized(): Unit = runBlocking {
         val authenticator = ExternalSignerNostrRelayAuthenticator(session)
         val first = async { authenticator.signAuthEvent(draft) }
         while (authenticator.pending.value == null) yield()

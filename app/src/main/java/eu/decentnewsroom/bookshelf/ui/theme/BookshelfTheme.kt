@@ -168,7 +168,7 @@ fun BookshelfTheme(
     theme: ReaderTheme,
     content: @Composable () -> Unit,
 ) {
-    val activity = LocalActivity.current
+    val activity = LocalActivity.current as? ComponentActivity
     DisposableEffect(activity, theme) {
         activity?.applyBookshelfEdgeToEdge(theme)
         onDispose { }
