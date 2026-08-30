@@ -5,15 +5,16 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import eu.decentnewsroom.bookshelf.domain.BookKinds
+import androidx.core.net.toUri
 
 object AndroidExternalSigner {
     fun isInstalled(context: Context): Boolean {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(NOSTR_SIGNER_URI))
+        val intent = Intent(Intent.ACTION_VIEW, NOSTR_SIGNER_URI.toUri())
         return context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
     }
 
     fun loginIntent(): Intent =
-        Intent(Intent.ACTION_VIEW, Uri.parse(NOSTR_SIGNER_URI)).apply {
+        Intent(Intent.ACTION_VIEW, NOSTR_SIGNER_URI.toUri()).apply {
             addCategory(Intent.CATEGORY_BROWSABLE)
             putExtra("type", "get_public_key")
             putExtra(
@@ -27,7 +28,7 @@ object AndroidExternalSigner {
         unsignedEventJson: String,
         requestId: String,
     ): Intent =
-        Intent(Intent.ACTION_VIEW, Uri.parse("nostrsigner:${Uri.encode(unsignedEventJson)}")).apply {
+        Intent(Intent.ACTION_VIEW, "nostrsigner:${Uri.encode(unsignedEventJson)}".toUri()).apply {
             addCategory(Intent.CATEGORY_BROWSABLE)
             setPackage(session.packageName)
             putExtra("type", "sign_event")

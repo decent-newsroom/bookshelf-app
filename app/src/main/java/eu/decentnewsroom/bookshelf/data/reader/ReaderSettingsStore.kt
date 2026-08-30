@@ -9,6 +9,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.math.roundToInt
+import androidx.core.content.edit
 
 class ReaderSettingsStore(context: Context) {
     private val sharedPreferences =
@@ -74,7 +75,7 @@ class ReaderSettingsStore(context: Context) {
     private fun updateReaderPreferences(update: (ReaderPreferences) -> ReaderPreferences) {
         val next = update(_readerPreferences.value)
         _readerPreferences.value = next
-        sharedPreferences.edit().putString(KEY_READER_PREFERENCES, json.encodeToString(next)).apply()
+        sharedPreferences.edit { putString(KEY_READER_PREFERENCES, json.encodeToString(next)) }
     }
 
     private fun loadReaderPreferences(): ReaderPreferences {
@@ -88,7 +89,7 @@ class ReaderSettingsStore(context: Context) {
     }
 
     private fun saveProgress(progress: Map<String, ReadingProgress>) {
-        sharedPreferences.edit().putString(KEY_READING_PROGRESS, json.encodeToString(progress)).apply()
+        sharedPreferences.edit { putString(KEY_READING_PROGRESS, json.encodeToString(progress)) }
     }
 
     private fun Float.roundToTenth(): Float = (this * 10f).roundToInt() / 10f

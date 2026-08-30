@@ -11,7 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.LocalActivity
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 
 private val PaperColorScheme =
@@ -168,7 +168,7 @@ fun BookshelfTheme(
     theme: ReaderTheme,
     content: @Composable () -> Unit,
 ) {
-    val activity = LocalContext.current as? ComponentActivity
+    val activity = LocalActivity.current
     DisposableEffect(activity, theme) {
         activity?.applyBookshelfEdgeToEdge(theme)
         onDispose { }

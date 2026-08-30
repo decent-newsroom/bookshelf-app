@@ -97,6 +97,7 @@ android {
 }
 
 tasks.register<CheckReleaseKeystoreTask>("checkReleaseKeystore") {
+    description = "Check release keystore"
     keystorePropertiesFile.set(rootProject.layout.projectDirectory.file("keystore.properties"))
 }
 
