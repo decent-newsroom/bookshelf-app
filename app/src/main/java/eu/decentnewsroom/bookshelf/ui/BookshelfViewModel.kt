@@ -330,7 +330,8 @@ class BookshelfViewModel(
         relaySync.failPendingNostrAuthSignature(requestId, message)
     }
 
-    fun syncNow() {
+    /** Pulls the newest shared directory without replacing any local books. */
+    fun syncFromRelays() {
         val session = _uiState.value.signerSession
         if (session == null) {
             _uiState.update { it.copy(error = "Log in with an Android signer first.") }
@@ -339,6 +340,67 @@ class BookshelfViewModel(
 
         viewModelScope.launch {
             syncRemoteDirectory(session.pubkey, announceEmpty = true)
+        }
+    }
+
+    /**
+     * Signs and publishes the complete current local directory. This remains
+     * available after a rejected signer request or a relay failure so the user
+     * can retry without changing their saved books.
+     */
+    fun syncToRelays() {
+        val state = _uiState.value
+        val session = state.signerSession
+        if (session == null) {
+            _uiState.update { it.copy(error = "Log in with an Android signer first.") }
+            return
+        }
+        if (
+            state.isSyncingDirectory ||
+                state.isPublishingDirectory ||
+                state.pendingDirectorySignRequest != null ||
+                state.pendingNostrAuthSignRequest != null
+        ) {
+            _uiState.update { it.copy(error = "Finish the current sync request first.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isPublishingDirectory = true,
+                    error = null,
+                    syncMessage = null,
+                )
+            }
+            try {
+                val draft = relaySync.buildDirectoryDraft(
+                    pubkey = session.pubkey,
+                    tags = localBookshelf.directoryTags.value,
+                )
+                _uiState.update {
+                    it.copy(
+                        pendingDirectorySignRequest = PendingDirectorySignRequest(
+                            id = UUID.randomUUID().toString(),
+                            session = session,
+                            unsignedEventJson = relaySync.unsignedDirectoryJson(draft),
+                            createdAt = draft.createdAt,
+                            kind = draft.kind,
+                            content = draft.content,
+                            tags = draft.tags,
+                        ),
+                        isPublishingDirectory = true,
+                        syncMessage = "Review the local bookshelf sync in your signer.",
+                    )
+                }
+            } catch (failure: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isPublishingDirectory = false,
+                        error = failure.message ?: "Could not prepare the local bookshelf for sync.",
+                    )
+                }
+            }
         }
     }
 
@@ -415,7 +477,7 @@ class BookshelfViewModel(
                     kind = draft.kind,
                     content = draft.content,
                     tags = draft.tags,
-                    fallbackBook = book,
+                    fallbackBooks = listOf(book),
                 )
                 _uiState.update {
                     it.copy(
@@ -445,7 +507,7 @@ class BookshelfViewModel(
                         pendingDirectorySignRequest = null,
                         isPublishingDirectory = false,
                         error = "Signer returned an unexpected request id.",
-                        syncMessage = "Bookshelf change remains saved on this device.",
+                        syncMessage = "Local bookshelf remains saved on this device.",
                     )
                 }
                 return@launch
@@ -456,13 +518,21 @@ class BookshelfViewModel(
                 require(event.pubkey.equals(pending.session.pubkey, ignoreCase = true)) {
                     "Signer returned an event for a different account."
                 }
-                require(BookshelfDirectoryRules.normalizeEditableTags(event.tags) == pending.tags) {
+                require(hasExpectedEditableDirectoryTags(event.tags, pending.tags)) {
                     "Signer changed the collection tags."
                 }
 
                 check(event.kind == pending.kind && event.content == pending.content && event.createdAt == pending.createdAt)
                 val report = relaySync.publishDirectory(event)
-                val applied = applyDirectoryTags(event.tags, fallbackBooks = listOf(pending.fallbackBook))
+                val applied =
+                    if (pending.fallbackBooks.isEmpty()) {
+                        DirectoryApplyResult(
+                            referenceCount = BookshelfDirectoryRules.extractBookReferences(localBookshelf.directoryTags.value).size,
+                            warning = null,
+                        )
+                    } else {
+                        applyDirectoryTags(event.tags, fallbackBooks = pending.fallbackBooks)
+                    }
                 val publishMessage =
                     if (report.acceptedRelays > 0) {
                         "Shared ${applied.referenceCount} bookshelf items with ${report.acceptedRelays}/${report.attemptedRelays} relays."
@@ -484,7 +554,7 @@ class BookshelfViewModel(
                         pendingDirectorySignRequest = null,
                         isPublishingDirectory = false,
                         error = failure.message ?: "Could not share bookshelf update.",
-                        syncMessage = "Bookshelf change remains saved on this device.",
+                        syncMessage = "Local bookshelf remains saved on this device.",
                     )
                 }
             }
@@ -497,7 +567,7 @@ class BookshelfViewModel(
                 pendingDirectorySignRequest = null,
                 isPublishingDirectory = false,
                 error = message,
-                syncMessage = "Bookshelf change remains saved on this device.",
+                syncMessage = "Local bookshelf remains saved on this device.",
             )
         }
     }
@@ -667,7 +737,7 @@ data class PendingDirectorySignRequest(
     val kind: Int,
     val content: String,
     val tags: List<List<String>>,
-    val fallbackBook: BookSummary,
+    val fallbackBooks: List<BookSummary> = emptyList(),
 )
 
 data class BookshelfUiState(
@@ -699,6 +769,14 @@ data class BookshelfUiState(
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
     val isClearingChapterCache: Boolean = false,
 )
+
+/** Compares user-editable tags while allowing required publish-only metadata. */
+internal fun hasExpectedEditableDirectoryTags(
+    signedTags: List<List<String>>,
+    expectedPublishedTags: List<List<String>>,
+): Boolean =
+    BookshelfDirectoryRules.normalizeEditableTags(signedTags) ==
+        BookshelfDirectoryRules.normalizeEditableTags(expectedPublishedTags)
 
 private data class DirectoryApplyResult(
     val referenceCount: Int,

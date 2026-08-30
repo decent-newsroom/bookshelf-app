@@ -273,7 +273,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             state = state,
                             signerAvailable = signerAvailable,
                             onLogin = startExternalSignerLogin,
-                            onSyncNow = viewModel::syncNow,
+                            onSyncToRelays = viewModel::syncToRelays,
+                            onSyncFromRelays = viewModel::syncFromRelays,
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
                             onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
@@ -499,7 +500,8 @@ private fun SettingsScreen(
     state: BookshelfUiState,
     signerAvailable: Boolean,
     onLogin: () -> Unit,
-    onSyncNow: () -> Unit,
+    onSyncToRelays: () -> Unit,
+    onSyncFromRelays: () -> Unit,
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
     onChapterRelayUrlsChanged: (String) -> Unit,
@@ -603,7 +605,19 @@ private fun SettingsScreen(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = onSyncNow,
+                    onClick = onSyncToRelays,
+                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
+                ) {
+                    Text(
+                        if (state.syncState is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed) {
+                            "Retry relay sync"
+                        } else {
+                            "Sync to relays"
+                        },
+                    )
+                }
+                TextButton(
+                    onClick = onSyncFromRelays,
                     enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
                 ) {
                     Text("Sync from relays")
