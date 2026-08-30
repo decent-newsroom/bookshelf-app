@@ -12,6 +12,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -88,6 +90,31 @@ class NostrRelayClient(
             .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
     }
 
+    /** Resolves exact kind 30040 coordinates from the configured known relays. */
+    suspend fun fetchPublicationIndexes(coordinates: List<String>): List<NostrEvent> = coroutineScope {
+        val requested = coordinates.mapNotNull(::parsePublicationCoordinate).distinct()
+        val permits = Semaphore(MAX_CONCURRENT_PUBLICATION_LOOKUPS)
+
+        requested.map { coordinate ->
+            async {
+                permits.withPermit {
+                    fetchLatest(
+                        requestMessage = { id -> publicationIndexReqMessage(id, coordinate.pubkey, coordinate.identifier) },
+                        verifyEvent = { event ->
+                            NostrEventVerifier.verify(
+                                event,
+                                context = NostrEventContext(
+                                    expectedKind = BookKinds.PUBLICATION_INDEX,
+                                    expectedPubkey = coordinate.pubkey,
+                                    expectedDTag = coordinate.identifier,
+                                ),
+                            )?.event
+                        },
+                    )
+                }
+            }
+        }.awaitAll().filterNotNull()
+    }
     private suspend fun fetchLatestFromRelay(
         relayUrl: String,
         requestMessage: (String) -> String,
@@ -312,6 +339,14 @@ class NostrRelayClient(
         ))),
     ).toString()
 
+    private fun publicationIndexReqMessage(subscriptionId: String, pubkey: String, identifier: String): String = JsonArray(
+        listOf(JsonPrimitive("REQ"), JsonPrimitive(subscriptionId), JsonObject(mapOf(
+            "kinds" to JsonArray(listOf(JsonPrimitive(BookKinds.PUBLICATION_INDEX))),
+            "authors" to JsonArray(listOf(JsonPrimitive(pubkey))),
+            "#d" to JsonArray(listOf(JsonPrimitive(identifier))),
+            "limit" to JsonPrimitive(1),
+        ))),
+    ).toString()
     private fun eventMessage(event: NostrEvent): String = JsonArray(listOf(JsonPrimitive("EVENT"), json.encodeToJsonElement(event))).toString()
     private fun authMessage(event: NostrEvent): String = JsonArray(listOf(JsonPrimitive("AUTH"), json.encodeToJsonElement(event))).toString()
     private fun closeMessage(subscriptionId: String): String = JsonArray(listOf(JsonPrimitive("CLOSE"), JsonPrimitive(subscriptionId))).toString()
@@ -328,12 +363,25 @@ class NostrRelayClient(
         this.pubkey.equals(pubkey, ignoreCase = true)
 
     private companion object {
+        const val MAX_CONCURRENT_PUBLICATION_LOOKUPS = 8
+        private val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
+
+        fun parsePublicationCoordinate(raw: String): PublicationCoordinate? {
+            val parts = raw.trim().split(":", limit = 3)
+            if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_INDEX ||
+                !HEX_64.matches(parts[1]) || parts[2].isBlank()
+            ) {
+                return null
+            }
+            return PublicationCoordinate(parts[1].lowercase(), parts[2])
+        }
         fun isAuthRequired(reason: String): Boolean {
             val normalized = reason.lowercase()
             return normalized.contains("auth-required") || normalized.contains("auth required")
         }
     }
 }
+private data class PublicationCoordinate(val pubkey: String, val identifier: String)
 
 private fun kotlinx.serialization.json.JsonElement?.asString(): String? = (this as? JsonPrimitive)?.content
 

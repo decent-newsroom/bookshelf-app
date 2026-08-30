@@ -60,7 +60,7 @@ server capacity.
 
 ## Book and Chapter Loading
 
-Search and publication-index lookup use the Mercury HTTP API. Opening a book then follows this flow:
+Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.
 
 1. Load and map the kind `30040` publication index through `MercuryApiClient` and `MercuryBookRepository`.
 2. Ask `PersistentNostrChapterSource` for the referenced kind `30041` chapter events.
@@ -69,7 +69,7 @@ Search and publication-index lookup use the Mercury HTTP API. Opening a book the
 5. Map events into `BookChapter` values. Missing events remain explicit unavailable chapters so publication order is preserved.
 6. Render available AsciiDoc chapters and cache the HTML before exposing the `BookDetail` to the reader UI.
 
-The publication index still depends on Mercury HTTP. The relay path specifically reduces the high-volume chapter requests that are most likely to encounter API rate limits.
+The reader's publication index and chapter relay path remains separate from the My Books metadata lookup. The latter uses the known bookshelf relays only, so third-party publication sources can appear in My Books without changing Home or search discovery.
 
 ## Chapter Relay Connections
 

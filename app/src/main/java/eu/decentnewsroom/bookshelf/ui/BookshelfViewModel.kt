@@ -624,7 +624,7 @@ class BookshelfViewModel(
         val references = BookshelfDirectoryRules.extractBookReferences(normalizedTags)
         val resolvedBooks =
             runCatching {
-                repository.getBooksForReferences(references)
+                repository.getMyBooksForReferences(references)
             }
 
         val books =

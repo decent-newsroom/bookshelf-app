@@ -445,6 +445,44 @@ class MercuryBookRepositorySearchTest {
         }
     }
     @Test
+    fun myBooksLookupMergesReferencedPublicationFromKnownRelays() = runBlocking {
+        val pubkey = testPubkey(6)
+        val identifier = "non-gutenberg-book"
+        val coordinate = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$identifier"
+        val relayEvent = NostrEvent(
+            id = "relay-event",
+            pubkey = pubkey,
+            createdAt = 2,
+            kind = BookKinds.PUBLICATION_INDEX,
+            tags = listOf(
+                listOf("d", identifier),
+                listOf("title", "Relay book"),
+                listOf("author", "Independent publisher"),
+                listOf("a", "${BookKinds.PUBLICATION_CONTENT}:$pubkey:chapter-one"),
+            ),
+        )
+        var requestedCoordinates = emptyList<String>()
+        val server = RecordingHttpServer { "[]" }
+
+        server.use {
+            val repository = MercuryBookRepository(
+                apiClient = MercuryApiClient(OkHttpClient(), server.baseUrl),
+                publicationIndexRelaySource = PublicationIndexRelaySource { coordinates ->
+                    requestedCoordinates = coordinates
+                    listOf(relayEvent)
+                },
+            )
+
+            val results = repository.getMyBooksForReferences(
+                listOf(BookReference("a", coordinate, null, null, pubkey)),
+            )
+
+            assertEquals(listOf("Relay book"), results.map { it.title })
+            assertEquals(listOf(coordinate), requestedCoordinates)
+            assertTrue(server.requests.any { it.path == "/api/events/filter" })
+        }
+    }
+    @Test
     fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
         val pubkey = testPubkey(4)
         val book = publicationEvent(

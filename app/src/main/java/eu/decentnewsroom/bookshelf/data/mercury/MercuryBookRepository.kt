@@ -18,6 +18,7 @@ import java.util.Locale
 class MercuryBookRepository(
     private val apiClient: MercuryApiClient,
     private val chapterEventSource: ChapterEventSource? = null,
+    private val publicationIndexRelaySource: PublicationIndexRelaySource? = null,
     private val searchResilience: MercurySearchResilience = MercurySearchResilience(),
     nowMillis: () -> Long = System::currentTimeMillis,
     searchCacheTtlMillis: Long = SEARCH_CACHE_TTL_MILLIS,
@@ -316,6 +317,62 @@ class MercuryBookRepository(
         }
     }
 
+    /**
+     * Resolves My Books through both the HTTP APIs and the known directory-sync relays.
+     * Relay results are accepted only when they match a requested kind 30040 coordinate.
+     */
+    suspend fun getMyBooksForReferences(references: List<BookReference>): List<BookSummary> {
+        val apiResult = captureNonCancellation { getBooksForReferences(references) }
+        val coordinates = references.mapNotNull(BookReference::coordinate).toSet()
+        val relaySource = publicationIndexRelaySource
+        val relayResult =
+            if (relaySource == null || coordinates.isEmpty()) {
+                Result.success(emptyList())
+            } else {
+                captureNonCancellation {
+                    relaySource
+                        .fetchPublicationIndexes(coordinates.toList())
+                        .mapNotNull(::mapIndexEvent)
+                        .filter { it.coordinate in coordinates }
+                }
+            }
+
+        if (apiResult.isFailure && (relaySource == null || coordinates.isEmpty() || relayResult.isFailure)) {
+            throw MercuryApiException(
+                "Could not resolve My Books from the APIs or known relays.",
+                relayResult.exceptionOrNull() ?: apiResult.exceptionOrNull(),
+            )
+        }
+
+        val booksByCoordinate = mutableMapOf<String, BookSummary>()
+        (apiResult.getOrDefault(emptyList()) + relayResult.getOrDefault(emptyList())).forEach { book ->
+            val current = booksByCoordinate[book.coordinate]
+            if (current == null || book.createdAt > current.createdAt ||
+                (book.createdAt == current.createdAt && book.id > current.id)
+            ) {
+                booksByCoordinate[book.coordinate] = book
+            }
+        }
+
+        val seen = mutableSetOf<String>()
+        return references.mapNotNull { reference ->
+            val book =
+                reference.coordinate?.let(booksByCoordinate::get) ?: apiResult
+                    .getOrDefault(emptyList())
+                    .firstOrNull { it.id.equals(reference.eventId, ignoreCase = true) }
+                ?: return@mapNotNull null
+            book.takeIf { seen.add(it.coordinate) }
+        }
+    }
+
+    private suspend fun <T> captureNonCancellation(block: suspend () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Throwable) {
+            Result.failure(failure)
+        }
     private fun mapIndexEvent(event: NostrEvent): BookSummary? {
         if (event.kind != BookKinds.PUBLICATION_INDEX) {
             return null
