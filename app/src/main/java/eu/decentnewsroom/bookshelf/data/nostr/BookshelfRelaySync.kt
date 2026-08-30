@@ -42,10 +42,15 @@ sealed interface BookshelfSyncState {
 interface BookshelfRelaySync {
     val state: StateFlow<BookshelfSyncState>
     val activeSession: StateFlow<NostrSignerSession?>
+    val pendingNostrAuthSignRequest: StateFlow<PendingNostrAuthSignRequest?>
 
     suspend fun signIn(session: NostrSignerSession)
 
     suspend fun signOut()
+
+    fun completeNostrAuthSignature(requestId: String?, signedEventJson: String)
+
+    fun failPendingNostrAuthSignature(requestId: String?, message: String)
 
     suspend fun fetchLatestDirectory(pubkey: String): NostrEvent?
 
@@ -65,9 +70,11 @@ interface BookshelfRelaySync {
 class QuartzBookshelfRelaySync(
     private val relayClient: NostrRelayClient,
     private val sessionStore: NostrSignerSessionStore,
+    private val authenticator: ExternalSignerNostrRelayAuthenticator,
 ) : BookshelfRelaySync {
     private val _activeSession = MutableStateFlow(sessionStore.load())
     override val activeSession: StateFlow<NostrSignerSession?> = _activeSession.asStateFlow()
+    override val pendingNostrAuthSignRequest: StateFlow<PendingNostrAuthSignRequest?> = authenticator.pending
 
     private val _state =
         MutableStateFlow<BookshelfSyncState>(
@@ -83,15 +90,25 @@ class QuartzBookshelfRelaySync(
         }
 
     override suspend fun signIn(session: NostrSignerSession) {
+        authenticator.updateSession(session)
         sessionStore.save(session)
         _activeSession.value = session
         _state.value = BookshelfSyncState.Ready(session.pubkey, relayClient.relayUrls.size)
     }
 
     override suspend fun signOut() {
+        authenticator.updateSession(null)
         sessionStore.clear()
         _activeSession.value = null
         _state.value = BookshelfSyncState.SignedOut
+    }
+
+    override fun completeNostrAuthSignature(requestId: String?, signedEventJson: String) {
+        authenticator.completePending(requestId, signedEventJson)
+    }
+
+    override fun failPendingNostrAuthSignature(requestId: String?, message: String) {
+        authenticator.failPending(requestId, message)
     }
 
     override suspend fun fetchLatestDirectory(pubkey: String): NostrEvent? {

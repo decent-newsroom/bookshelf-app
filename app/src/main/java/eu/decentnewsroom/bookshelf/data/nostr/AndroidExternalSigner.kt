@@ -16,7 +16,10 @@ object AndroidExternalSigner {
         Intent(Intent.ACTION_VIEW, Uri.parse(NOSTR_SIGNER_URI)).apply {
             addCategory(Intent.CATEGORY_BROWSABLE)
             putExtra("type", "get_public_key")
-            putExtra("permissions", """[{"type":"sign_event","kind":${BookKinds.DIRECTORY}}]""")
+            putExtra(
+                "permissions",
+                """[{"type":"sign_event","kind":${BookKinds.DIRECTORY}},{"type":"sign_event","kind":${NostrAuthEventDraft.KIND}}]""",
+            )
         }
 
     fun signEventIntent(

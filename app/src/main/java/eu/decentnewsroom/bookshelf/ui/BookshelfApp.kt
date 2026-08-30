@@ -111,6 +111,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val context = LocalContext.current
     val signerAvailable = remember(context) { AndroidExternalSigner.isInstalled(context) }
     var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var launchedAuthSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val loginLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -132,6 +133,17 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         launchedSignRequestId = null
     }
 
+    val authSignLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val requestId = result.data?.getStringExtra("id") ?: launchedAuthSignRequestId
+        when (val parsed = AndroidExternalSigner.parseSignEventResult(result.resultCode, result.data)) {
+            is AndroidSignerResult.Success -> viewModel.completeNostrAuthSignature(requestId, parsed.value)
+            is AndroidSignerResult.Failed -> viewModel.failPendingNostrAuthSignature(requestId, parsed.message)
+        }
+        launchedAuthSignRequestId = null
+    }
+
     LaunchedEffect(state.pendingDirectorySignRequest?.id) {
         val request = state.pendingDirectorySignRequest ?: return@LaunchedEffect
         launchedSignRequestId = request.id
@@ -146,6 +158,23 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         }.onFailure { failure ->
             launchedSignRequestId = null
             viewModel.failPendingDirectorySignature(failure.message ?: "Could not open Android signer.")
+        }
+    }
+
+    LaunchedEffect(state.pendingNostrAuthSignRequest?.id) {
+        val request = state.pendingNostrAuthSignRequest ?: return@LaunchedEffect
+        launchedAuthSignRequestId = request.id
+        runCatching {
+            authSignLauncher.launch(
+                AndroidExternalSigner.signEventIntent(
+                    session = request.session,
+                    unsignedEventJson = request.unsignedEventJson,
+                    requestId = request.id,
+                ),
+            )
+        }.onFailure { failure ->
+            launchedAuthSignRequestId = null
+            viewModel.failPendingNostrAuthSignature(request.id, failure.message ?: "Could not open Android signer.")
         }
     }
 

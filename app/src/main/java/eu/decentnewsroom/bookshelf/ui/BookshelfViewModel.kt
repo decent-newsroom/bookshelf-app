@@ -18,6 +18,7 @@ import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileSource
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
+import eu.decentnewsroom.bookshelf.data.nostr.PendingNostrAuthSignRequest
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
@@ -102,6 +103,11 @@ class BookshelfViewModel(
                 if (session != null) {
                     loadNostrProfile(session.pubkey)
                 }
+            }
+        }
+        viewModelScope.launch {
+            relaySync.pendingNostrAuthSignRequest.collect { request ->
+                _uiState.update { it.copy(pendingNostrAuthSignRequest = request) }
             }
         }
         relaySync.activeSession.value?.let { session ->
@@ -295,6 +301,7 @@ class BookshelfViewModel(
     }
 
     fun reportExternalSignerFailure(message: String) {
+        relaySync.failPendingNostrAuthSignature(null, message)
         _uiState.update {
             it.copy(
                 error = message,
@@ -303,6 +310,14 @@ class BookshelfViewModel(
                 isPublishingDirectory = false,
             )
         }
+    }
+
+    fun completeNostrAuthSignature(requestId: String?, signedEventJson: String) {
+        relaySync.completeNostrAuthSignature(requestId, signedEventJson)
+    }
+
+    fun failPendingNostrAuthSignature(requestId: String?, message: String) {
+        relaySync.failPendingNostrAuthSignature(requestId, message)
     }
 
     fun syncNow() {
@@ -338,7 +353,7 @@ class BookshelfViewModel(
 
         if (
             session != null &&
-            (state.pendingDirectorySignRequest != null || state.isPublishingDirectory)
+            (state.pendingDirectorySignRequest != null || state.pendingNostrAuthSignRequest != null || state.isPublishingDirectory)
         ) {
             _uiState.update { it.copy(error = "Finish the current signer request first.") }
             return
@@ -667,6 +682,7 @@ data class BookshelfUiState(
     val isSyncingDirectory: Boolean = false,
     val isPublishingDirectory: Boolean = false,
     val pendingDirectorySignRequest: PendingDirectorySignRequest? = null,
+    val pendingNostrAuthSignRequest: PendingNostrAuthSignRequest? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
     val chapterRelayUrls: List<String> = emptyList(),

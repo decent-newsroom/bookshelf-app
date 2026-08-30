@@ -13,6 +13,7 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileCache
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileRepository
 import eu.decentnewsroom.bookshelf.data.nostr.NostrRelayClient
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSessionStore
+import eu.decentnewsroom.bookshelf.data.nostr.ExternalSignerNostrRelayAuthenticator
 import eu.decentnewsroom.bookshelf.data.nostr.QuartzBookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
@@ -110,13 +111,17 @@ object AppGraph {
             curatedShelfRepositoryStore = CuratedShelfRepository(mercuryBooks, checkNotNull(shelfMetadataCacheStore))
         }
         if (relaySyncStore == null || nostrProfileRepositoryStore == null) {
+            val sessionStore = NostrSignerSessionStore(appContext)
+            val authenticator = ExternalSignerNostrRelayAuthenticator(sessionStore.load())
             val relayClient = NostrRelayClient(
                 httpClient = httpClient,
                 relayUrls = defaultRelays,
+                authenticator = authenticator,
             )
             relaySyncStore = QuartzBookshelfRelaySync(
                 relayClient = relayClient,
-                sessionStore = NostrSignerSessionStore(appContext),
+                sessionStore = sessionStore,
+                authenticator = authenticator,
             )
             nostrProfileRepositoryStore = NostrProfileRepository(
                 relayClient = relayClient,

@@ -73,7 +73,7 @@ The publication index still depends on Mercury HTTP. The relay path specifically
 
 ## Chapter Relay Connections
 
-`PersistentNostrChapterSource` maintains one OkHttp WebSocket per active relay URL. Connections are reused across book loads and kept alive by the shared client's ping interval. Each fetch creates an independent Nostr subscription and sends `CLOSE` for that subscription after `EOSE` or timeout; it does not close the underlying socket.
+`PersistentNostrChapterSource` maintains one OkHttp WebSocket per active relay URL. Connections are reused across book loads and kept alive by the shared client's ping interval. Each fetch creates an independent Nostr subscription and sends `CLOSE` for that subscription after `EOSE` or timeout; it does not close the underlying socket. The directory/profile relay client has a signer-neutral NIP-42 authentication boundary: it recognizes `AUTH` challenges, stores them without prompting the signer, and can perform one lazy authenticated retry for a protected publish or read when an authenticator is injected.
 
 Concurrent subscriptions are multiplexed by subscription ID. A connection failure completes affected subscriptions, and the next fetch attempts a fresh connection. When settings are changed, the current relay list is read on the next chapter fetch; removed connections are then closed and newly configured connections are created on demand.
 
@@ -125,6 +125,18 @@ Saved-book state is device-local and does not require a Nostr login. `LocalBooks
 
 With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its default outbound relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`; user relay-list discovery is not yet implemented. Saving or removing a book commits locally before requesting a signature. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
 
+NIP-42 authentication is represented by `NostrRelayAuthenticator`, which signs
+canonical kind `22242` drafts containing exactly the relay and challenge tags.
+`NostrAuthEventValidator` verifies the returned event's id, signature, public
+key, kind, timestamp, empty content, and exact challenge/relay context before
+the relay client sends it. Challenges are authenticated lazily only after an
+`auth-required` response, and each connection attempts authentication once and
+retries the protected operation at most once after an accepted `OK`; without a
+provider, auth-required responses remain failures and no challenge is
+invented. `ExternalSignerNostrRelayAuthenticator` exposes one pending request
+to the Activity-result bridge at a time, cancels it when the signer session
+changes, and allows up to 90 seconds for user approval once auth signing starts.
+
 After a signer session becomes active, `NostrProfileRepository` reads the account's cached kind `0` metadata event and refreshes it from the configured identity/directory relays. The complete event is cached by pubkey under `context.cacheDir/nostr-profiles/v1`; parsed `display_name` (falling back to `name`) is exposed to Home and Settings. Cache and relay failures do not invalidate the signer session or block kind `30045` directory synchronization.
 
 ## Backup and Device Transfer
@@ -152,6 +164,7 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0009-typed-explainable-mercury-search.md`](decisions/0009-typed-explainable-mercury-search.md)
 - [`decisions/0010-resilient-mercury-search.md`](decisions/0010-resilient-mercury-search.md)
 - [`decisions/0011-preferred-books-api-with-mercury-fallback.md`](decisions/0011-preferred-books-api-with-mercury-fallback.md)
+- [`decisions/0012-nip42-relay-authentication.md`](decisions/0012-nip42-relay-authentication.md)
 
 ## Curated Discovery Shelves
 
