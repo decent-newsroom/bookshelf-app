@@ -5,8 +5,9 @@ All notable user-facing changes to Bookshelf are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.1.13
 
+- Discover verified NIP-65 user relay lists and route reads and directory publishing to the account's read and write relays.
 - Migrate directory, profile, and known-relay publication-index traffic to Quartz's shared Nostr relay client.
 - Show relay-specific directory sync outcomes and bounded rejection reasons instead of a generic no-acceptance error.
 - Move persistent chapter retrieval to Quartz relay subscriptions, preserving relay hints and Mercury fallback.

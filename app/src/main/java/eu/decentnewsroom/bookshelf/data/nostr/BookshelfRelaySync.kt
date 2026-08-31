@@ -120,12 +120,18 @@ class QuartzBookshelfRelaySync(
         authenticator.updateSession(session)
         sessionStore.save(session)
         _activeSession.value = session
+        try {
+            relayClient.refreshUserRelayList(session.pubkey)
+        } catch (_: NostrRelayException) {
+            // Bootstrap relays remain usable when NIP-65 discovery is unavailable.
+        }
         _state.value = BookshelfSyncState.Ready(session.pubkey, relayClient.relayUrls.size)
     }
 
     override suspend fun signOut() {
         authenticator.updateSession(null)
         sessionStore.clear()
+        relayClient.clearUserRelayList()
         _activeSession.value = null
         _state.value = BookshelfSyncState.SignedOut
     }

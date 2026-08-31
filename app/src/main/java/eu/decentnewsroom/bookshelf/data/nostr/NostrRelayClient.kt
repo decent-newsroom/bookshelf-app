@@ -23,8 +23,8 @@ import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -34,28 +34,43 @@ import java.util.concurrent.ConcurrentHashMap
 
 class NostrRelayException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
-/** Quartz-backed directory/profile relay transport. */
+/** Quartz-backed directory/profile relay transport with NIP-65 role-aware routing. */
 class NostrRelayClient(
     httpClient: OkHttpClient,
-    val relayUrls: List<String>,
+    relayUrls: List<String>,
     private val timeoutMillis: Long = FETCH_IDLE_TIMEOUT_MILLIS,
     authenticator: NostrRelayAuthenticator? = null,
     private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1_000L },
 ) : AutoCloseable {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val relays = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+    private val baseRelays = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+    private val relayListLock = Any()
+    private var relayListOwner: String? = null
+    private var discoveredRelays = UserRelayList()
     private val client = NostrClient(BasicOkHttpWebSocket.Builder { httpClient }, scope)
     private val lazyAuthenticator = QuartzLazyNip42Authenticator(client, authenticator, nowSeconds)
 
-    suspend fun fetchLatestDirectory(pubkey: String): NostrEvent? =
-        fetchLatest(
-            Filter(
+    /** Current publish targets: configured relays followed by verified NIP-65 write relays. */
+    val relayUrls: List<String>
+        get() = publishRelayUrls
+
+    val publishRelayUrls: List<String>
+        get() = relaysFor(RelayAccess.WRITE).map(NormalizedRelayUrl::url)
+
+    val readRelayUrls: List<String>
+        get() = relaysFor(RelayAccess.READ).map(NormalizedRelayUrl::url)
+
+    suspend fun fetchLatestDirectory(pubkey: String): NostrEvent? {
+        ensureUserRelayList(pubkey)
+        return fetchLatest(
+            filter = Filter(
                 kinds = listOf(BookKinds.DIRECTORY),
                 authors = listOf(pubkey.lowercase()),
                 tags = mapOf("d" to listOf(BookshelfDirectoryRules.IDENTIFIER)),
                 limit = 1,
             ),
+            relaySet = readRelays(),
         ) { event ->
             NostrEventVerifier.verify(
                 event,
@@ -66,27 +81,30 @@ class NostrRelayClient(
                 ),
             )?.event?.takeIf { it.isDirectoryFor(pubkey) }
         }
+    }
 
-    suspend fun fetchLatestProfile(pubkey: String): NostrEvent? =
-        fetchLatest(
-            profileFilter(pubkey),
-        ) { event ->
+    suspend fun fetchLatestProfile(pubkey: String): NostrEvent? {
+        ensureUserRelayList(pubkey)
+        return fetchLatest(profileFilter(pubkey), readRelays()) { event ->
             NostrEventVerifier.verify(
                 event,
                 context = NostrEventContext(expectedKind = BookKinds.PROFILE_METADATA, expectedPubkey = pubkey),
             )?.event?.takeIf { it.isProfileFor(pubkey) }
         }
+    }
 
-    /** Resolves exact kind 30040 coordinates from the configured known relays. */
-    suspend fun fetchPublicationIndexes(coordinates: List<String>): List<NostrEvent> =
-        coordinates.mapNotNull(::parsePublicationCoordinate).distinct().mapNotNull { coordinate ->
+    /** Resolves exact kind 30040 coordinates from the configured and discovered read relays. */
+    suspend fun fetchPublicationIndexes(coordinates: List<String>): List<NostrEvent> {
+        val relaySet = readRelays()
+        return coordinates.mapNotNull(::parsePublicationCoordinate).distinct().mapNotNull { coordinate ->
             fetchLatest(
-                Filter(
+                filter = Filter(
                     kinds = listOf(BookKinds.PUBLICATION_INDEX),
                     authors = listOf(coordinate.pubkey),
                     tags = mapOf("d" to listOf(coordinate.identifier)),
                     limit = 1,
                 ),
+                relaySet = relaySet,
             ) { event ->
                 NostrEventVerifier.verify(
                     event,
@@ -98,13 +116,66 @@ class NostrRelayClient(
                 )?.event
             }
         }
+    }
+
+    /** Fetches and applies the active account's verified NIP-65 relay list using bootstrap relays. */
+    suspend fun refreshUserRelayList(pubkey: String): UserRelayList? {
+        val normalizedPubkey = pubkey.lowercase()
+        val relayEvent = fetchLatest(
+            filter = userRelayListFilter(normalizedPubkey),
+            relaySet = baseRelays,
+        ) { event ->
+            NostrEventVerifier.verify(
+                event,
+                context = NostrEventContext(
+                    expectedKind = BookKinds.USER_RELAY_LIST,
+                    expectedPubkey = normalizedPubkey,
+                ),
+            )?.event
+        }
+        val parsed = relayEvent?.let(::relayListFromVerifiedEvent)
+        synchronized(relayListLock) {
+            relayListOwner = normalizedPubkey
+            discoveredRelays = parsed ?: UserRelayList()
+        }
+        return parsed
+    }
+
+    fun clearUserRelayList() {
+        synchronized(relayListLock) {
+            relayListOwner = null
+            discoveredRelays = UserRelayList()
+        }
+    }
+
+    private suspend fun ensureUserRelayList(pubkey: String) {
+        val normalizedPubkey = pubkey.lowercase()
+        if (synchronized(relayListLock) { relayListOwner == normalizedPubkey }) return
+        try {
+            refreshUserRelayList(normalizedPubkey)
+        } catch (failure: NostrRelayException) {
+            Log.w(LOG_TAG, "Could not refresh NIP-65 relays for $normalizedPubkey", failure)
+        }
+    }
+
+    private fun readRelays() = relaysFor(RelayAccess.READ)
+
+    private fun writeRelays() = relaysFor(RelayAccess.WRITE)
+
+    private fun relaysFor(access: RelayAccess): LinkedHashSet<NormalizedRelayUrl> = synchronized(relayListLock) {
+        LinkedHashSet(baseRelays).apply {
+            val discovered = if (access == RelayAccess.READ) discoveredRelays.read else discoveredRelays.write
+            discovered.mapNotNull(RelayUrlNormalizer::normalizeOrNull).forEach(::add)
+        }
+    }
 
     private suspend fun fetchLatest(
         filter: Filter,
+        relaySet: Set<NormalizedRelayUrl>,
         verifyEvent: (NostrEvent) -> NostrEvent?,
     ): NostrEvent? {
-        if (relays.isEmpty()) return null
-        val filters = relays.associateWith { listOf(filter) }
+        if (relaySet.isEmpty()) return null
+        val filters = relaySet.associateWith { listOf(filter) }
         val events = runCatching {
             client.fetchAll(filters = filters, timeoutMs = timeoutMillis, maxTotalMs = FETCH_MAX_TOTAL_MILLIS)
         }.getOrElse { failure ->
@@ -115,47 +186,51 @@ class NostrRelayClient(
     }
 
     suspend fun publishDirectory(event: NostrEvent): PublishReport {
+        ensureUserRelayList(event.pubkey)
+        val targets = writeRelays()
         if (NostrEventVerifier.verify(event) == null) {
-            return failedPublishReport(event, RelayPublishOutcomeType.PROTOCOL_FAILURE, "The signed event failed local verification.")
+            return failedPublishReport(event, targets, RelayPublishOutcomeType.PROTOCOL_FAILURE, "The signed event failed local verification.")
         }
         val quartzEvent = runCatching { Event.fromJson(json.encodeToString(event)) }.getOrElse { failure ->
-            return failedPublishReport(event, RelayPublishOutcomeType.PROTOCOL_FAILURE, safeReason(failure.message))
+            return failedPublishReport(event, targets, RelayPublishOutcomeType.PROTOCOL_FAILURE, safeReason(failure.message))
         }
-        val initial = runCatching { client.publishAndCollectResults(quartzEvent, relays, PUBLISH_TIMEOUT_SECONDS) }
+        val initial = runCatching { client.publishAndCollectResults(quartzEvent, targets, PUBLISH_TIMEOUT_SECONDS) }
             .getOrElse { failure ->
-                return failedPublishReport(event, RelayPublishOutcomeType.TRANSPORT_FAILURE, safeReason(failure.message))
+                return failedPublishReport(event, targets, RelayPublishOutcomeType.TRANSPORT_FAILURE, safeReason(failure.message))
             }
         val outcomes = initial.map { (relay, result) -> publishOutcome(relay, result) }.toMutableList()
-        retryAuthenticationRequiredPublishes(quartzEvent, outcomes)
+        retryAuthenticationRequiredPublishes(quartzEvent, targets, outcomes)
         outcomes.forEach { logOutcome(event.id, it) }
+        val targetUrls = targets.map(NormalizedRelayUrl::url)
         return PublishReport(
             acceptedRelays = outcomes.count { it.type == RelayPublishOutcomeType.ACCEPTED },
             attemptedRelays = outcomes.size,
             eventId = event.id.takeIf(String::isNotBlank),
-            outcomes = outcomes.sortedBy { relayUrls.indexOf(it.relayUrl).let { index -> if (index < 0) Int.MAX_VALUE else index } },
+            outcomes = outcomes.sortedBy { targetUrls.indexOf(it.relayUrl).let { index -> if (index < 0) Int.MAX_VALUE else index } },
         )
     }
 
     private fun failedPublishReport(
         event: NostrEvent,
+        targets: Set<NormalizedRelayUrl>,
         type: RelayPublishOutcomeType,
         reason: String,
     ) = PublishReport(
         acceptedRelays = 0,
-        attemptedRelays = relays.size,
+        attemptedRelays = targets.size,
         eventId = event.id.takeIf(String::isNotBlank),
-        outcomes = relays.map { RelayPublishOutcome(it.url, type, reason) },
+        outcomes = targets.map { RelayPublishOutcome(it.url, type, reason) },
     )
 
     private suspend fun retryAuthenticationRequiredPublishes(
         event: Event,
+        targets: Set<NormalizedRelayUrl>,
         outcomes: MutableList<RelayPublishOutcome>,
     ) {
         outcomes.indices.forEach { index ->
             val current = outcomes[index]
             if (current.type != RelayPublishOutcomeType.AUTHENTICATION_REQUIRED) return@forEach
-            val relay = relays.firstOrNull { it.url == current.relayUrl }
-                ?: return@forEach
+            val relay = targets.firstOrNull { it.url == current.relayUrl } ?: return@forEach
             when (val authentication = lazyAuthenticator.authenticate(relay)) {
                 is AuthAttempt.Accepted -> {
                     val retry = runCatching {
@@ -244,11 +319,49 @@ class NostrRelayClient(
 
         fun safeReason(reason: String?) = reason.orEmpty().replace(Regex("\\s+"), " ").trim().take(MAX_REASON_LENGTH)
     }
-
 }
 
 internal fun profileFilter(pubkey: String) =
     Filter(kinds = listOf(BookKinds.PROFILE_METADATA), authors = listOf(pubkey.lowercase()), limit = 1)
+
+internal fun userRelayListFilter(pubkey: String) =
+    Filter(kinds = listOf(BookKinds.USER_RELAY_LIST), authors = listOf(pubkey.lowercase()), limit = 1)
+
+data class UserRelayList(
+    val read: List<String> = emptyList(),
+    val write: List<String> = emptyList(),
+)
+
+internal fun relayListFromVerifiedEvent(event: NostrEvent): UserRelayList {
+    val read = LinkedHashSet<String>()
+    val write = LinkedHashSet<String>()
+    event.tags.forEach { tag ->
+        if (tag.getOrNull(0) != "r") return@forEach
+        val relay = normalizeSecureRelayUrl(tag.getOrNull(1)) ?: return@forEach
+        when (tag.getOrNull(2)) {
+            null, "" -> {
+                read.addWithinLimit(relay)
+                write.addWithinLimit(relay)
+            }
+            "read" -> read.addWithinLimit(relay)
+            "write" -> write.addWithinLimit(relay)
+        }
+    }
+    return UserRelayList(read.toList(), write.toList())
+}
+
+/** Avoid handing cleartext relay URLs to Quartz, which deliberately rejects them. */
+private fun normalizeSecureRelayUrl(rawUrl: String?): String? {
+    val trimmed = rawUrl?.trim().orEmpty()
+    if (!trimmed.startsWith("wss://", ignoreCase = true)) return null
+    val canonicalScheme = "wss://" + trimmed.substring("wss://".length)
+    return RelayUrlNormalizer.normalizeOrNull(canonicalScheme)?.url
+}
+private fun LinkedHashSet<String>.addWithinLimit(relay: String) {
+    if (relay in this || size < MAX_USER_RELAY_COUNT) add(relay)
+}
+
+private enum class RelayAccess { READ, WRITE }
 
 private data class PublicationCoordinate(val pubkey: String, val identifier: String)
 
@@ -344,3 +457,4 @@ private fun safeAuthReason(reason: String?) = reason.orEmpty()
 private const val AUTH_SIGNING_TIMEOUT_MILLIS = 90_000L
 private const val AUTH_ACK_TIMEOUT_MILLIS = 15_000L
 private const val MAX_AUTH_REASON_LENGTH = 240
+private const val MAX_USER_RELAY_COUNT = 12

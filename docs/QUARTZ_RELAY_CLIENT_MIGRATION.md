@@ -39,7 +39,7 @@ The configured default directory relays remain unchanged:
 - `wss://thecitadel.nostr1.com`
 - `wss://pipe.imwald.eu`
 
-User relay-list discovery is also out of scope.
+Verified NIP-65 user relay-list discovery and role-specific routing are implemented under ADR 0019.
 
 ## Required Design
 
