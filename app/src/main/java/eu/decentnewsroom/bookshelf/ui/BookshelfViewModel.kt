@@ -538,7 +538,11 @@ class BookshelfViewModel(
                     }
                 val publishMessage =
                     if (report.acceptedRelays > 0) {
-                        "Shared ${applied.referenceCount} bookshelf items with ${report.acceptedRelays}/${report.attemptedRelays} relays."
+                        val failedRelayDetail = report.failureMessage()
+                            .takeIf { report.acceptedRelays < report.attemptedRelays }
+                            ?.let { " Failed relays: $it" }
+                            .orEmpty()
+                        "Shared ${applied.referenceCount} bookshelf items with ${report.acceptedRelays}/${report.attemptedRelays} relays.$failedRelayDetail"
                     } else {
                         "Bookshelf saved locally, but no relay accepted it yet."
                     }
@@ -548,7 +552,7 @@ class BookshelfViewModel(
                         pendingDirectorySignRequest = null,
                         isPublishingDirectory = false,
                         syncMessage = applied.warning ?: publishMessage,
-                        error = if (report.acceptedRelays > 0) null else "No relay accepted the directory update.",
+                        error = if (report.acceptedRelays > 0) null else report.failureMessage(),
                     )
                 }
             } catch (failure: Throwable) {

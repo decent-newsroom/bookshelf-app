@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Superseded in part by ADR 0017 for Quartz relay transport. This ADR remains
+accepted for the signer-neutral authentication and validation boundary.
 
 ## Context
 

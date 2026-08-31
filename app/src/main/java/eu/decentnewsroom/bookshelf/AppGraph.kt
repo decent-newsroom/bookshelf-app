@@ -45,6 +45,8 @@ object AppGraph {
     private var chapterSourceSettingsStore: ChapterSourceSettingsStore? = null
     private var localBookshelfStore: LocalBookshelfStore? = null
     private var mercuryBooksStore: MercuryBookRepository? = null
+    private var directoryRelayClientStore: NostrRelayClient? = null
+    private var relayAuthenticatorStore: ExternalSignerNostrRelayAuthenticator? = null
     private var relaySyncStore: BookshelfRelaySync? = null
     private var nostrProfileRepositoryStore: NostrProfileRepository? = null
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
@@ -87,6 +89,18 @@ object AppGraph {
         if (chapterSourceSettingsStore == null) {
             chapterSourceSettingsStore = ChapterSourceSettingsStore(appContext)
         }
+        if (directoryRelayClientStore == null || relayAuthenticatorStore == null) {
+            val sessionStore = NostrSignerSessionStore(appContext)
+            val authenticator = ExternalSignerNostrRelayAuthenticator(sessionStore.load())
+            directoryRelayClientStore = NostrRelayClient(
+                httpClient = httpClient,
+                relayUrls = defaultRelays,
+                authenticator = authenticator,
+            )
+            relayAuthenticatorStore = authenticator
+        }
+        val directoryRelayClient = checkNotNull(directoryRelayClientStore)
+        val relayAuthenticator = checkNotNull(relayAuthenticatorStore)
         if (mercuryBooksStore == null) {
             val sourceSettings = checkNotNull(chapterSourceSettingsStore)
             mercuryBooksStore = MercuryBookRepository(
@@ -101,7 +115,7 @@ object AppGraph {
                     relayUrls = { sourceSettings.relayUrls.value },
                 ),
                 publicationIndexRelaySource = PublicationIndexRelaySource { coordinates ->
-                    NostrRelayClient(httpClient, defaultRelays).fetchPublicationIndexes(coordinates)
+                    directoryRelayClient.fetchPublicationIndexes(coordinates)
                 },
             )
         }
@@ -116,19 +130,13 @@ object AppGraph {
         }
         if (relaySyncStore == null || nostrProfileRepositoryStore == null) {
             val sessionStore = NostrSignerSessionStore(appContext)
-            val authenticator = ExternalSignerNostrRelayAuthenticator(sessionStore.load())
-            val relayClient = NostrRelayClient(
-                httpClient = httpClient,
-                relayUrls = defaultRelays,
-                authenticator = authenticator,
-            )
             relaySyncStore = QuartzBookshelfRelaySync(
-                relayClient = relayClient,
+                relayClient = directoryRelayClient,
                 sessionStore = sessionStore,
-                authenticator = authenticator,
+                authenticator = relayAuthenticator,
             )
             nostrProfileRepositoryStore = NostrProfileRepository(
-                relayClient = relayClient,
+                relayClient = directoryRelayClient,
                 cache = NostrProfileCache(appContext),
             )
         }

@@ -25,12 +25,39 @@ data class DirectoryEventDraft(
     val kind: Int = BookKinds.DIRECTORY,
 )
 
+
+enum class RelayPublishOutcomeType {
+    ACCEPTED,
+    REJECTED,
+    AUTHENTICATION_REQUIRED,
+    AUTHENTICATION_FAILED,
+    TRANSPORT_FAILURE,
+    PROTOCOL_FAILURE,
+    TIMEOUT,
+}
+
+data class RelayPublishOutcome(
+    val relayUrl: String,
+    val type: RelayPublishOutcomeType,
+    val reason: String? = null,
+)
+
 data class PublishReport(
     val acceptedRelays: Int,
     val attemptedRelays: Int,
     val eventId: String?,
-)
+    val outcomes: List<RelayPublishOutcome> = emptyList(),
+) {
+    fun failureMessage(): String = outcomes
+        .filter { it.type != RelayPublishOutcomeType.ACCEPTED }
+        .joinToString(separator = "; ") { outcome ->
+            "${outcome.relayUrl}: ${outcome.reason ?: outcome.type.name.lowercase().replace('_', ' ')}"
+        }
+        .take(MAX_FAILURE_MESSAGE_LENGTH)
+        .ifBlank { "No relay accepted the directory update." }
 
+    private companion object { const val MAX_FAILURE_MESSAGE_LENGTH = 500 }
+}
 sealed interface BookshelfSyncState {
     data object NotConfigured : BookshelfSyncState
     data object SignedOut : BookshelfSyncState
@@ -176,7 +203,7 @@ class QuartzBookshelfRelaySync(
                 if (report.acceptedRelays > 0) {
                     BookshelfSyncState.Ready(event.pubkey, relayClient.relayUrls.size)
                 } else {
-                    BookshelfSyncState.Failed("No relay accepted the directory update.")
+                    BookshelfSyncState.Failed(report.failureMessage())
                 }
         }.onFailure { failure ->
             _state.value = BookshelfSyncState.Failed(failure.message ?: "Could not publish directory.")

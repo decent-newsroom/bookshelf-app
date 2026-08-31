@@ -5,6 +5,12 @@ All notable user-facing changes to Bookshelf are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- Migrate directory, profile, and known-relay publication-index traffic to Quartz's shared Nostr relay client.
+- Show relay-specific directory sync outcomes and bounded rejection reasons instead of a generic no-acceptance error.
+- Move persistent chapter retrieval to Quartz relay subscriptions, preserving relay hints and Mercury fallback.
+
 ## v0.1.12
 
 - Add a Home **Continue reading** card for the most recently opened saved book, including durable chapter progress and resume behavior.

@@ -1,6 +1,6 @@
 # ADR 0001: Persistent Relay Chapter Fetching
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0018 for Quartz transport; relay selection and Mercury fallback remain accepted.
 - Date: 2026-08-27
 
 ## Context

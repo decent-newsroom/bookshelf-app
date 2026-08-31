@@ -69,14 +69,13 @@ class NostrProfileTest {
     }
 
     @Test
-    fun profileRequestFiltersKindZeroAndAuthor() {
+    fun profileFilterUsesKindZeroNormalizedAuthorAndLimit() {
         val pubkey = "a".repeat(64)
-        val request = profileReqMessage("profile-test", pubkey)
+        val filter = profileFilter(pubkey.uppercase())
 
-        assertTrue(request.startsWith("""["REQ","profile-test""""))
-        assertTrue(request.contains(""""kinds":[0]"""))
-        assertTrue(request.contains(""""authors":["$pubkey"]"""))
-        assertTrue(request.contains(""""limit":1"""))
+        assertEquals(listOf(BookKinds.PROFILE_METADATA), filter.kinds)
+        assertEquals(listOf(pubkey), filter.authors)
+        assertEquals(1, filter.limit)
     }
 
     private fun profileEvent(content: String): NostrEvent =

@@ -104,14 +104,17 @@ class ChapterSourcesTest {
                 chapterReference(pubkey, "chapter-two", null),
             )
 
-        val request = chapterReqMessage("test-subscription", references)
+        val filters = chapterFilters(references)
+        val idFilter = filters.single { it.ids != null }
+        val coordinateFilter = filters.single { it.authors != null }
 
-        assertTrue(request.startsWith("[\"REQ\",\"test-subscription\""))
-        assertTrue(request.contains("\"ids\":[\"$eventId\"]"))
-        assertTrue(request.contains("\"authors\":[\"$pubkey\"]"))
-        assertTrue(request.contains("\"#d\":[\"chapter-one\",\"chapter-two\"]"))
-        assertTrue(request.contains("\"kinds\":[${BookKinds.PUBLICATION_CONTENT}]"))
-        assertFalse(request.contains("https://"))
+        assertEquals(listOf(eventId), idFilter.ids)
+        assertEquals(listOf(BookKinds.PUBLICATION_CONTENT), idFilter.kinds)
+        assertEquals(1, idFilter.limit)
+        assertEquals(listOf(pubkey), coordinateFilter.authors)
+        assertEquals(listOf(BookKinds.PUBLICATION_CONTENT), coordinateFilter.kinds)
+        assertEquals(listOf("chapter-one", "chapter-two"), coordinateFilter.tags?.get("d"))
+        assertEquals(2, coordinateFilter.limit)
     }
 
     private fun chapterReference(pubkey: String, identifier: String, eventId: String?): ChapterReference =

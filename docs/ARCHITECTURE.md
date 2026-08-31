@@ -74,9 +74,9 @@ The reader's publication index and chapter relay path remains separate from the 
 
 ## Chapter Relay Connections
 
-`PersistentNostrChapterSource` maintains one OkHttp WebSocket per active relay URL. Connections are reused across book loads and kept alive by the shared client's ping interval. Each fetch creates an independent Nostr subscription and sends `CLOSE` for that subscription after `EOSE` or timeout; it does not close the underlying socket. The directory/profile relay client has a signer-neutral NIP-42 authentication boundary: it recognizes `AUTH` challenges, stores them without prompting the signer, and can perform one lazy authenticated retry for a protected publish or read when an authenticator is injected.
+`PersistentNostrChapterSource` uses its own Quartz `NostrClient` and OkHttp socket adapter, which own the relay pool, `REQ`/`CLOSE` encoding, reconnects, and per-relay subscription state. Each fetch creates an independent subscription, waits for `EOSE` from the selected relays or its timeout, and calls Quartz `unsubscribe` to send `CLOSE`; the app never hand-builds WebSocket frames. Directory/profile traffic retains a separately scoped Quartz client and its signer-neutral lazy NIP-42 boundary.
 
-Concurrent subscriptions are multiplexed by subscription ID. A connection failure completes affected subscriptions, and the next fetch attempts a fresh connection. When settings are changed, the current relay list is read on the next chapter fetch; removed connections are then closed and newly configured connections are created on demand. Each fetch adds normalized, valid `wss://` hints from its chapter `a` tags after the configured list, deduplicates them, and caps the combined list at eight relays. Invalid hints are ignored.
+Concurrent subscriptions are multiplexed by subscription ID. Quartz reconnects relays with its own backoff and reconciles the pool with active subscriptions; a connection failure completes the affected relay while successful peers can still supply chapters. When settings are changed, the current relay list is read on the next chapter fetch. Each fetch adds normalized, valid `wss://` hints from its chapter `a` tags after the configured list, deduplicates them, and caps the combined list at eight relays. Invalid hints are ignored.
 
 Chapter relay defaults are:
 
@@ -86,7 +86,7 @@ Chapter relay defaults are:
 
 `ChapterSourceSettingsStore` persists the ordered list in app-private `SharedPreferences`. Settings accepts up to eight `wss://` URLs and normalizes and deduplicates entries. An empty saved list falls back to the built-in chapter relay defaults; valid publication hints are then appended within the same eight-relay limit.
 
-Chapter relays are separate from the relays used for kind `30045` bookshelf-directory synchronization. The two features have different settings, event kinds, failure behavior, and connection lifecycles.
+Chapter relays are separate from the relays used for kind `30045` bookshelf-directory synchronization. They use separate Quartz clients because their settings, event kinds, failure behavior, and subscription lifecycles differ.
 
 ## Rendering and Cache Invariants
 
@@ -127,6 +127,8 @@ Saved-book state is device-local and does not require a Nostr login. `LocalBooks
 Reader preferences and per-book chapter progress are stored separately in app-private `SharedPreferences`. Opening a saved book records its current chapter and a last-opened timestamp. Home joins that state with the device-local saved-book summaries and shows only the most recently opened saved book as **Continue reading**; selecting it follows the normal `openBook` path and restores the persisted chapter. Unsaved books cannot appear in this card, and no book detail or chapter content is persisted for it.
 
 With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its default outbound relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`; user relay-list discovery is not yet implemented. Saving or removing a book commits locally before requesting a signature. Settings also provides a signer-approved **Sync to relays** action that signs and publishes the complete current local directory, so a rejected signer request or relay failure can be retried without another book change. **Sync from relays** remains a separate pull action. Published directory drafts contain exactly one `client` tag with the value `Bookshelf`; it is metadata only and is not persisted with the editable collection tags. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
+
+Directory, profile, and known-relay publication-index traffic share the application-scoped Quartz `NostrClient` through its OkHttp socket adapter. Quartz owns the relay pool, subscriptions, NIP-01 command encoding, reconnects, and publish confirmations; `NostrRelayClient` maps Quartz values across the existing verified-event boundary. Directory publication waits up to 15 seconds for each configured relay and reports acceptance, bounded rejection reason, authentication failure, transport failure, protocol failure, or timeout to Settings and safe Android logs. Chapter relay transport remains separate.
 
 NIP-42 authentication is represented by `NostrRelayAuthenticator`, which signs
 canonical kind `22242` drafts containing exactly the relay and challenge tags.
@@ -172,6 +174,9 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0014-publication-image-and-chapter-relay-hints.md`](decisions/0014-publication-image-and-chapter-relay-hints.md)
 
 - [`decisions/0015-continue-reading-from-durable-reader-state.md`](decisions/0015-continue-reading-from-durable-reader-state.md)
+- [`decisions/0016-retryable-local-bookshelf-publication.md`](decisions/0016-retryable-local-bookshelf-publication.md)
+- [`decisions/0017-quartz-directory-relay-transport.md`](decisions/0017-quartz-directory-relay-transport.md)
+- [`decisions/0018-quartz-chapter-relay-transport.md`](decisions/0018-quartz-chapter-relay-transport.md)
 ## Curated Discovery Shelves
 
 The Home tab is driven by the checked-in editorial catalog in `data/discovery/CuratedShelfCatalog.kt`. Each shelf stores only its title, stable id, and ordered NIP-19 `naddr` publication references; displayed title, author, cover, and chapter-reference metadata always come from kind `30040` publication-index events.
