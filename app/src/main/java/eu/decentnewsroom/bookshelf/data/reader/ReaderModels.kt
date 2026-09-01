@@ -13,7 +13,7 @@ enum class ReaderTheme {
 data class ReaderPreferences(
     val fontSizeSp: Float = 18f,
     val lineHeightMultiplier: Float = 1.55f,
-    val theme: ReaderTheme = ReaderTheme.Paper,
+    val theme: ReaderTheme = ReaderTheme.Sepia,
 )
 
 @Serializable

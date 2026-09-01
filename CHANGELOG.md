@@ -5,6 +5,12 @@ All notable user-facing changes to Bookshelf are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- Add Compose Material Icons Extended for app iconography.
+- Make Sepia the default theme for new reader preferences.
+
+
 ## v0.1.13
 
 - Discover verified NIP-65 user relay lists and route reads and directory publishing to the account's read and write relays.
