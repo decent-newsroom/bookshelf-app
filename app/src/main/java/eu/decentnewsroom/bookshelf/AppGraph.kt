@@ -14,6 +14,7 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileCache
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileRepository
 import eu.decentnewsroom.bookshelf.data.nostr.NostrRelayClient
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSessionStore
+import eu.decentnewsroom.bookshelf.data.nostr.LocalRelaySettingsStore
 import eu.decentnewsroom.bookshelf.data.nostr.ExternalSignerNostrRelayAuthenticator
 import eu.decentnewsroom.bookshelf.data.nostr.QuartzBookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
@@ -43,6 +44,7 @@ object AppGraph {
 
     private var readerSettingsStore: ReaderSettingsStore? = null
     private var chapterSourceSettingsStore: ChapterSourceSettingsStore? = null
+    private var localRelaySettingsStore: LocalRelaySettingsStore? = null
     private var localBookshelfStore: LocalBookshelfStore? = null
     private var mercuryBooksStore: MercuryBookRepository? = null
     private var directoryRelayClientStore: NostrRelayClient? = null
@@ -71,6 +73,9 @@ object AppGraph {
     val chapterSourceSettings: ChapterSourceSettingsStore
         get() = chapterSourceSettingsStore ?: error("AppGraph.initialize(context) must be called before using chapter source settings.")
 
+    val localRelaySettings: LocalRelaySettingsStore
+        get() = localRelaySettingsStore ?: error("AppGraph.initialize(context) must be called before using local relay settings.")
+
     val chapterHtmlCache: ChapterHtmlCache
         get() = chapterHtmlCacheStore ?: error("AppGraph.initialize(context) must be called before using chapter HTML cache.")
 
@@ -89,12 +94,15 @@ object AppGraph {
         if (chapterSourceSettingsStore == null) {
             chapterSourceSettingsStore = ChapterSourceSettingsStore(appContext)
         }
+        if (localRelaySettingsStore == null) {
+            localRelaySettingsStore = LocalRelaySettingsStore(appContext)
+        }
         if (directoryRelayClientStore == null || relayAuthenticatorStore == null) {
             val sessionStore = NostrSignerSessionStore(appContext)
             val authenticator = ExternalSignerNostrRelayAuthenticator(sessionStore.load())
             directoryRelayClientStore = NostrRelayClient(
                 httpClient = httpClient,
-                relayUrls = defaultRelays,
+                relayUrls = defaultRelays + listOfNotNull(checkNotNull(localRelaySettingsStore).relayUrl.value),
                 authenticator = authenticator,
             )
             relayAuthenticatorStore = authenticator
@@ -134,6 +142,7 @@ object AppGraph {
                 relayClient = directoryRelayClient,
                 sessionStore = sessionStore,
                 authenticator = relayAuthenticator,
+                defaultRelayUrls = defaultRelays,
             )
             nostrProfileRepositoryStore = NostrProfileRepository(
                 relayClient = directoryRelayClient,

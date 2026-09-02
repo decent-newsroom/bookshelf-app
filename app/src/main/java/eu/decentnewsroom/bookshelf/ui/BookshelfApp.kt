@@ -282,6 +282,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
                             onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
+                            onLocalRelayUrlChanged = viewModel::setLocalRelayUrl,
                             onThemeChanged = viewModel::setReaderTheme,
                         )
                     }
@@ -564,143 +565,81 @@ private fun SettingsScreen(
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
     onChapterRelayUrlsChanged: (String) -> Unit,
+    onLocalRelayUrlChanged: (String) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
 ) {
-    var chapterRelayDraft by remember(state.chapterRelayUrls) {
-        mutableStateOf(state.chapterRelayUrls.joinToString("\n"))
-    }
+    var chapterRelayDraft by remember(state.chapterRelayUrls) { mutableStateOf(state.chapterRelayUrls.joinToString("\n")) }
+    var localRelayDraft by remember(state.localRelayUrl) { mutableStateOf(state.localRelayUrl.orEmpty()) }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-
-        state.error?.let { message -> Notice(message) }
-        Text(
-            text = "Appearance",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = "Color scheme",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ReaderTheme.entries.forEach { theme ->
-                FilterChip(
-                    selected = state.readerPreferences.theme == theme,
-                    onClick = { onThemeChanged(theme) },
-                    label = { Text(theme.label) },
-                )
-            }
+        Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        state.error?.let(::Notice)
+        SettingsSection("Appearance", initiallyExpanded = true) {
+            Text("Color scheme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(selected = state.readerPreferences.theme == theme, onClick = { onThemeChanged(theme) }, label = { Text(theme.label) }) } }
+            Notice("Reader font: ${state.readerPreferences.fontSizeSp.roundToInt()}sp; line height: ${state.readerPreferences.lineHeightMultiplier}×")
         }
-
-        Notice("Books search: https://decentnewsroom.com/books/api (Mercury fallback available)")
-        Text(
-            text = "Chapter sources",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        OutlinedTextField(
-            value = chapterRelayDraft,
-            onValueChange = { chapterRelayDraft = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("WebSocket relays") },
-            supportingText = {
-                Text("One wss:// relay URL per line. Leave empty to use the default chapter relays.")
-            },
-            minLines = 2,
-            maxLines = 5,
-        )
-        Button(onClick = { onChapterRelayUrlsChanged(chapterRelayDraft) }) {
-            Text("Save chapter sources")
-        }
-        Notice("Reader: ${state.readerPreferences.fontSizeSp.roundToInt()}sp, ${state.readerPreferences.theme.label}")
-        Notice("Chapter cache: ${state.chapterCacheStats.label}")
-        Button(
-            onClick = onClearChapterCache,
-            enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache,
-        ) {
-            Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache")
-        }
-
-        Text(
-            text = "Nostr",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Notice("Login is optional. My Books works locally; login enables relay sync and sharing.")
-
-        val session = state.signerSession
-        if (session == null) {
-            Notice(
-                if (signerAvailable) {
-                    "Not connected to relay sync."
-                } else {
-                    "No Android Nostr signer found. Local My Books is still available."
-                },
-            )
-            Button(
-                onClick = onLogin,
-                enabled = signerAvailable && !state.isSyncingDirectory && !state.isPublishingDirectory,
-            ) {
-                Text("Log in to sync and share")
-            }
-        } else {
-            val accountName = state.nostrProfile?.preferredName ?: session.pubkey.compactHex()
-            Notice("Logged in as $accountName")
-            Text(
-                text = "${session.pubkey.compactHex()} via ${session.packageName}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onSyncToRelays,
-                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
-                ) {
-                    Text(
-                        if (state.syncState is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed) {
-                            "Retry relay sync"
-                        } else {
-                            "Sync to relays"
-                        },
-                    )
-                }
-                TextButton(
-                    onClick = onSyncFromRelays,
-                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
-                ) {
-                    Text("Sync from relays")
-                }
-                TextButton(
-                    onClick = onSignOut,
-                    enabled = !state.isSyncingDirectory && !state.isPublishingDirectory,
-                ) {
-                    Text("Sign out")
+        SettingsSection("Account") {
+            Notice("Login is optional. My Books works locally; login enables relay sync and sharing.")
+            val session = state.signerSession
+            if (session == null) {
+                Notice(if (signerAvailable) "Not connected to relay sync." else "No Android Nostr signer found. Local My Books is still available.")
+                Button(onClick = onLogin, enabled = signerAvailable && !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Log in to sync and share") }
+            } else {
+                val accountName = state.nostrProfile?.preferredName ?: session.pubkey.compactHex()
+                Notice("Logged in as $accountName")
+                Text("${session.pubkey.compactHex()} via ${session.packageName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onSyncToRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text(if (state.syncState is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed) "Retry relay sync" else "Sync to relays") }
+                    TextButton(onClick = onSyncFromRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sync from relays") }
+                    TextButton(onClick = onSignOut, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sign out") }
                 }
             }
+            Notice("Relay sync: ${state.syncState.label}")
+            if (state.isSyncingDirectory) LoadingInline("Syncing bookshelf...")
+            if (state.isPublishingDirectory) LoadingInline("Sharing bookshelf...")
         }
-
-        Notice("Relay sync: ${state.syncState.label}")
-
-        if (state.isSyncingDirectory) {
-            LoadingInline("Syncing bookshelf...")
+        SettingsSection("Relays") {
+            SettingsRelayList("Search APIs", listOf("https://decentnewsroom.com/books/api", "https://mercury-relay.imwald.eu (fallback)"), "Defaults; not editable.")
+            SettingsRelayList("Default publication relays", state.chapterRelayUrls, "Used for chapter sources. One wss:// relay URL per line.")
+            OutlinedTextField(value = chapterRelayDraft, onValueChange = { chapterRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Chapter source relays") }, minLines = 2, maxLines = 5)
+            Button(onClick = { onChapterRelayUrlsChanged(chapterRelayDraft) }) { Text("Save publication relays") }
+            SettingsRelayList("Your read relays", state.relayConfiguration.userRead, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
+            SettingsRelayList("Your write relays", state.relayConfiguration.userWrite, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
+            Text("Local relay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(value = localRelayDraft, onValueChange = { localRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Citrine relay URL") }, placeholder = { Text("ws://127.0.0.1:…") }, supportingText = { Text("Optional. Used alongside the default relays; leave empty to disable.") }, singleLine = true)
+            Button(onClick = { onLocalRelayUrlChanged(localRelayDraft) }) { Text("Save local relay") }
+            SettingsRelayList("Bootstrap relays in use", state.relayConfiguration.bootstrap, "Includes the optional local relay.")
         }
-        if (state.isPublishingDirectory) {
-            LoadingInline("Sharing bookshelf...")
+        SettingsSection("Cache") {
+            Notice("Rendered chapter cache: ${state.chapterCacheStats.label}")
+            Button(onClick = onClearChapterCache, enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache) { Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache") }
         }
     }
 }
 
+@Composable
+private fun SettingsSection(title: String, initiallyExpanded: Boolean = false, content: @Composable () -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Collapse" else "Expand") }
+            }
+            if (expanded) content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsRelayList(title: String, relays: List<String>, description: String) {
+    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(relays.joinToString("\n").ifBlank { "Not available until a signed NIP-65 relay list is loaded." }, style = MaterialTheme.typography.bodySmall)
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderScreen(

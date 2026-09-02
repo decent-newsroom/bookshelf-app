@@ -58,6 +58,12 @@ data class PublishReport(
 
     private companion object { const val MAX_FAILURE_MESSAGE_LENGTH = 500 }
 }
+data class RelayConfiguration(
+    val bootstrap: List<String> = emptyList(),
+    val userRead: List<String> = emptyList(),
+    val userWrite: List<String> = emptyList(),
+)
+
 sealed interface BookshelfSyncState {
     data object NotConfigured : BookshelfSyncState
     data object SignedOut : BookshelfSyncState
@@ -70,6 +76,7 @@ interface BookshelfRelaySync {
     val state: StateFlow<BookshelfSyncState>
     val activeSession: StateFlow<NostrSignerSession?>
     val pendingNostrAuthSignRequest: StateFlow<PendingNostrAuthSignRequest?>
+    val relayConfiguration: RelayConfiguration get() = RelayConfiguration()
 
     suspend fun signIn(session: NostrSignerSession)
 
@@ -92,16 +99,25 @@ interface BookshelfRelaySync {
     fun decodeSignedDirectory(eventJson: String): NostrEvent
 
     suspend fun publishDirectory(event: NostrEvent): PublishReport
+
+    fun setLocalRelayUrl(relayUrl: String?) = Unit
 }
 
 class QuartzBookshelfRelaySync(
     private val relayClient: NostrRelayClient,
     private val sessionStore: NostrSignerSessionStore,
     private val authenticator: ExternalSignerNostrRelayAuthenticator,
+    private val defaultRelayUrls: List<String>,
 ) : BookshelfRelaySync {
     private val _activeSession = MutableStateFlow(sessionStore.load())
     override val activeSession: StateFlow<NostrSignerSession?> = _activeSession.asStateFlow()
     override val pendingNostrAuthSignRequest: StateFlow<PendingNostrAuthSignRequest?> = authenticator.pending
+    override val relayConfiguration: RelayConfiguration
+        get() = RelayConfiguration(
+            bootstrap = relayClient.configuredRelayUrls,
+            userRead = relayClient.userReadRelayUrls,
+            userWrite = relayClient.userWriteRelayUrls,
+        )
 
     private val _state =
         MutableStateFlow<BookshelfSyncState>(
@@ -216,6 +232,12 @@ class QuartzBookshelfRelaySync(
         }.getOrThrow()
     }
 
+    override fun setLocalRelayUrl(relayUrl: String?) {
+        relayClient.setConfiguredRelayUrls(defaultRelayUrls + listOfNotNull(relayUrl))
+        _activeSession.value?.let { session ->
+            _state.value = BookshelfSyncState.Ready(session.pubkey, relayClient.relayUrls.size)
+        }
+    }
     @Serializable
     private data class UnsignedNostrEvent(
         val pubkey: String,

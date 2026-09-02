@@ -44,7 +44,7 @@ class NostrRelayClient(
 ) : AutoCloseable {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val baseRelays = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+    private var baseRelays = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
     private val relayListLock = Any()
     private var relayListOwner: String? = null
     private var discoveredRelays = UserRelayList()
@@ -60,6 +60,21 @@ class NostrRelayClient(
 
     val readRelayUrls: List<String>
         get() = relaysFor(RelayAccess.READ).map(NormalizedRelayUrl::url)
+
+    val configuredRelayUrls: List<String>
+        get() = synchronized(relayListLock) { baseRelays.map(NormalizedRelayUrl::url) }
+
+    val userReadRelayUrls: List<String>
+        get() = synchronized(relayListLock) { discoveredRelays.read }
+
+    val userWriteRelayUrls: List<String>
+        get() = synchronized(relayListLock) { discoveredRelays.write }
+
+    fun setConfiguredRelayUrls(relayUrls: List<String>) {
+        val normalized = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+        require(normalized.isNotEmpty()) { "At least one bootstrap relay is required." }
+        synchronized(relayListLock) { baseRelays = normalized }
+    }
 
     suspend fun fetchLatestDirectory(pubkey: String): NostrEvent? {
         ensureUserRelayList(pubkey)
@@ -123,7 +138,7 @@ class NostrRelayClient(
         val normalizedPubkey = pubkey.lowercase()
         val relayEvent = fetchLatest(
             filter = userRelayListFilter(normalizedPubkey),
-            relaySet = baseRelays,
+            relaySet = configuredRelays(),
         ) { event ->
             NostrEventVerifier.verify(
                 event,
@@ -156,6 +171,10 @@ class NostrRelayClient(
         } catch (failure: NostrRelayException) {
             Log.w(LOG_TAG, "Could not refresh NIP-65 relays for $normalizedPubkey", failure)
         }
+    }
+
+    private fun configuredRelays(): LinkedHashSet<NormalizedRelayUrl> = synchronized(relayListLock) {
+        LinkedHashSet(baseRelays)
     }
 
     private fun readRelays() = relaysFor(RelayAccess.READ)

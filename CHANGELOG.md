@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Reorganize Settings into collapsible Appearance, Account, Relays, and Cache sections, including read-only NIP-65 relay visibility and an optional local Citrine relay.
+
 - Add Compose Material Icons Extended for app iconography.
 - Make Sepia the default theme for new reader preferences.
 
