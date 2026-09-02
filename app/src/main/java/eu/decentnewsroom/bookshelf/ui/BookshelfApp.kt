@@ -52,6 +52,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
@@ -673,6 +674,8 @@ private fun ReaderScreen(
     onFontSizeChanged: (Float) -> Unit,
     onLineHeightChanged: (Float) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
+    seenTips: Set<OnboardingTip>,
+    onTipSeen: (OnboardingTip) -> Unit,
 ) {
     val initialListItemIndex = readerListItemIndexForChapter(progress.currentChapterIndex, detail.chapters.size)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialListItemIndex)
