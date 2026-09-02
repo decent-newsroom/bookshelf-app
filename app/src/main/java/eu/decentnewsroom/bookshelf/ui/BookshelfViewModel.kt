@@ -626,7 +626,24 @@ class BookshelfViewModel(
 
     fun setLocalRelayUrl(rawRelayUrl: String) {
         runCatching { localRelaySettings.setRelayUrl(rawRelayUrl) }
-            .onFailure { failure -> _uiState.update { it.copy(error = failure.message ?: "Could not save local relay.") } }
+            .onSuccess {
+                val relayUrl = localRelaySettings.relayUrl.value
+                _uiState.update {
+                    it.copy(
+                        error = null,
+                        syncMessage = relayUrl?.let { url -> "Local relay saved: $url" }
+                            ?: "Local relay disabled.",
+                    )
+                }
+            }
+            .onFailure { failure ->
+                _uiState.update {
+                    it.copy(
+                        error = failure.message ?: "Could not save local relay.",
+                        syncMessage = null,
+                    )
+                }
+            }
     }
     fun setReaderFontSize(fontSizeSp: Float) {
         readerSettings.setFontSizeSp(fontSizeSp)

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Move bookshelf synchronization actions from Account to the Relays Settings section.
+- Confirm when the optional local relay is saved or disabled from Settings.
 - Add persistent contextual tooltips for saving books to My Books and revealing reader navigation and settings menus by tapping the reading view.
 
 ## v0.1.14

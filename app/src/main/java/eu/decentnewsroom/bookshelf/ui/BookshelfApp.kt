@@ -604,17 +604,22 @@ private fun SettingsScreen(
                 val accountName = state.nostrProfile?.preferredName ?: session.pubkey.compactHex()
                 Notice("Logged in as $accountName")
                 Text("${session.pubkey.compactHex()} via ${session.packageName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onSignOut, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sign out") }
+            }
+        }
+        SettingsSection("Relays") {
+            if (state.signerSession == null) {
+                Notice("Log in from Account to sync your bookshelf through relays.")
+            } else {
+                Text("Bookshelf sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onSyncToRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text(if (state.syncState is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed) "Retry relay sync" else "Sync to relays") }
                     TextButton(onClick = onSyncFromRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sync from relays") }
-                    TextButton(onClick = onSignOut, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sign out") }
                 }
+                Notice("Relay sync: ${state.syncState.label}")
+                if (state.isSyncingDirectory) LoadingInline("Syncing bookshelf...")
+                if (state.isPublishingDirectory) LoadingInline("Sharing bookshelf...")
             }
-            Notice("Relay sync: ${state.syncState.label}")
-            if (state.isSyncingDirectory) LoadingInline("Syncing bookshelf...")
-            if (state.isPublishingDirectory) LoadingInline("Sharing bookshelf...")
-        }
-        SettingsSection("Relays") {
             SettingsRelayList("Search APIs", listOf("https://decentnewsroom.com/books/api", "https://mercury-relay.imwald.eu (fallback)"), "Defaults; not editable.")
             SettingsRelayList("Default publication relays", state.chapterRelayUrls, "Used for chapter sources. One wss:// relay URL per line.")
             OutlinedTextField(value = chapterRelayDraft, onValueChange = { chapterRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Chapter source relays") }, minLines = 2, maxLines = 5)
@@ -622,7 +627,7 @@ private fun SettingsScreen(
             SettingsRelayList("Your read relays", state.relayConfiguration.userRead, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
             SettingsRelayList("Your write relays", state.relayConfiguration.userWrite, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
             Text("Local relay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            OutlinedTextField(value = localRelayDraft, onValueChange = { localRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Citrine relay URL") }, placeholder = { Text("ws://127.0.0.1:…") }, supportingText = { Text("Optional. Used alongside the default relays; leave empty to disable.") }, singleLine = true)
+            OutlinedTextField(value = localRelayDraft, onValueChange = { localRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Local relay URL, i.e. citrine") }, placeholder = { Text("ws://127.0.0.1:…") }, supportingText = { Text("Optional. Used alongside the default relays; leave empty to disable.") }, singleLine = true)
             Button(onClick = { onLocalRelayUrlChanged(localRelayDraft) }) { Text("Save local relay") }
             SettingsRelayList("Bootstrap relays in use", state.relayConfiguration.bootstrap, "Includes the optional local relay.")
         }
