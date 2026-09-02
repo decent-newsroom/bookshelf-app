@@ -90,11 +90,11 @@ class BookshelfViewModel(
             }
         }
         viewModelScope.launch {
-        viewModelScope.launch {
             onboardingTips.seenTips.collect { seenTips ->
                 _uiState.update { it.copy(seenOnboardingTips = seenTips) }
             }
         }
+        viewModelScope.launch {
             chapterSourceSettings.relayUrls.collect { relayUrls ->
                 _uiState.update { it.copy(chapterRelayUrls = relayUrls) }
             }

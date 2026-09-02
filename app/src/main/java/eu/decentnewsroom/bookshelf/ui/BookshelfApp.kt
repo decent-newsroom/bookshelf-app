@@ -39,6 +39,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -51,6 +52,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,6 +88,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
+import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
@@ -244,6 +249,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         onFontSizeChanged = viewModel::setReaderFontSize,
                         onLineHeightChanged = viewModel::setReaderLineHeight,
                         onThemeChanged = viewModel::setReaderTheme,
+                        seenTips = state.seenOnboardingTips,
+                        onTipSeen = viewModel::markOnboardingTipSeen,
                     )
 
                     state.isLoadingBook -> LoadingScreen("Opening book...")
@@ -746,18 +753,23 @@ private fun ReaderScreen(
             .fillMaxSize()
             .background(colors.background),
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(detail.summary.coordinate) {
-                    detectTapGestures(
-                        onTap = { showNavigationMenus = !showNavigationMenus },
-                    )
-                },
-            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+        OnboardingTooltip(
+            visible = OnboardingTip.ReaderMenus !in seenTips,
+            text = "Tap anywhere while reading to show menus for navigation and reader settings.",
+            onDismissed = { onTipSeen(OnboardingTip.ReaderMenus) },
         ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(detail.summary.coordinate) {
+                    detectTapGestures(
+                            onTap = { showNavigationMenus = !showNavigationMenus },
+                        )
+                    },
+                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
             item(key = "reader-header") {
                 ReaderHeader(
                     detail = detail,
@@ -768,6 +780,8 @@ private fun ReaderScreen(
                     onToggleSaved = onToggleSaved,
                     onShowContents = { showContents = true },
                     onShowSettings = { showSettings = true },
+                    showBookListTip = OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips,
+                    onBookListTipDismissed = { onTipSeen(OnboardingTip.BookListMembership) },
                 )
             }
 
@@ -782,6 +796,7 @@ private fun ReaderScreen(
                     onLinkClick = { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } },
                     modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
                 )
+            }
             }
         }
 
@@ -903,6 +918,8 @@ private fun ReaderHeader(
     onToggleSaved: () -> Unit,
     onShowContents: () -> Unit,
     onShowSettings: () -> Unit,
+    showBookListTip: Boolean,
+    onBookListTipDismissed: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -921,8 +938,14 @@ private fun ReaderHeader(
                 Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.width(6.dp))
-            Button(onClick = onToggleSaved) {
-                Text(if (isSaved) "Remove" else "Save")
+            OnboardingTooltip(
+                visible = showBookListTip,
+                text = "Save adds this book to your personal My Books list. Remove takes it out again.",
+                onDismissed = onBookListTipDismissed,
+            ) {
+                Button(onClick = onToggleSaved) {
+                    Text(if (isSaved) "Remove" else "Save")
+                }
             }
         }
 
@@ -1481,3 +1504,27 @@ private fun String.compactHex(): String =
     }
 
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OnboardingTooltip(
+    visible: Boolean,
+    text: String,
+    onDismissed: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberTooltipState()
+    LaunchedEffect(visible) {
+        if (visible) {
+            state.show()
+            onDismissed()
+        }
+    }
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(text) } },
+        state = state,
+        focusable = false,
+        content = content,
+    )
+}
