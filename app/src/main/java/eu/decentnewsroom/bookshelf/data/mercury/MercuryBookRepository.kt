@@ -290,7 +290,7 @@ class MercuryBookRepository(
 
     /** Returns the original signed index and all currently available signed chapters. */
     suspend fun getBookEventsForBroadcast(book: BookSummary): List<NostrEvent> {
-        val index = apiClient.getEvent(book.id, BookKinds.PUBLICATION_INDEX)
+        val index = runCatching { apiClient.getEvent(book.id, BookKinds.PUBLICATION_INDEX) }.getOrNull()
             ?: publicationIndexRelaySource
                 ?.fetchPublicationIndexes(listOf(book.coordinate))
                 ?.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })

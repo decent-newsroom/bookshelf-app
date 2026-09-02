@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Open books by tapping the card and show My Books, publication details, and configured local-relay actions on long press.
 - Show publisher profile information and parsed publication/event metadata in a book details modal.
 - Queue and broadcast the original signed book index and all available signed chapters to the configured local relay.
+- Replace the deprecated plain-tooltip position provider with the positioned Material 3 tooltip API.
 
 
 ## v0.1.15
