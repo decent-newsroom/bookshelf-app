@@ -30,6 +30,8 @@ import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +58,7 @@ class BookshelfViewModel(
     )
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
     private var searchJob: Job? = null
+    private var bookOpenJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -144,6 +147,21 @@ class BookshelfViewModel(
         _uiState.update { it.copy(isSearchOpen = false, isSearching = false) }
     }
 
+    fun returnHome() {
+        searchJob?.cancel()
+        bookOpenJob?.cancel()
+        _uiState.update {
+            it.copy(
+                tab = BookshelfTab.Home,
+                selectedBook = null,
+                isLoadingBook = false,
+                isSearchOpen = false,
+                isSearching = false,
+                error = null,
+            )
+        }
+    }
+
     fun retryShelves() {
         refreshCuratedShelves()
     }
@@ -203,7 +221,8 @@ class BookshelfViewModel(
     }
 
     fun openBook(book: BookSummary) {
-        viewModelScope.launch {
+        bookOpenJob?.cancel()
+        bookOpenJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isLoadingBook = true,
@@ -214,6 +233,7 @@ class BookshelfViewModel(
 
             try {
                 val detail = chapterHtmlCache.renderBook(repository.getBook(book))
+                currentCoroutineContext().ensureActive()
                 val cacheStats = chapterHtmlCache.stats()
                 if (localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
@@ -248,7 +268,7 @@ class BookshelfViewModel(
     }
 
     fun closeBook() {
-        _uiState.update { it.copy(selectedBook = null, error = null) }
+        returnHome()
     }
 
     fun clearChapterHtmlCache() {

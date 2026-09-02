@@ -4,6 +4,8 @@
 
 Bookshelf is a native Android app built with Kotlin and Jetpack Compose. `AppGraph` owns process-wide dependencies; `BookshelfViewModel` coordinates UI state and use cases.
 
+The system Back gesture returns any reader, loading, search, My Books, or Settings state to Home. Returning Home clears transient navigation state and cancels an in-flight book open so a dismissed loading screen cannot later reopen the reader.
+
 The main source boundaries are:
 
 - `domain`: Nostr events and book/chapter models.

@@ -106,8 +106,14 @@ import kotlin.math.roundToInt
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    BackHandler(enabled = state.selectedBook != null) { viewModel.closeBook() }
-    BackHandler(enabled = state.selectedBook == null && state.isSearchOpen) { viewModel.closeSearch() }
+    BackHandler(
+        enabled = state.selectedBook != null ||
+            state.isLoadingBook ||
+            state.isSearchOpen ||
+            state.tab != BookshelfTab.Home,
+    ) {
+        viewModel.returnHome()
+    }
     val context = LocalContext.current
     val signerAvailable = remember(context) { AndroidExternalSigner.isInstalled(context) }
     var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -231,7 +237,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                 chapterCount = selectedBook.chapters.size,
                             ),
                         selectedTab = state.tab,
-                        onBack = viewModel::closeBook,
+                        onBack = viewModel::returnHome,
                         onTabSelected = viewModel::selectTab,
                         onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
                         onChapterProgressChanged = viewModel::recordReaderProgress,
