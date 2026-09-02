@@ -21,6 +21,8 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
 import eu.decentnewsroom.bookshelf.data.nostr.LocalRelaySettingsStore
 import eu.decentnewsroom.bookshelf.data.nostr.RelayConfiguration
 import eu.decentnewsroom.bookshelf.data.nostr.PendingNostrAuthSignRequest
+import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
+import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTipStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
@@ -46,6 +48,7 @@ class BookshelfViewModel(
     private val localBookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
     private val chapterSourceSettings: ChapterSourceSettingsStore = AppGraph.chapterSourceSettings,
+    private val onboardingTips: OnboardingTipStore = AppGraph.onboardingTips,
     private val localRelaySettings: LocalRelaySettingsStore = AppGraph.localRelaySettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
@@ -87,6 +90,11 @@ class BookshelfViewModel(
             }
         }
         viewModelScope.launch {
+        viewModelScope.launch {
+            onboardingTips.seenTips.collect { seenTips ->
+                _uiState.update { it.copy(seenOnboardingTips = seenTips) }
+            }
+        }
             chapterSourceSettings.relayUrls.collect { relayUrls ->
                 _uiState.update { it.copy(chapterRelayUrls = relayUrls) }
             }
@@ -612,6 +620,10 @@ class BookshelfViewModel(
         readerSettings.recordProgress(book, chapterIndex)
     }
 
+    fun markOnboardingTipSeen(tip: OnboardingTip) {
+        onboardingTips.markSeen(tip)
+    }
+
     fun setLocalRelayUrl(rawRelayUrl: String) {
         runCatching { localRelaySettings.setRelayUrl(rawRelayUrl) }
             .onFailure { failure -> _uiState.update { it.copy(error = failure.message ?: "Could not save local relay.") } }
@@ -806,6 +818,7 @@ data class BookshelfUiState(
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
     val chapterRelayUrls: List<String> = emptyList(),
+    val seenOnboardingTips: Set<OnboardingTip> = emptySet(),
     val localRelayUrl: String? = null,
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
