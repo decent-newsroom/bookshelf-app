@@ -103,6 +103,7 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -1521,18 +1522,35 @@ private fun OnboardingTooltip(
     onDismissed: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val state = rememberTooltipState()
+    val state = rememberTooltipState(isPersistent = true)
     LaunchedEffect(visible) {
         if (visible) {
+            val autoDismiss = launch {
+                delay(OnboardingTooltipDurationMillis)
+                state.dismiss()
+            }
             state.show()
+            autoDismiss.cancel()
             onDismissed()
         }
     }
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text(text) } },
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(
+            spacingBetweenTooltipAndAnchor = 16.dp,
+        ),
+        tooltip = {
+            PlainTooltip {
+                Text(
+                    text = text,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+        },
         state = state,
         focusable = false,
         content = content,
     )
 }
+
+private const val OnboardingTooltipDurationMillis = 10_000L
