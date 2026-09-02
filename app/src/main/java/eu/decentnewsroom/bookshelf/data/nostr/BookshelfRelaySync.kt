@@ -100,6 +100,8 @@ interface BookshelfRelaySync {
 
     suspend fun publishDirectory(event: NostrEvent): PublishReport
 
+    suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport
+
     fun setLocalRelayUrl(relayUrl: String?) = Unit
 }
 
@@ -231,6 +233,9 @@ class QuartzBookshelfRelaySync(
             _state.value = BookshelfSyncState.Failed(failure.message ?: "Could not publish directory.")
         }.getOrThrow()
     }
+
+    override suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport =
+        relayClient.publishToRelay(event, relayUrl)
 
     override fun setLocalRelayUrl(relayUrl: String?) {
         relayClient.setConfiguredRelayUrls(defaultRelayUrls + listOfNotNull(relayUrl))

@@ -65,6 +65,8 @@ server capacity.
 
 Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.
 
+Book-card details use the existing parsed `BookSummary` fields and resolve the index publisher's verified kind `0` profile from its `pubkey`. An explicit local-relay action re-fetches the original verified kind `30040` index and available verified kind `30041` chapters, queues them in index order, and publishes each signed event only to the configured local relay; missing events are reported and never synthesized.
+
 1. Open the already-resolved kind `30040` publication index. Search and Home summaries originate from Mercury; My Books may originate from a verified bookshelf relay, so opening never requires Mercury to mirror the same index event.
 2. Ask `PersistentNostrChapterSource` for the referenced kind `30041` chapter events.
 3. Query configured relays plus valid `wss://` hints from the publication's chapter `a` tags by event ID and by author/`d`-tag coordinate. Merge duplicate results by coordinate, keeping the newest `created_at` value.

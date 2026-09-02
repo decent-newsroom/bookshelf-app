@@ -206,7 +206,16 @@ class NostrRelayClient(
 
     suspend fun publishDirectory(event: NostrEvent): PublishReport {
         ensureUserRelayList(event.pubkey)
-        val targets = writeRelays()
+        return publishEvent(event, writeRelays())
+    }
+
+    suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport {
+        val relay = RelayUrlNormalizer.normalizeOrNull(relayUrl)
+            ?: throw NostrRelayException("Local relay URL is invalid.")
+        return publishEvent(event, linkedSetOf(relay))
+    }
+
+    private suspend fun publishEvent(event: NostrEvent, targets: Set<NormalizedRelayUrl>): PublishReport {
         if (NostrEventVerifier.verify(event) == null) {
             return failedPublishReport(event, targets, RelayPublishOutcomeType.PROTOCOL_FAILURE, "The signed event failed local verification.")
         }

@@ -288,6 +288,35 @@ class MercuryBookRepository(
         )
     }
 
+    /** Returns the original signed index and all currently available signed chapters. */
+    suspend fun getBookEventsForBroadcast(book: BookSummary): List<NostrEvent> {
+        val index = apiClient.getEvent(book.id, BookKinds.PUBLICATION_INDEX)
+            ?: publicationIndexRelaySource
+                ?.fetchPublicationIndexes(listOf(book.coordinate))
+                ?.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
+            ?: throw MercuryApiException("The signed book index is not available.")
+
+        val refs = book.chapterRefs.take(MAX_CHAPTERS)
+        val candidates = buildList {
+            chapterEventSource?.let { source ->
+                addAll(runCatching { source.fetchChapters(refs) }.getOrDefault(emptyList()))
+            }
+            addAll(runCatching {
+                apiClient.getChaptersByCoordinates(refs.map(ChapterReference::coordinate))
+            }.getOrDefault(emptyList()))
+        }
+        val newestByCoordinate = mutableMapOf<String, NostrEvent>()
+        candidates.forEach { event ->
+            val coordinate = publicationContentCoordinate(event) ?: return@forEach
+            val current = newestByCoordinate[coordinate]
+            if (current == null || event.createdAt > current.createdAt ||
+                (event.createdAt == current.createdAt && event.id > current.id)
+            ) {
+                newestByCoordinate[coordinate] = event
+            }
+        }
+        return listOf(index) + refs.mapNotNull { newestByCoordinate[it.coordinate] }
+    }
     suspend fun getBooksForReferences(references: List<BookReference>): List<BookSummary> {
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()

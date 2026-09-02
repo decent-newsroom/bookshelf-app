@@ -62,6 +62,7 @@ class BookshelfViewModel(
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
     private var searchJob: Job? = null
     private var bookOpenJob: Job? = null
+    private var bookDetailsJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -279,6 +280,70 @@ class BookshelfViewModel(
         returnHome()
     }
 
+    fun showBookActions(book: BookSummary) {
+        _uiState.update { it.copy(bookActions = book) }
+    }
+
+    fun dismissBookActions() {
+        _uiState.update { it.copy(bookActions = null) }
+    }
+
+    fun showBookDetails(book: BookSummary) {
+        dismissBookActions()
+        bookDetailsJob?.cancel()
+        _uiState.update { it.copy(bookDetails = BookDetailsState(book)) }
+        bookDetailsJob = viewModelScope.launch {
+            val cached = runCatching { nostrProfiles.cachedProfile(book.pubkey) }.getOrNull()
+            _uiState.update { state ->
+                state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                    ?.copy(publisher = cached))
+            }
+            val publisher = runCatching { nostrProfiles.refreshProfile(book.pubkey) }.getOrNull() ?: cached
+            _uiState.update { state ->
+                state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                    ?.copy(publisher = publisher, isLoadingPublisher = false))
+            }
+        }
+    }
+
+    fun dismissBookDetails() {
+        bookDetailsJob?.cancel()
+        _uiState.update { it.copy(bookDetails = null) }
+    }
+
+    fun broadcastBookToLocalRelay(book: BookSummary) {
+        dismissBookActions()
+        val relayUrl = _uiState.value.localRelayUrl
+        if (relayUrl == null) {
+            _uiState.update { it.copy(error = "Configure a local relay in Settings first.") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBroadcastingBook = true, error = null) }
+            try {
+                val events = repository.getBookEventsForBroadcast(book)
+                var accepted = 0
+                events.forEach { event ->
+                    if (relaySync.publishToRelay(event, relayUrl).acceptedRelays > 0) accepted++
+                }
+                val missing = (book.chapterCount + 1 - events.size).coerceAtLeast(0)
+                val suffix = if (missing == 0) "." else "; $missing chapter events were unavailable."
+                _uiState.update {
+                    it.copy(
+                        isBroadcastingBook = false,
+                        syncMessage = "Broadcast $accepted of ${events.size} queued events to the local relay$suffix",
+                    )
+                }
+            } catch (failure: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isBroadcastingBook = false,
+                        error = failure.message ?: "Could not broadcast this book to the local relay.",
+                    )
+                }
+            }
+        }
+    }
     fun clearChapterHtmlCache() {
         viewModelScope.launch {
             _uiState.update { it.copy(isClearingChapterCache = true, error = null) }
@@ -822,6 +887,8 @@ data class BookshelfUiState(
     val savedBooks: List<BookSummary> = emptyList(),
     val savedCoordinates: Set<String> = emptySet(),
     val selectedBook: BookDetail? = null,
+    val bookActions: BookSummary? = null,
+    val bookDetails: BookDetailsState? = null,
     val isLoadingBook: Boolean = false,
     val error: String? = null,
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,
@@ -840,8 +907,14 @@ data class BookshelfUiState(
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
     val isClearingChapterCache: Boolean = false,
+    val isBroadcastingBook: Boolean = false,
 )
 
+data class BookDetailsState(
+    val book: BookSummary,
+    val publisher: NostrProfile? = null,
+    val isLoadingPublisher: Boolean = true,
+)
 data class ContinueReadingBook(
     val book: BookSummary,
     val progress: ReadingProgress,

@@ -1,9 +1,13 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package eu.decentnewsroom.bookshelf.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -108,7 +112,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -263,7 +267,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onQueryChanged = viewModel::updateQuery,
                             onSearch = viewModel::submitSearch,
                             onOpen = viewModel::openBook,
-                            onToggleSaved = viewModel::toggleSaved,
+                            onLongPress = viewModel::showBookActions,
                         )
 
                         state.tab == BookshelfTab.Home -> HomeScreen(
@@ -278,6 +282,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSearch = viewModel::openSearch,
                             onRetry = viewModel::retryShelves,
                             onOpen = viewModel::openBook,
+                            onLongPress = viewModel::showBookActions,
                         )
 
                         state.tab == BookshelfTab.MyBooks -> MyBooksScreen(
@@ -285,7 +290,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             savedCoordinates = state.savedCoordinates,
                             onOpen = viewModel::openBook,
                             error = state.error,
-                            onToggleSaved = viewModel::toggleSaved,
+                            onLongPress = viewModel::showBookActions,
                         )
 
                         state.tab == BookshelfTab.Settings -> SettingsScreen(
@@ -303,6 +308,24 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                     }
                 }
             }
+        }
+        state.bookActions?.let { book ->
+            BookActionsSheet(
+                book = book,
+                isSaved = book.coordinate in state.savedCoordinates,
+                localRelayConfigured = state.localRelayUrl != null,
+                isBroadcasting = state.isBroadcastingBook,
+                onDismiss = viewModel::dismissBookActions,
+                onToggleSaved = {
+                    viewModel.dismissBookActions()
+                    viewModel.toggleSaved(book)
+                },
+                onDetails = { viewModel.showBookDetails(book) },
+                onBroadcast = { viewModel.broadcastBookToLocalRelay(book) },
+            )
+        }
+        state.bookDetails?.let { details ->
+            BookDetailsSheet(details = details, onDismiss = viewModel::dismissBookDetails)
         }
     }
 }
@@ -334,6 +357,7 @@ private fun HomeScreen(
     onSearch: () -> Unit,
     onRetry: () -> Unit,
     onOpen: (BookSummary) -> Unit,
+    onLongPress: (BookSummary) -> Unit,
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
@@ -349,7 +373,7 @@ private fun HomeScreen(
                 TextButton(onClick = onSearch) { Text("Search") }
             }
         }
-        continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }) } }
+        continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }, onLongPress = { onLongPress(it.book) }) } }
         if (isLoading && shelves.isEmpty()) item { LoadingInline("Loading shelves...") }
         message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); TextButton(onClick = onRetry) { Text("Retry") } } } }
         shelves.forEach { shelf ->
@@ -357,7 +381,7 @@ private fun HomeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(shelf.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(shelf.books, key = BookSummary::coordinate) { book -> ShelfBookCard(book, onOpen = { onOpen(book) }) }
+                        items(shelf.books, key = BookSummary::coordinate) { book -> ShelfBookCard(book, onOpen = { onOpen(book) }, onLongPress = { onLongPress(book) }) }
                     }
                 }
             }
@@ -369,6 +393,7 @@ private fun HomeScreen(
 private fun ContinueReadingCard(
     continueReading: ContinueReadingBook,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     val book = continueReading.book
     val progress = continueReading.progress
@@ -376,7 +401,7 @@ private fun ContinueReadingCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .clickable(onClick = onOpen),
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
         Row(
@@ -419,8 +444,11 @@ private fun ContinueReadingCard(
 }
 
 @Composable
-private fun ShelfBookCard(book: BookSummary, onOpen: () -> Unit) {
-    Column(Modifier.width(124.dp).clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+private fun ShelfBookCard(book: BookSummary, onOpen: () -> Unit, onLongPress: () -> Unit) {
+    Column(
+        Modifier.width(124.dp).combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
         BookCover(book, Modifier.fillMaxWidth().height(174.dp))
         Text(book.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(book.authors.joinToString(", ").ifBlank { "Unknown author" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -432,7 +460,7 @@ private fun SearchScreen(
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onOpen: (BookSummary) -> Unit,
-    onToggleSaved: (BookSummary) -> Unit,
+    onLongPress: (BookSummary) -> Unit,
 ) {
     var hasInteracted by rememberSaveable {
         mutableStateOf(
@@ -501,7 +529,7 @@ private fun SearchScreen(
                     book = result.book,
                     isSaved = state.savedCoordinates.contains(result.book.coordinate),
                     onOpen = { onOpen(result.book) },
-                    onToggleSaved = { onToggleSaved(result.book) },
+                    onLongPress = { onLongPress(result.book) },
                 )
                 result.matchedChapterTitle?.let { title ->
                     Text(
@@ -530,7 +558,7 @@ private fun MyBooksScreen(
     savedCoordinates: Set<String>,
     onOpen: (BookSummary) -> Unit,
     error: String?,
-    onToggleSaved: (BookSummary) -> Unit,
+    onLongPress: (BookSummary) -> Unit,
 ) {
     if (books.isEmpty()) {
         EmptyScreen(
@@ -564,7 +592,7 @@ private fun MyBooksScreen(
                 book = book,
                 isSaved = savedCoordinates.contains(book.coordinate),
                 onOpen = { onOpen(book) },
-                onToggleSaved = { onToggleSaved(book) },
+                onLongPress = { onLongPress(book) },
             )
         }
     }
@@ -660,7 +688,7 @@ private fun SettingsRelayList(title: String, relays: List<String>, description: 
     Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text(relays.joinToString("\n").ifBlank { "Not available until a signed NIP-65 relay list is loaded." }, style = MaterialTheme.typography.bodySmall)
 }
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ReaderScreen(
     detail: BookDetail,
@@ -1181,10 +1209,12 @@ private fun BookCard(
     book: BookSummary,
     isSaved: Boolean,
     onOpen: () -> Unit,
-    onToggleSaved: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
@@ -1195,42 +1225,106 @@ private fun BookCard(
             BookCover(book)
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
+                Text(book.type.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                Text(book.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = book.type.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val authors = book.authors.joinToString(", ").ifBlank { "Unknown author" }
-                Text(
-                    text = "by $authors",
+                    text = "by ${book.authors.joinToString(", ").ifBlank { "Unknown author" }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${book.chapterCount} chapters",
+                    text = "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else "",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Button(onClick = onOpen) {
-                    Text("Read")
-                }
-                TextButton(onClick = onToggleSaved) {
-                    Text(if (isSaved) "Remove" else "Save")
+        }
+    }
+}
+
+@Composable
+private fun BookActionsSheet(
+    book: BookSummary,
+    isSaved: Boolean,
+    localRelayConfigured: Boolean,
+    isBroadcasting: Boolean,
+    onDismiss: () -> Unit,
+    onToggleSaved: () -> Unit,
+    onDetails: () -> Unit,
+    onBroadcast: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(book.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onToggleSaved, modifier = Modifier.fillMaxWidth()) {
+                Text(if (isSaved) "Remove from My Books" else "Add to My Books")
+            }
+            TextButton(onClick = onDetails, modifier = Modifier.fillMaxWidth()) { Text("See details") }
+            if (localRelayConfigured) {
+                TextButton(onClick = onBroadcast, modifier = Modifier.fillMaxWidth(), enabled = !isBroadcasting) {
+                    Text(if (isBroadcasting) "Broadcasting…" else "Broadcast book and chapters to local relay")
                 }
             }
+            Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable
+private fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit) {
+    val book = details.book
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 720.dp).verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Top) {
+                BookCover(book, Modifier.size(width = 104.dp, height = 148.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(book.authors.joinToString(", ").ifBlank { "Unknown author" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            book.summary?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            Text("Publisher", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            when {
+                details.publisher != null -> {
+                    DetailRow("Profile", details.publisher.preferredName ?: "Unnamed profile")
+                    DetailRow("Public key", book.pubkey)
+                }
+                details.isLoadingPublisher -> LoadingInline("Loading publisher profile…")
+                else -> DetailRow("Public key", book.pubkey)
+            }
+            Text("Publication", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            DetailRow("Type", book.type)
+            DetailRow("Chapters", book.chapterCount.toString())
+            book.language?.let { DetailRow("Language", it) }
+            book.releaseDate?.let { DetailRow("Published", it) }
+            book.version?.let { DetailRow("Version", it) }
+            if (book.topics.isNotEmpty()) DetailRow("Topics", book.topics.joinToString(", "))
+            book.sourceUrl?.let { DetailRow("Source", it) }
+            book.relay?.let { DetailRow("Relay", it) }
+            DetailRow("Index created", java.text.DateFormat.getDateTimeInstance().format(java.util.Date(book.createdAt * 1_000)))
+            Text("Event metadata", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            DetailRow("Identifier", book.identifier)
+            DetailRow("Coordinate", book.coordinate)
+            DetailRow("Event ID", book.id)
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -1514,7 +1608,7 @@ private fun String.compactHex(): String =
 
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun OnboardingTooltip(
     visible: Boolean,
@@ -1535,7 +1629,8 @@ private fun OnboardingTooltip(
         }
     }
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
+            positioning = TooltipAnchorPosition.Above,
             spacingBetweenTooltipAndAnchor = 16.dp,
         ),
         tooltip = {
