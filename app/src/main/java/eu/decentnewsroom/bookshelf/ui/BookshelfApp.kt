@@ -581,7 +581,7 @@ private fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        state.error?.let(::Notice)
+        state.error?.let { message -> Notice(message) }
         SettingsSection("Appearance", initiallyExpanded = true) {
             Text("Color scheme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(selected = state.readerPreferences.theme == theme, onClick = { onThemeChanged(theme) }, label = { Text(theme.label) }) } }
