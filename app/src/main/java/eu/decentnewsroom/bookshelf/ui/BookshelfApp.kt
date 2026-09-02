@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import eu.decentnewsroom.bookshelf.BuildConfig
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
@@ -665,6 +666,12 @@ private fun SettingsScreen(
             Notice("Rendered chapter cache: ${state.chapterCacheStats.label}")
             Button(onClick = onClearChapterCache, enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache) { Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache") }
         }
+        Text(
+            text = "Version ${BuildConfig.VERSION_NAME}",
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
