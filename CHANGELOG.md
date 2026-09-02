@@ -7,10 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add persistent contextual tooltips for saving books to My Books and revealing reader navigation and settings menus by tapping the reading view.
+
+## v0.1.14
+
 - Make the system Back gesture return every non-Home page to Home, including cancelling a pending book open.
-
 - Reorganize Settings into collapsible Appearance, Account, Relays, and Cache sections, including read-only NIP-65 relay visibility and an optional local Citrine relay.
-
 - Add Compose Material Icons Extended for app iconography.
 - Make Sepia the default theme for new reader preferences.
 
