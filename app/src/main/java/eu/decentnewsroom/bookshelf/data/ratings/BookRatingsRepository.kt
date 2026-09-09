@@ -5,7 +5,7 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
 
 /** Reads verified R1 ratings through the shared Quartz relay boundary. */
-class BookRatingsRepository(
+public class BookRatingsRepository(
     private val relayClient: NostrRelayClient,
     private val cache: BookRatingCache? = null,
 ) {

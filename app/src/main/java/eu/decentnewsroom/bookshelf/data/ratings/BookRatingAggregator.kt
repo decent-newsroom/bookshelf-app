@@ -1,7 +1,7 @@
 package eu.decentnewsroom.bookshelf.data.ratings
 
 /** Aggregates ratings without allowing repeated reviews by one author to outweigh others. */
-object BookRatingAggregator {
+public object BookRatingAggregator {
     /** Equal timestamps are resolved by ID so relay arrival order cannot change results. */
     fun effectiveRatings(ratings: Iterable<BookRating>): List<BookRating> =
         ratings.groupBy { it.bookCoordinate to it.reviewerPubkey.lowercase() }.values.map { candidates ->

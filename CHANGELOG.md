@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Add verified R1 book-rating parsing, aggregation, Quartz relay reads, and the Community ratings details flow.
 - Route rating publication to configured defaults, the active user's write relays, and the publication author's NIP-65 read relays.
 - Accept inclusive normalized rating endpoints `[0, 1]` as an explicit compatibility policy pending R1 clarification.
+- Show rating-cache size, event count, and last successful sync in Settings, with an independent safe clear action.
 
 
 ## v0.1.16

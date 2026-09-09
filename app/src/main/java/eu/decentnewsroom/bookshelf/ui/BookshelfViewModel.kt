@@ -30,6 +30,8 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
+import eu.decentnewsroom.bookshelf.data.ratings.BookRating
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
@@ -44,6 +46,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.collections.emptyList
+import kotlin.collections.sortedWith
 import kotlin.math.roundToInt
 
 class BookshelfViewModel(
@@ -332,12 +336,12 @@ class BookshelfViewModel(
         _uiState.update { it.copy(bookDetails = null, ratingsPage = RatingDetailsState(book, RatingSummaryUi())) }
         viewModelScope.launch {
             val ratings = runCatching { bookRatings.ratingsFor(book) }.getOrDefault(emptyList())
-            val aggregate = eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
+            val aggregate = BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
             val summary = aggregate?.let { RatingSummaryUi(it.averageStars, it.averageNormalizedRating, it.ratingCount, isLoading = false) }
                 ?: RatingSummaryUi(isLoading = false)
             val distribution = ratings.groupBy { it.displayStars.roundToInt().coerceIn(1, 5) }
                 .map { (stars, values) -> RatingDistributionUi(stars, values.size) }
-            val reviews = ratings.sortedWith(compareByDescending<eu.decentnewsroom.bookshelf.data.ratings.BookRating> { it.createdAt }.thenByDescending { it.eventId })
+            val reviews = ratings.sortedWith(compareByDescending<BookRating> { it.createdAt }.thenByDescending { it.eventId })
                 .map { RatingReviewUi(it.eventId, it.reviewerPubkey, it.displayStars, it.createdAt * 1_000, it.review) }
             _uiState.update { state ->
                 state.copy(ratingsPage = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }

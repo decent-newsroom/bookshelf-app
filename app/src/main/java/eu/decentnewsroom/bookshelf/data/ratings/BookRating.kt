@@ -1,7 +1,7 @@
 package eu.decentnewsroom.bookshelf.data.ratings
 
 /** A verified, R1-compatible rating of a kind-30040 publication. */
-data class BookRating(
+public data class BookRating(
     val eventId: String,
     val bookCoordinate: String,
     val reviewerPubkey: String,
@@ -18,7 +18,7 @@ data class BookRating(
 }
 
 /** The newest effective ratings and their aggregate for one publication. */
-data class BookRatingAggregate(
+public data class BookRatingAggregate(
     val bookCoordinate: String,
     val ratings: List<BookRating>,
     val averageNormalizedRating: Double,
