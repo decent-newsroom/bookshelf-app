@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 object BookKinds {
     const val USER_RELAY_LIST = 10002
     const val PROFILE_METADATA = 0
+    const val RATING = 34259
     const val PUBLICATION_INDEX = 30040
     const val PUBLICATION_CONTENT = 30041
     const val DIRECTORY = 30045

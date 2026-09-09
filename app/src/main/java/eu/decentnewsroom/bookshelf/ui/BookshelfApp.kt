@@ -130,6 +130,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val signerAvailable = remember(context) { AndroidExternalSigner.isInstalled(context) }
     var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
     var launchedAuthSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var launchedRatingSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val loginLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -162,6 +163,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         launchedAuthSignRequestId = null
     }
 
+    val ratingSignLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+        val requestId = result.data?.getStringExtra("id") ?: launchedRatingSignRequestId
+        when (val parsed = AndroidExternalSigner.parseSignEventResult(result.resultCode, result.data)) {
+            is AndroidSignerResult.Success -> viewModel.completeRatingSignature(requestId, parsed.value)
+            is AndroidSignerResult.Failed -> viewModel.failPendingRatingSignature(parsed.message)
+        }
+        launchedRatingSignRequestId = null
+    }
     LaunchedEffect(state.pendingDirectorySignRequest?.id) {
         val request = state.pendingDirectorySignRequest ?: return@LaunchedEffect
         launchedSignRequestId = request.id
@@ -196,6 +205,12 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         }
     }
 
+    LaunchedEffect(state.pendingRatingSignRequest?.id) {
+        val request = state.pendingRatingSignRequest ?: return@LaunchedEffect
+        launchedRatingSignRequestId = request.id
+        runCatching { ratingSignLauncher.launch(AndroidExternalSigner.signEventIntent(request.session, request.unsignedEventJson, request.id)) }
+            .onFailure { failure -> launchedRatingSignRequestId = null; viewModel.failPendingRatingSignature(failure.message ?: "Could not open Android signer.") }
+    }
     LaunchedEffect(state.syncMessage) {
         val message = state.syncMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(
@@ -326,7 +341,27 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
             )
         }
         state.bookDetails?.let { details ->
-            BookDetailsSheet(details = details, onDismiss = viewModel::dismissBookDetails)
+            BookDetailsSheet(
+                details = details,
+                onDismiss = viewModel::dismissBookDetails,
+                onShowRatings = { viewModel.showRatings(details.book) },
+            )
+        }
+        state.ratingsPage?.let { page ->
+            RatingsSheet(
+                page = page,
+                onDismiss = viewModel::dismissRatings,
+                onAddReview = viewModel::showRatingComposer,
+            )
+        }
+        state.ratingComposer?.let { composer ->
+            RatingComposerSheet(
+                composer = composer,
+                onDismiss = viewModel::dismissRatingComposer,
+                onStarsChanged = viewModel::updateRatingStars,
+                onOpinionChanged = viewModel::updateRatingOpinion,
+                onSubmit = viewModel::submitRatingReview,
+            )
         }
     }
 }
@@ -1283,7 +1318,11 @@ private fun BookActionsSheet(
 }
 
 @Composable
-private fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit) {
+private fun BookDetailsSheet(
+    details: BookDetailsState,
+    onDismiss: () -> Unit,
+    onShowRatings: () -> Unit,
+) {
     val book = details.book
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -1299,6 +1338,7 @@ private fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit) {
                 }
             }
             book.summary?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            RatingSummaryCard(summary = details.ratings, onClick = onShowRatings)
             Text("Publisher", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             when {
                 details.publisher != null -> {
@@ -1327,6 +1367,60 @@ private fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit) {
     }
 }
 
+@Composable
+private fun RatingSummaryCard(summary: RatingSummaryUi, onClick: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Community rating", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(when { summary.isLoading -> "Loading ratings…"; summary.ratingCount == 0 -> "No ratings yet. Be the first to rate this book."; else -> "${summary.ratingCount} ${if (summary.ratingCount == 1) "rating" else "ratings"} · tap for reviews" }, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            if (summary.isLoading) CircularProgressIndicator(Modifier.size(24.dp)) else summary.averageStars?.let { Text("${it.formatOneDecimal()} ★", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun RatingsSheet(page: RatingDetailsState, onDismiss: () -> Unit, onAddReview: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 720.dp).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(page.book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Community ratings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            when { page.summary.isLoading -> LoadingInline("Loading ratings…"); page.summary.ratingCount == 0 -> Text("No community ratings yet.", color = MaterialTheme.colorScheme.onSurfaceVariant); else -> { Text("${page.summary.averageStars?.formatOneDecimal()} out of 5 · ${page.summary.ratingCount} ${if (page.summary.ratingCount == 1) "rating" else "ratings"}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); RatingDistribution(page.distribution, page.summary.ratingCount) } }
+            Button(onClick = onAddReview, modifier = Modifier.fillMaxWidth()) { Text("Add a review") }
+            Text("Written reviews", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            when { page.isLoadingReviews -> LoadingInline("Loading reviews…"); page.reviews.none { it.opinion.isNotBlank() } -> Text("No written reviews yet.", color = MaterialTheme.colorScheme.onSurfaceVariant); else -> page.reviews.filter { it.opinion.isNotBlank() }.forEach { RatingReviewCard(it) } }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun RatingDistribution(distribution: List<RatingDistributionUi>, total: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { (5 downTo 1).forEach { stars ->
+        val count = distribution.firstOrNull { it.stars == stars }?.count ?: 0
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Text("$stars ★", Modifier.width(34.dp)); LinearProgressIndicator(progress = { if (total == 0) 0f else count.toFloat() / total }, modifier = Modifier.weight(1f).height(7.dp).clip(RoundedCornerShape(999.dp))); Text(count.toString(), Modifier.width(24.dp)) }
+    } }
+}
+
+@Composable
+private fun RatingReviewCard(review: RatingReviewUi) {
+    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${review.stars.formatOneDecimal()} ★", fontWeight = FontWeight.SemiBold); Text(review.opinion); Text("${review.reviewerPubkey.compactHex()} · ${java.text.DateFormat.getDateInstance().format(java.util.Date(review.createdAtMillis))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+}
+
+@Composable
+private fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, onStarsChanged: (Int) -> Unit, onOpinionChanged: (String) -> Unit, onSubmit: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) { Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Rate ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Choose a star rating", style = MaterialTheme.typography.titleMedium)
+        Row { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, enabled = !composer.isPublishing) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
+        OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing, label = { Text("Your opinion (optional)") }, minLines = 4)
+        if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
+        composer.error?.let { Notice(it) }
+        Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text("Publish review") }
+        Spacer(Modifier.height(16.dp))
+    } }
+}
 @Composable
 private fun DetailRow(label: String, value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

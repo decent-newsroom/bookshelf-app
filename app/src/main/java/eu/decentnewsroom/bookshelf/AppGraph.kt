@@ -20,6 +20,8 @@ import eu.decentnewsroom.bookshelf.data.nostr.ExternalSignerNostrRelayAuthentica
 import eu.decentnewsroom.bookshelf.data.nostr.QuartzBookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCache
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -56,6 +58,8 @@ object AppGraph {
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
     private var shelfMetadataCacheStore: ShelfMetadataCache? = null
     private var curatedShelfRepositoryStore: CuratedShelfRepository? = null
+    private var bookRatingsRepositoryStore: BookRatingsRepository? = null
+    private var bookRatingCacheStore: BookRatingCache? = null
 
     val mercuryBooks: MercuryBookRepository
         get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
@@ -83,6 +87,9 @@ object AppGraph {
 
     val chapterHtmlCache: ChapterHtmlCache
         get() = chapterHtmlCacheStore ?: error("AppGraph.initialize(context) must be called before using chapter HTML cache.")
+
+    val bookRatings: BookRatingsRepository
+        get() = bookRatingsRepositoryStore ?: error("AppGraph.initialize(context) must be called before using book ratings.")
 
     val curatedShelves: CuratedShelfRepository
         get() = curatedShelfRepositoryStore ?: error("AppGraph.initialize(context) must be called before using curated shelves.")
@@ -134,6 +141,12 @@ object AppGraph {
                     directoryRelayClient.fetchPublicationIndexes(coordinates)
                 },
             )
+        }
+        if (bookRatingCacheStore == null) {
+            bookRatingCacheStore = BookRatingCache(appContext)
+        }
+        if (bookRatingsRepositoryStore == null) {
+            bookRatingsRepositoryStore = BookRatingsRepository(directoryRelayClient, checkNotNull(bookRatingCacheStore))
         }
         if (chapterHtmlCacheStore == null) {
             chapterHtmlCacheStore = ChapterHtmlCache(appContext)

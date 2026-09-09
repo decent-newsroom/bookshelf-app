@@ -19,7 +19,7 @@ object AndroidExternalSigner {
             putExtra("type", "get_public_key")
             putExtra(
                 "permissions",
-                """[{"type":"sign_event","kind":${BookKinds.DIRECTORY}},{"type":"sign_event","kind":${NostrAuthEventDraft.KIND}}]""",
+                """[{"type":"sign_event","kind":${BookKinds.DIRECTORY}},{"type":"sign_event","kind":${BookKinds.RATING}},{"type":"sign_event","kind":${NostrAuthEventDraft.KIND}}]""",
             )
         }
 

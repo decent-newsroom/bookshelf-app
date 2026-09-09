@@ -20,6 +20,7 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileSource
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
 import eu.decentnewsroom.bookshelf.data.nostr.LocalRelaySettingsStore
 import eu.decentnewsroom.bookshelf.data.nostr.RelayConfiguration
+import eu.decentnewsroom.bookshelf.data.nostr.RatingEventDraft
 import eu.decentnewsroom.bookshelf.data.nostr.PendingNostrAuthSignRequest
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTipStore
@@ -29,6 +30,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.roundToInt
 
 class BookshelfViewModel(
     private val repository: MercuryBookRepository = AppGraph.mercuryBooks,
@@ -53,6 +56,7 @@ class BookshelfViewModel(
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
+    private val bookRatings: BookRatingsRepository = AppGraph.bookRatings,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
@@ -166,6 +170,8 @@ class BookshelfViewModel(
                 isLoadingBook = false,
                 isSearchOpen = false,
                 isSearching = false,
+                ratingsPage = null,
+                ratingComposer = null,
                 error = null,
             )
         }
@@ -299,9 +305,18 @@ class BookshelfViewModel(
                     ?.copy(publisher = cached))
             }
             val publisher = runCatching { nostrProfiles.refreshProfile(book.pubkey) }.getOrNull() ?: cached
+            val aggregate = runCatching { bookRatings.aggregateFor(book) }.getOrNull()
+            val ratingSummary = aggregate?.let {
+                RatingSummaryUi(
+                    averageStars = it.averageStars,
+                    normalizedAverage = it.averageNormalizedRating,
+                    ratingCount = it.ratingCount,
+                    isLoading = false,
+                )
+            } ?: RatingSummaryUi(isLoading = false)
             _uiState.update { state ->
                 state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
-                    ?.copy(publisher = publisher, isLoadingPublisher = false))
+                    ?.copy(publisher = publisher, isLoadingPublisher = false, ratings = ratingSummary))
             }
         }
     }
@@ -311,6 +326,81 @@ class BookshelfViewModel(
         _uiState.update { it.copy(bookDetails = null) }
     }
 
+    /** Opens the full, per-book community-rating view from the metadata sheet. */
+    fun showRatings(book: BookSummary) {
+        _uiState.update { it.copy(bookDetails = null, ratingsPage = RatingDetailsState(book, RatingSummaryUi())) }
+        viewModelScope.launch {
+            val ratings = runCatching { bookRatings.ratingsFor(book) }.getOrDefault(emptyList())
+            val aggregate = eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
+            val summary = aggregate?.let { RatingSummaryUi(it.averageStars, it.averageNormalizedRating, it.ratingCount, isLoading = false) }
+                ?: RatingSummaryUi(isLoading = false)
+            val distribution = ratings.groupBy { it.displayStars.roundToInt().coerceIn(1, 5) }
+                .map { (stars, values) -> RatingDistributionUi(stars, values.size) }
+            val reviews = ratings.sortedWith(compareByDescending<eu.decentnewsroom.bookshelf.data.ratings.BookRating> { it.createdAt }.thenByDescending { it.eventId })
+                .map { RatingReviewUi(it.eventId, it.reviewerPubkey, it.displayStars, it.createdAt * 1_000, it.review) }
+            _uiState.update { state ->
+                state.copy(ratingsPage = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }
+                    ?.copy(summary = summary, distribution = distribution, reviews = reviews, isLoadingReviews = false))
+            }
+        }
+    }
+    fun dismissRatings() {
+        _uiState.update { it.copy(ratingsPage = null, ratingComposer = null) }
+    }
+
+    fun showRatingComposer() {
+        val page = _uiState.value.ratingsPage ?: return
+        _uiState.update {
+            it.copy(
+                ratingComposer = RatingComposerState(
+                    book = page.book,
+                    requiresSignIn = it.signerSession == null,
+                ),
+            )
+        }
+    }
+
+    fun dismissRatingComposer() {
+        _uiState.update { it.copy(ratingComposer = null) }
+    }
+
+    fun updateRatingStars(stars: Int) {
+        _uiState.update { state ->
+            state.copy(ratingComposer = state.ratingComposer?.copy(selectedStars = stars.coerceIn(1, 5)))
+        }
+    }
+
+    fun updateRatingOpinion(opinion: String) {
+        _uiState.update { state ->
+            state.copy(ratingComposer = state.ratingComposer?.copy(opinion = opinion))
+        }
+    }
+
+    fun submitRatingReview() {
+        val composer = _uiState.value.ratingComposer ?: return
+        val session = _uiState.value.signerSession
+        val stars = composer.selectedStars
+        if (session == null || stars == null) {
+            _uiState.update { it.copy(ratingComposer = composer.copy(error = if (session == null) "Log in with an Android signer before publishing a review." else "Select a star rating first.")) }
+            return
+        }
+        runCatching {
+            relaySync.buildRatingDraft(session.pubkey, composer.book.coordinate, stars / 5.0, composer.opinion)
+        }.onSuccess { draft ->
+            _uiState.update { it.copy(ratingComposer = composer.copy(isPublishing = true, error = null), pendingRatingSignRequest = PendingRatingSignRequest(UUID.randomUUID().toString(), session, relaySync.unsignedRatingJson(draft), draft)) }
+        }.onFailure { failure -> _uiState.update { it.copy(ratingComposer = composer.copy(error = failure.message ?: "Could not prepare rating.")) } }
+    }
+
+    fun completeRatingSignature(requestId: String?, signedEventJson: String) {
+        val request = _uiState.value.pendingRatingSignRequest
+        if (request == null || request.id != requestId) return
+        viewModelScope.launch {
+            runCatching { relaySync.publishRating(relaySync.decodeSignedRating(signedEventJson), request.draft.publicationAuthorPubkey) }
+                .onSuccess { report -> _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = if (report.acceptedRelays > 0) null else it.ratingComposer?.copy(isPublishing = false, error = report.failureMessage()), syncMessage = if (report.acceptedRelays > 0) "Rating published to ${report.acceptedRelays} relays." else null) } }
+                .onFailure { failure -> _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = failure.message ?: "Could not publish rating.")) } }
+        }
+    }
+    fun failPendingRatingSignature(message: String) { _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = message)) } }
     fun broadcastBookToLocalRelay(book: BookSummary) {
         dismissBookActions()
         val relayUrl = _uiState.value.localRelayUrl
@@ -874,6 +964,8 @@ data class PendingDirectorySignRequest(
     val fallbackBooks: List<BookSummary> = emptyList(),
 )
 
+data class PendingRatingSignRequest(val id: String, val session: NostrSignerSession, val unsignedEventJson: String, val draft: RatingEventDraft)
+
 data class BookshelfUiState(
     val tab: BookshelfTab = BookshelfTab.Home,
     val curatedShelves: List<CuratedShelf> = emptyList(),
@@ -889,6 +981,8 @@ data class BookshelfUiState(
     val selectedBook: BookDetail? = null,
     val bookActions: BookSummary? = null,
     val bookDetails: BookDetailsState? = null,
+    val ratingsPage: RatingDetailsState? = null,
+    val ratingComposer: RatingComposerState? = null,
     val isLoadingBook: Boolean = false,
     val error: String? = null,
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,
@@ -899,6 +993,7 @@ data class BookshelfUiState(
     val isPublishingDirectory: Boolean = false,
     val pendingDirectorySignRequest: PendingDirectorySignRequest? = null,
     val pendingNostrAuthSignRequest: PendingNostrAuthSignRequest? = null,
+    val pendingRatingSignRequest: PendingRatingSignRequest? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
     val chapterRelayUrls: List<String> = emptyList(),
@@ -914,6 +1009,48 @@ data class BookDetailsState(
     val book: BookSummary,
     val publisher: NostrProfile? = null,
     val isLoadingPublisher: Boolean = true,
+    val ratings: RatingSummaryUi = RatingSummaryUi(),
+)
+
+/** UI-only projection until the ratings repository is connected to this ViewModel. */
+data class RatingSummaryUi(
+    val averageStars: Double? = null,
+    val normalizedAverage: Double? = null,
+    val ratingCount: Int = 0,
+    val isLoading: Boolean = true,
+    val isStale: Boolean = false,
+    val error: String? = null,
+)
+
+data class RatingReviewUi(
+    val eventId: String,
+    val reviewerPubkey: String,
+    val stars: Double,
+    val createdAtMillis: Long,
+    val opinion: String,
+)
+
+data class RatingDistributionUi(
+    val stars: Int,
+    val count: Int,
+)
+
+data class RatingDetailsState(
+    val book: BookSummary,
+    val summary: RatingSummaryUi,
+    val distribution: List<RatingDistributionUi> = emptyList(),
+    val reviews: List<RatingReviewUi> = emptyList(),
+    val isLoadingReviews: Boolean = true,
+    val canLoadMoreReviews: Boolean = false,
+)
+
+data class RatingComposerState(
+    val book: BookSummary,
+    val selectedStars: Int? = null,
+    val opinion: String = "",
+    val requiresSignIn: Boolean = false,
+    val isPublishing: Boolean = false,
+    val error: String? = null,
 )
 data class ContinueReadingBook(
     val book: BookSummary,

@@ -195,3 +195,8 @@ The Home tab is driven by the checked-in editorial catalog in `data/discovery/Cu
 `NaddrPublicationReferenceDecoder` validates each address as a kind `30040` replaceable publication coordinate. `MercuryApiClient.getPublicationsByCoordinates` resolves exact coordinates using grouped author and `#d` filters, batched at the Mercury filter limit. Shelf loading never requests chapter events or opens chapter WebSockets. Chapters are fetched only by `BookshelfViewModel.openBook` through the existing reader flow.
 
 `ShelfMetadataCache` stores serialized publication-index summaries under `context.cacheDir/shelf-metadata/v1.json`. Entries are fresh for 24 hours. Cached summaries are rendered immediately, stale/missing coordinates then refresh, successful refreshes are atomically written, and stale entries remain available when Mercury is unavailable. The cache contains no chapter bodies or rendered HTML.
+
+
+## Book Ratings
+
+Book ratings are read through the application-scoped Quartz NostrClient and verified before R1 parsing. Ratings use the namespaced d=books:<30040-coordinate> target and are aggregated by newest rating per reviewer. The app currently accepts the inclusive normalized interval [0, 1] as a compatibility policy despite R1's strict-boundary wording; this must be revisited if upstream confirms an intentional exclusion. Rating publication targets configured defaults, the active user's NIP-65 write relays, and the verified publication-index author's NIP-65 read relays without replacing active-user relay state.

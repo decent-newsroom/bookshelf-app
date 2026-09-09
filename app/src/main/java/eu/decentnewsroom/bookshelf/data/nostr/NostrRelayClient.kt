@@ -48,6 +48,7 @@ class NostrRelayClient(
     private val relayListLock = Any()
     private var relayListOwner: String? = null
     private var discoveredRelays = UserRelayList()
+    private val publicationAuthorRelayLists = LinkedHashMap<String, UserRelayList>()
     private val client = NostrClient(BasicOkHttpWebSocket.Builder { httpClient }, scope)
     private val lazyAuthenticator = QuartzLazyNip42Authenticator(client, authenticator, nowSeconds)
 
@@ -133,6 +134,17 @@ class NostrRelayClient(
         }
     }
 
+    /** Fetches only signature-verified R1 rating events for namespaced targets. */
+    suspend fun fetchRatings(targetIds: List<String>): List<NostrEvent> {
+        val targets = targetIds.map(String::trim).filter(String::isNotBlank).distinct()
+        if (targets.isEmpty()) return emptyList()
+        return fetchAll(
+            filter = Filter(kinds = listOf(BookKinds.RATING), tags = mapOf("d" to targets)),
+            relaySet = configuredRelays(),
+        ) { event ->
+            NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event
+        }
+    }
     /** Fetches and applies the active account's verified NIP-65 relay list using bootstrap relays. */
     suspend fun refreshUserRelayList(pubkey: String): UserRelayList? {
         val normalizedPubkey = pubkey.lowercase()
@@ -156,10 +168,29 @@ class NostrRelayClient(
         return parsed
     }
 
+    /** Resolves a publication author's NIP-65 list without replacing the active user's routes. */
+    suspend fun refreshPublicationAuthorRelayList(pubkey: String): UserRelayList? {
+        val normalizedPubkey = pubkey.lowercase()
+        val relayEvent = fetchLatest(userRelayListFilter(normalizedPubkey), configuredRelays()) { event ->
+            NostrEventVerifier.verify(
+                event,
+                context = NostrEventContext(expectedKind = BookKinds.USER_RELAY_LIST, expectedPubkey = normalizedPubkey),
+            )?.event
+        }
+        val parsed = relayEvent?.let(::relayListFromVerifiedEvent)
+        if (parsed != null) synchronized(relayListLock) {
+            publicationAuthorRelayLists[normalizedPubkey] = parsed
+            while (publicationAuthorRelayLists.size > MAX_PUBLICATION_AUTHOR_RELAY_LISTS) {
+                publicationAuthorRelayLists.remove(publicationAuthorRelayLists.entries.iterator().next().key)
+            }
+        }
+        return parsed
+    }
     fun clearUserRelayList() {
         synchronized(relayListLock) {
             relayListOwner = null
             discoveredRelays = UserRelayList()
+            publicationAuthorRelayLists.clear()
         }
     }
 
@@ -181,6 +212,11 @@ class NostrRelayClient(
 
     private fun writeRelays() = relaysFor(RelayAccess.WRITE)
 
+    private fun publicationAuthorReadRelays(pubkey: String): List<NormalizedRelayUrl> = synchronized(relayListLock) {
+        publicationAuthorRelayLists[pubkey.lowercase()]?.read
+            ?.mapNotNull(RelayUrlNormalizer::normalizeOrNull)
+            .orEmpty()
+    }
     private fun relaysFor(access: RelayAccess): LinkedHashSet<NormalizedRelayUrl> = synchronized(relayListLock) {
         LinkedHashSet(baseRelays).apply {
             val discovered = if (access == RelayAccess.READ) discoveredRelays.read else discoveredRelays.write
@@ -204,6 +240,32 @@ class NostrRelayClient(
             .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
     }
 
+    private suspend fun fetchAll(
+        filter: Filter,
+        relaySet: Set<NormalizedRelayUrl>,
+        verifyEvent: (NostrEvent) -> NostrEvent?,
+    ): List<NostrEvent> {
+        if (relaySet.isEmpty()) return emptyList()
+        val events = runCatching {
+            client.fetchAll(
+                filters = relaySet.associateWith { listOf(filter) },
+                timeoutMs = timeoutMillis,
+                maxTotalMs = FETCH_MAX_TOTAL_MILLIS,
+            )
+        }.getOrElse { failure -> throw NostrRelayException("Could not reach configured relays.", failure) }
+        return events.mapNotNull(::toDomainEvent).mapNotNull(verifyEvent)
+    }
+    /** Publishes through default, active-user, and publication-author read routes. */
+    suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport {
+        ensureUserRelayList(event.pubkey)
+        runCatching { refreshPublicationAuthorRelayList(publicationAuthorPubkey) }
+            .onFailure { Log.w(LOG_TAG, "Could not refresh publication-author NIP-65 relay list.", it) }
+        val targets = configuredRelays().apply {
+            writeRelays().forEach(::add)
+            publicationAuthorReadRelays(publicationAuthorPubkey).forEach(::add)
+        }
+        return publishEvent(event, targets)
+    }
     suspend fun publishDirectory(event: NostrEvent): PublishReport {
         ensureUserRelayList(event.pubkey)
         return publishEvent(event, writeRelays())
@@ -331,6 +393,7 @@ class NostrRelayClient(
         const val FETCH_MAX_TOTAL_MILLIS = 30_000L
         const val PUBLISH_TIMEOUT_SECONDS = 15L
         const val MAX_REASON_LENGTH = 240
+        const val MAX_PUBLICATION_AUTHOR_RELAY_LISTS = 64
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
 
         fun parsePublicationCoordinate(raw: String): PublicationCoordinate? {

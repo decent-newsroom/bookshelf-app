@@ -26,6 +26,20 @@ data class DirectoryEventDraft(
 )
 
 
+
+/** An unsigned, R1-compatible rating of a kind-30040 books publication. */
+data class RatingEventDraft(
+    val pubkey: String,
+    val publicationCoordinate: String,
+    val normalizedRating: Double,
+    val content: String = "",
+    val createdAt: Long,
+    val kind: Int = BookKinds.RATING,
+) {
+    val targetId: String get() = "$BOOKS_NAMESPACE:$publicationCoordinate"
+    val publicationAuthorPubkey: String get() = publicationCoordinate.split(':', limit = 3)[1]
+    companion object { const val BOOKS_NAMESPACE = "books" }
+}
 enum class RelayPublishOutcomeType {
     ACCEPTED,
     REJECTED,
@@ -101,6 +115,12 @@ interface BookshelfRelaySync {
     suspend fun publishDirectory(event: NostrEvent): PublishReport
 
     suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport
+
+
+    fun buildRatingDraft(pubkey: String, publicationCoordinate: String, normalizedRating: Double, content: String = "", createdAt: Long = System.currentTimeMillis() / 1_000L): RatingEventDraft
+    fun unsignedRatingJson(draft: RatingEventDraft): String
+    fun decodeSignedRating(eventJson: String): NostrEvent
+    suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport
 
     fun setLocalRelayUrl(relayUrl: String?) = Unit
 }
@@ -237,6 +257,56 @@ class QuartzBookshelfRelaySync(
     override suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport =
         relayClient.publishToRelay(event, relayUrl)
 
+
+    override fun buildRatingDraft(
+        pubkey: String,
+        publicationCoordinate: String,
+        normalizedRating: Double,
+        content: String,
+        createdAt: Long,
+    ): RatingEventDraft {
+        require(HEX_64.matches(pubkey)) { "Rating author public key is invalid." }
+        requireValidRatingCoordinate(publicationCoordinate)
+        require(normalizedRating.isFinite() && normalizedRating in 0.0..1.0) { "The R1 rating must be between 0 and 1 inclusive." }
+        return RatingEventDraft(pubkey.lowercase(), publicationCoordinate.lowercaseCoordinate(), normalizedRating, content, createdAt)
+    }
+
+    override fun unsignedRatingJson(draft: RatingEventDraft): String {
+        require(draft.kind == BookKinds.RATING) { "Rating draft has the wrong event kind." }
+        require(HEX_64.matches(draft.pubkey)) { "Rating author public key is invalid." }
+        requireValidRatingCoordinate(draft.publicationCoordinate)
+        require(draft.normalizedRating.isFinite() && draft.normalizedRating in 0.0..1.0) { "The R1 rating must be between 0 and 1 inclusive." }
+        return json.encodeToString(UnsignedNostrEvent(
+            pubkey = draft.pubkey.lowercase(), createdAt = draft.createdAt, kind = draft.kind,
+            tags = listOf(
+                listOf("d", draft.targetId), listOf("m", RatingEventDraft.BOOKS_NAMESPACE),
+                listOf("rating", formatNormalizedRating(draft.normalizedRating)),
+            ), content = draft.content,
+        ))
+    }
+
+    override fun decodeSignedRating(eventJson: String): NostrEvent {
+        val event = json.decodeFromString<NostrEvent>(eventJson)
+        require(event.kind == BookKinds.RATING) { "Signer returned the wrong event kind." }
+        val target = event.tags.singleTagValue("d") ?: throw IllegalArgumentException("A rating requires exactly one d tag.")
+        val coordinate = target.removePrefix("${RatingEventDraft.BOOKS_NAMESPACE}:")
+        require(target != coordinate) { "A rating d tag must use the books namespace." }
+        requireValidRatingCoordinate(coordinate)
+        require(event.tags.valuesFor("m").let { it.size <= 1 && (it.isEmpty() || it.single() == RatingEventDraft.BOOKS_NAMESPACE) }) { "The rating m tag conflicts with the books target." }
+        val rating = event.tags.singleTagValue("rating") ?: throw IllegalArgumentException("A rating requires exactly one rating tag.")
+        require(parseNormalizedRating(rating) != null) { "The R1 rating must be between 0 and 1 inclusive." }
+        NostrEventVerifier.requireVerified(event, context = NostrEventContext(expectedKind = BookKinds.RATING, expectedPubkey = event.pubkey))
+        return event
+    }
+
+    override suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport {
+        _state.value = BookshelfSyncState.Syncing(event.pubkey)
+        return runCatching { relayClient.publishRating(event, publicationAuthorPubkey) }
+            .onSuccess { report -> _state.value = if (report.acceptedRelays > 0) BookshelfSyncState.Ready(event.pubkey, relayClient.relayUrls.size) else BookshelfSyncState.Failed(report.failureMessage()) }
+            .onFailure { failure -> _state.value = BookshelfSyncState.Failed(failure.message ?: "Could not publish rating.") }
+            .getOrThrow()
+    }
+
     override fun setLocalRelayUrl(relayUrl: String?) {
         relayClient.setConfiguredRelayUrls(defaultRelayUrls + listOfNotNull(relayUrl))
         _activeSession.value?.let { session ->
@@ -252,4 +322,26 @@ class QuartzBookshelfRelaySync(
         val tags: List<List<String>>,
         val content: String,
     )
+    private fun requireValidRatingCoordinate(coordinate: String) {
+        val parts = coordinate.split(':', limit = 3)
+        require(parts.size == 3 && parts[0] == BookKinds.PUBLICATION_INDEX.toString() && HEX_64.matches(parts[1]) && parts[2].isNotBlank()) { "Rating target must be a kind-30040 publication coordinate." }
+    }
+
+    private fun String.lowercaseCoordinate(): String {
+        val parts = split(':', limit = 3)
+        return "${parts[0]}:${parts[1].lowercase()}:${parts[2]}"
+    }
+
+    private fun formatNormalizedRating(value: Double): String = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+    private fun parseNormalizedRating(value: String): Double? {
+        if (!NORMALIZED_RATING.matches(value)) return null
+        val decimal = value.toBigDecimalOrNull() ?: return null
+        return decimal.takeIf { it >= java.math.BigDecimal.ZERO && it <= java.math.BigDecimal.ONE }?.toDouble()
+    }
+    private fun List<List<String>>.valuesFor(name: String): List<String> = asSequence().filter { it.getOrNull(0) == name }.mapNotNull { it.getOrNull(1) }.distinct().toList()
+    private fun List<List<String>>.singleTagValue(name: String): String? = valuesFor(name).singleOrNull()
+    private companion object {
+        val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
+        val NORMALIZED_RATING = Regex("^(?:0(?:\\.\\d+)?|1(?:\\.0+)?)$")
+    }
 }
