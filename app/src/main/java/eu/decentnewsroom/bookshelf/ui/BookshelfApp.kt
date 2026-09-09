@@ -7,8 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,21 +33,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
@@ -77,14 +77,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.fromHtml
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,17 +92,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import eu.decentnewsroom.bookshelf.BuildConfig
+import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
-import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
-import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
 import eu.decentnewsroom.bookshelf.domain.BookChapter
-import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
@@ -112,6 +112,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -317,6 +318,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSyncFromRelays = viewModel::syncFromRelays,
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
+                            onClearRatingCache = viewModel::clearRatingCache,
                             onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
                             onLocalRelayUrlChanged = viewModel::setLocalRelayUrl,
                             onThemeChanged = viewModel::setReaderTheme,
@@ -643,6 +645,7 @@ private fun SettingsScreen(
     onSyncFromRelays: () -> Unit,
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
+    onClearRatingCache: () -> Unit,
     onChapterRelayUrlsChanged: (String) -> Unit,
     onLocalRelayUrlChanged: (String) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
@@ -700,6 +703,8 @@ private fun SettingsScreen(
         SettingsSection("Cache") {
             Notice("Rendered chapter cache: ${state.chapterCacheStats.label}")
             Button(onClick = onClearChapterCache, enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache) { Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache") }
+            Notice("Rating cache: ${state.ratingCacheStats.label}")
+            Button(onClick = onClearRatingCache, enabled = state.ratingCacheStats.entryCount > 0 && !state.isClearingRatingCache) { Text(if (state.isClearingRatingCache) "Clearing..." else "Clear rating cache") }
         }
         Text(
             text = "Version ${BuildConfig.VERSION_NAME}",
@@ -1657,6 +1662,9 @@ private val BookshelfTab.label: String
             BookshelfTab.Settings -> "Settings"
         }
 
+private val BookRatingCacheStats.label: String
+    get() = if (entryCount == 0) "empty" else "$entryCount events, ${sizeBytes.formatByteCount()}" +
+        (lastSuccessfulSyncAtMillis?.let { " · synced ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))}" } ?: "")
 private val ChapterHtmlCacheStats.label: String
     get() {
         if (entryCount == 0) {
@@ -1721,7 +1729,7 @@ private fun OnboardingTooltip(
     LaunchedEffect(visible) {
         if (visible) {
             val autoDismiss = launch {
-                delay(OnboardingTooltipDurationMillis)
+                delay(OnboardingTooltipDurationMillis.milliseconds)
                 state.dismiss()
             }
             state.show()

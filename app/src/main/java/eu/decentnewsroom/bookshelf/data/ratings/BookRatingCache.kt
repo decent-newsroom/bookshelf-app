@@ -125,7 +125,7 @@ class BookRatingCache private constructor(
     }
 }
 
-data class BookRatingCacheStats(
+public data class BookRatingCacheStats(
     val entryCount: Int = 0,
     val sizeBytes: Long = 0,
     val lastSuccessfulSyncAtMillis: Long? = null,

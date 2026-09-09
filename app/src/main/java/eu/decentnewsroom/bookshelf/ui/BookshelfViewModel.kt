@@ -31,6 +31,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
@@ -431,6 +432,16 @@ class BookshelfViewModel(
                         error = failure.message ?: "Could not broadcast this book to the local relay.",
                     )
                 }
+            }
+        }
+    }
+    fun clearRatingCache() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isClearingRatingCache = true, error = null) }
+            runCatching { bookRatings.clearCache() }.onSuccess { stats ->
+                _uiState.update { it.copy(isClearingRatingCache = false, ratingCacheStats = stats, syncMessage = "Rating cache cleared.") }
+            }.onFailure { failure ->
+                _uiState.update { it.copy(isClearingRatingCache = false, error = failure.message ?: "Could not clear rating cache.") }
             }
         }
     }
@@ -849,6 +860,11 @@ class BookshelfViewModel(
         }
     }
 
+    private fun refreshRatingCacheStats() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(ratingCacheStats = bookRatings.cacheStats()) }
+        }
+    }
     private fun refreshChapterCacheStats() {
         viewModelScope.launch {
             val stats = chapterHtmlCache.stats()
@@ -1001,6 +1017,8 @@ data class BookshelfUiState(
     val localRelayUrl: String? = null,
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
+    val ratingCacheStats: BookRatingCacheStats = BookRatingCacheStats(),
+    val isClearingRatingCache: Boolean = false,
     val isClearingChapterCache: Boolean = false,
     val isBroadcastingBook: Boolean = false,
 )
