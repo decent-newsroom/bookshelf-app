@@ -1424,7 +1424,7 @@ private fun RatingDistribution(distribution: List<RatingDistributionUi>, total: 
 
 @Composable
 private fun RatingReviewCard(review: RatingReviewUi) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${review.stars.formatOneDecimal()} ★", fontWeight = FontWeight.SemiBold); Text(review.opinion); Text("${review.reviewerPubkey.compactHex()} · ${java.text.DateFormat.getDateInstance().format(java.util.Date(review.createdAtMillis))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${review.stars.formatOneDecimal()} ★", fontWeight = FontWeight.SemiBold); Text(review.opinion); Text("${review.reviewerName ?: review.reviewerPubkey.compactHex()} · ${java.text.DateFormat.getDateInstance().format(java.util.Date(review.createdAtMillis))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 
 @Composable

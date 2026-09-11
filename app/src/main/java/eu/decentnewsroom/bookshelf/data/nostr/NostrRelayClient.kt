@@ -100,7 +100,8 @@ class NostrRelayClient(
     }
 
     suspend fun fetchLatestProfile(pubkey: String): NostrEvent? {
-        ensureUserRelayList(pubkey)
+        // Profiles are public metadata. Looking up a reviewer must not replace the
+        // active signer's NIP-65 routing state.
         return fetchLatest(profileFilter(pubkey), readRelays()) { event ->
             NostrEventVerifier.verify(
                 event,

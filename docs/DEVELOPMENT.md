@@ -33,6 +33,10 @@ The dependency versions are pinned on purpose. Avoid dynamic versions for the An
 
 ## Verification
 
+### Build and test ownership
+
+The project owner runs local builds and tests, then reports the results to Codex. Do not run build or test commands unless the owner explicitly requests it.
+
 On this Windows machine, use Android Studio's JBR and an ASCII Gradle user home outside the repo:
 
 ```powershell

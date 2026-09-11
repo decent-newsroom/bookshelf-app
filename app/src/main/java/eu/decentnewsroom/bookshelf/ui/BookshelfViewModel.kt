@@ -37,6 +37,9 @@ import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
@@ -352,11 +355,53 @@ class BookshelfViewModel(
                 ?: RatingSummaryUi(isLoading = false)
             val distribution = ratings.groupBy { it.displayStars.roundToInt().coerceIn(1, 5) }
                 .map { (stars, values) -> RatingDistributionUi(stars, values.size) }
-            val reviews = ratings.sortedWith(compareByDescending<BookRating> { it.createdAt }.thenByDescending { it.eventId })
-                .map { RatingReviewUi(it.eventId, it.reviewerPubkey, it.displayStars, it.createdAt * 1_000, it.review) }
+            val sortedRatings = ratings.sortedWith(compareByDescending<BookRating> { it.createdAt }.thenByDescending { it.eventId })
+            val reviewerPubkeys = sortedRatings.map(BookRating::reviewerPubkey).distinct()
+            val cachedProfiles = reviewerPubkeys.associateWith { pubkey ->
+                try {
+                    nostrProfiles.cachedProfile(pubkey)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val reviews = sortedRatings.map {
+                RatingReviewUi(
+                    eventId = it.eventId,
+                    reviewerPubkey = it.reviewerPubkey,
+                    stars = it.displayStars,
+                    createdAtMillis = it.createdAt * 1_000,
+                    opinion = it.review,
+                    reviewerName = cachedProfiles[it.reviewerPubkey]?.preferredName,
+                )
+            }
             _uiState.update { state ->
                 state.copy(ratingsPage = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }
                     ?.copy(summary = summary, distribution = distribution, reviews = reviews, isLoadingReviews = false))
+            }
+            coroutineScope {
+                reviewerPubkeys.chunked(MAX_CONCURRENT_REVIEWER_PROFILE_REFRESHES).forEach { batch ->
+                    batch.map { pubkey -> async {
+                        try {
+                            pubkey to nostrProfiles.refreshProfile(pubkey)
+                        } catch (exception: CancellationException) {
+                            throw exception
+                        } catch (_: Exception) {
+                            pubkey to null
+                        }
+                    } }.awaitAll().forEach { (pubkey, profile) ->
+                        val reviewerName = profile?.preferredName ?: return@forEach
+                        _uiState.update { state ->
+                            val page = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }
+                            state.copy(ratingsPage = page?.let { currentPage ->
+                                currentPage.copy(reviews = currentPage.reviews.map { review ->
+                                    if (review.reviewerPubkey == pubkey) review.copy(reviewerName = reviewerName) else review
+                                })
+                            })
+                        }
+                    }
+                }
             }
         }
     }
@@ -1046,6 +1091,7 @@ data class BookDetailsState(
 )
 
 /** UI-only projection until the ratings repository is connected to this ViewModel. */
+private const val MAX_CONCURRENT_REVIEWER_PROFILE_REFRESHES = 4
 data class RatingSummaryUi(
     val averageStars: Double? = null,
     val normalizedAverage: Double? = null,
@@ -1061,6 +1107,7 @@ data class RatingReviewUi(
     val stars: Double,
     val createdAtMillis: Long,
     val opinion: String,
+    val reviewerName: String? = null,
 )
 
 data class RatingDistributionUi(
