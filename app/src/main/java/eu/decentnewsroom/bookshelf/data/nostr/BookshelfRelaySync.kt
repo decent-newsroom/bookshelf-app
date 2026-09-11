@@ -283,7 +283,9 @@ class QuartzBookshelfRelaySync(
         return json.encodeToString(UnsignedNostrEvent(
             pubkey = draft.pubkey.lowercase(), createdAt = draft.createdAt, kind = draft.kind,
             tags = listOf(
-                listOf("d", draft.targetId), listOf("m", draft.entityType.trim().ifBlank { RatingEventDraft.DEFAULT_ENTITY_TYPE }),
+                listOf("d", draft.targetId), listOf("a", draft.publicationCoordinate), listOf("A", draft.publicationCoordinate),
+                listOf("k", BookKinds.PUBLICATION_INDEX.toString()), listOf("p", draft.publicationAuthorPubkey),
+                listOf("m", draft.entityType.trim().ifBlank { RatingEventDraft.DEFAULT_ENTITY_TYPE }),
                 listOf("rating", formatNormalizedRating(draft.normalizedRating)),
             ), content = draft.content,
         ))
@@ -298,6 +300,10 @@ class QuartzBookshelfRelaySync(
         require(entityType.isNotBlank()) { "Rating target must include an entity type." }
         requireValidRatingEntityType(entityType)
         requireValidRatingCoordinate(coordinate)
+        val addressTargets = event.tags.valuesFor("a") + event.tags.valuesFor("A")
+        require(addressTargets.toSet() == setOf(coordinate)) { "A rating requires matching a or A publication-address tags." }
+        require(event.tags.valuesFor("k") == listOf(BookKinds.PUBLICATION_INDEX.toString())) { "A rating requires a kind-30040 k tag." }
+        require(event.tags.valuesFor("p") == listOf(coordinate.split(':', limit = 3)[1])) { "A rating requires the publication author p tag." }
         require(event.tags.valuesFor("m").let { it.size <= 1 && (it.isEmpty() || it.single() == entityType) }) { "The rating m tag conflicts with the rating target." }
         val rating = event.tags.singleTagValue("rating") ?: throw IllegalArgumentException("A rating requires exactly one rating tag.")
         require(parseNormalizedRating(rating) != null) { "The R1 rating must be between 0 and 1 inclusive." }
