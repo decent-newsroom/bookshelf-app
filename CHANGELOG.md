@@ -7,6 +7,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.19
+
+- Clarify Mercury book-opening APIs by naming the resolved-index operation `openBook`.
+- Keep zero-chapter kind `30040` publication indexes discoverable as library cards, label them as full text unavailable, and prevent them from opening the reader.
+- Publish and read rating events using each publication index's declared type for the namespaced d target and m tag, defaulting to `book` when unset.
+
+
 ## v0.1.18
 
 - Accept pasted NIP-19 publication `naddr` references in Search, resolve their exact coordinates through secure relay hints and configured read relays, and retain the API fallback.

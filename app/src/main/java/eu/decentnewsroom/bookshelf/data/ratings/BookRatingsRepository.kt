@@ -1,9 +1,13 @@
 package eu.decentnewsroom.bookshelf.data.ratings
 
 import eu.decentnewsroom.bookshelf.data.nostr.NostrRelayClient
+import eu.decentnewsroom.bookshelf.data.ratings.BookSuggestion
+import eu.decentnewsroom.bookshelf.data.ratings.BookSuggestionPolicy
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.BookRatingSummary
 import kotlinx.coroutines.CancellationException
+
+private const val DEFAULT_ENTITY_TYPE = "book"
 
 /** Reads verified R1 ratings through the shared Quartz relay boundary. */
 public class BookRatingsRepository(
@@ -11,7 +15,7 @@ public class BookRatingsRepository(
     private val cache: BookRatingCache? = null,
 ) {
     suspend fun ratingsFor(book: BookSummary): List<BookRating> {
-        val target = "books:${book.coordinate}"
+        val target = "${book.type.trim().ifBlank { DEFAULT_ENTITY_TYPE }}:${book.coordinate}"
         val cached = cache?.ratingsFor(book.coordinate).orEmpty()
         val fetched = try {
             relayClient.fetchRatings(listOf(target))

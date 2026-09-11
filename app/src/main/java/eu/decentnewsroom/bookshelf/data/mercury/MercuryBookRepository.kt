@@ -237,14 +237,14 @@ class MercuryBookRepository(
     suspend fun getBook(eventId: String): BookDetail? {
         val indexEvent = apiClient.getEvent(eventId.lowercase(), BookKinds.PUBLICATION_INDEX) ?: return null
         val book = mapIndexEvent(indexEvent) ?: return null
-        return getBook(book)
+        return openBook(book)
     }
 
     /**
      * Opens an already-resolved publication index without requiring its event to be mirrored by Mercury.
      * This lets independently published books saved through a verified relay retain their chapter relay hints.
      */
-    suspend fun getBook(book: BookSummary): BookDetail {
+    suspend fun openBook(book: BookSummary): BookDetail {
         val refs = book.chapterRefs.take(MAX_CHAPTERS)
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()
@@ -440,9 +440,6 @@ class MercuryBookRepository(
         }
 
         val chapterRefs = extractChapterRefs(event.tags)
-        if (chapterRefs.isEmpty()) {
-            return null
-        }
 
         val identifier = firstTagValue(event.tags, "d") ?: return null
         if (event.id.isBlank() || event.pubkey.isBlank() || identifier.isBlank()) {
@@ -469,7 +466,7 @@ class MercuryBookRepository(
             language = firstTagValue(event.tags, "l"),
             releaseDate = firstNonEmptyTagValue(event.tags, listOf("release_date", "published_on")),
             version = firstTagValue(event.tags, "version"),
-            type = firstTagValue(event.tags, "type") ?: "book",
+            type = firstTagValue(event.tags, "type")?.trim().orEmpty().ifBlank { "book" },
             topics = tagValues(event.tags, "t"),
             relay = apiClient.getRelayHint(),
             createdAt = event.createdAt,

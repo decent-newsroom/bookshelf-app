@@ -241,6 +241,17 @@ class BookshelfViewModel(
     }
 
     fun openBook(book: BookSummary) {
+        if (book.chapterRefs.isEmpty()) {
+            bookOpenJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    isLoadingBook = false,
+                    selectedBook = null,
+                    error = "This is a library card. Its full text is not available to read yet.",
+                )
+            }
+            return
+        }
         bookOpenJob?.cancel()
         bookOpenJob = viewModelScope.launch {
             _uiState.update {
@@ -252,7 +263,7 @@ class BookshelfViewModel(
             }
 
             try {
-                val detail = chapterHtmlCache.renderBook(repository.getBook(book))
+                val detail = chapterHtmlCache.renderBook(repository.openBook(book))
                 currentCoroutineContext().ensureActive()
                 val cacheStats = chapterHtmlCache.stats()
                 if (localBookshelf.isSaved(detail.summary.coordinate)) {
@@ -390,7 +401,7 @@ class BookshelfViewModel(
             return
         }
         runCatching {
-            relaySync.buildRatingDraft(session.pubkey, composer.book.coordinate, stars / 5.0, composer.opinion)
+            relaySync.buildRatingDraft(session.pubkey, composer.book.coordinate, stars / 5.0, composer.opinion, entityType = composer.book.type)
         }.onSuccess { draft ->
             _uiState.update { it.copy(ratingComposer = composer.copy(isPublishing = true, error = null), pendingRatingSignRequest = PendingRatingSignRequest(UUID.randomUUID().toString(), session, relaySync.unsignedRatingJson(draft), draft)) }
         }.onFailure { failure -> _uiState.update { it.copy(ratingComposer = composer.copy(error = failure.message ?: "Could not prepare rating.")) } }

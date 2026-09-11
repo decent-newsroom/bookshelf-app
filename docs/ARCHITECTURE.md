@@ -36,7 +36,7 @@ connections use the separate chapter-source settings as their baseline, with
 valid relay hints from the loaded publication index added for that fetch.
 
 Mercury search responses are accepted only for kinds 30040 (publication
-indexes) and 30041 (chapter sections). Results retain provenance, an optional
+indexes) and 30041 (chapter sections). A valid publication index without kind `30041` `a` tags is a library card: it remains discoverable and can be saved, viewed, and rated, but cannot open the reader. Results retain provenance, an optional
 matched chapter coordinate/title, and a maximum 320-character excerpt derived
 only from the verified section event returned by the search. Metadata and
 section channels are merged by bounded rank fusion while preserving the
@@ -199,4 +199,4 @@ The Home tab is driven by the checked-in editorial catalog in `data/discovery/Cu
 
 ## Book Ratings
 
-Book ratings are read through the application-scoped Quartz NostrClient and verified before R1 parsing. Ratings use the namespaced d=books:<30040-coordinate> target and are aggregated by newest rating per reviewer. The app currently accepts the inclusive normalized interval [0, 1] as a compatibility policy despite R1's strict-boundary wording; this must be revisited if upstream confirms an intentional exclusion. Rating publication targets configured defaults, the active user's NIP-65 write relays, and the verified publication-index author's NIP-65 read relays without replacing active-user relay state.
+Book ratings are read through the application-scoped Quartz NostrClient and verified before R1 parsing. Ratings use the index-declared type in both the namespaced d=<type>:<30040-coordinate> target and optional m tag; an absent or blank type defaults to book. Ratings are aggregated by newest rating per reviewer. The app currently accepts the inclusive normalized interval [0, 1] as a compatibility policy despite R1's strict-boundary wording; this must be revisited if upstream confirms an intentional exclusion. Rating publication targets configured defaults, the active user's NIP-65 write relays, and the verified publication-index author's NIP-65 read relays without replacing active-user relay state.
