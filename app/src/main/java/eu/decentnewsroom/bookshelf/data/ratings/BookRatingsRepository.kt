@@ -7,18 +7,15 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.BookRatingSummary
 import kotlinx.coroutines.CancellationException
 
-private const val DEFAULT_ENTITY_TYPE = "book"
-
 /** Reads verified R1 ratings through the shared Quartz relay boundary. */
 public class BookRatingsRepository(
     private val relayClient: NostrRelayClient,
     private val cache: BookRatingCache? = null,
 ) {
     suspend fun ratingsFor(book: BookSummary): List<BookRating> {
-        val target = "${book.type.trim().ifBlank { DEFAULT_ENTITY_TYPE }}:${book.coordinate}"
         val cached = cache?.ratingsFor(book.coordinate).orEmpty()
         val fetched = try {
-            relayClient.fetchRatings(listOf(target))
+            relayClient.fetchRatings(publicationCoordinates = listOf(book.coordinate))
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Exception) {

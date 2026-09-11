@@ -144,16 +144,20 @@ class NostrRelayClient(
         filter = Filter(kinds = listOf(BookKinds.RATING), limit = limit.coerceIn(1, 1_000)),
         relaySet = configuredRelays(),
     ) { event -> NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event }
-    /** Fetches only signature-verified R1 rating events for namespaced targets. */
-    suspend fun fetchRatings(targetIds: List<String>): List<NostrEvent> {
-        val targets = targetIds.map(String::trim).filter(String::isNotBlank).distinct()
-        if (targets.isEmpty()) return emptyList()
-        return fetchAll(
-            filter = Filter(kinds = listOf(BookKinds.RATING), tags = mapOf("d" to targets)),
-            relaySet = configuredRelays(),
-        ) { event ->
-            NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event
+    /** Fetches verified ratings only through interoperable a/A publication-address references. */
+    suspend fun fetchRatings(publicationCoordinates: List<String>): List<NostrEvent> {
+        val coordinates = publicationCoordinates.map(String::trim).filter(String::isNotBlank).distinct()
+        val filters = buildList {
+            if (coordinates.isNotEmpty()) {
+                add(Filter(kinds = listOf(BookKinds.RATING), tags = mapOf("a" to coordinates)))
+                add(Filter(kinds = listOf(BookKinds.RATING), tags = mapOf("A" to coordinates)))
+            }
         }
+        return filters.flatMap { filter ->
+            fetchAll(filter = filter, relaySet = configuredRelays()) { event ->
+                NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event
+            }
+        }.distinctBy(NostrEvent::id)
     }
     /** Fetches and applies the active account's verified NIP-65 relay list using bootstrap relays. */
     suspend fun refreshUserRelayList(pubkey: String): UserRelayList? {

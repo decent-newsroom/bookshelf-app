@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.20
+
+- Look up verified reviews for library cards and full books exclusively through interoperable `a`/`A` publication-address tags; publication emits its namespaced `d` convention plus companion `k=30040` and publication-author `p` tags.
+
+
 ## v0.1.19
 
 - Clarify Mercury book-opening APIs by naming the resolved-index operation `openBook`.

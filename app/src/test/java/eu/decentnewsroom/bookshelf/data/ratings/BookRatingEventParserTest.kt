@@ -14,7 +14,7 @@ class BookRatingEventParserTest {
     @Test
     fun parsesStrictR1BooksRatingAndPreservesOptionalMetadata() {
         val result = BookRatingEventParser.parse(event(listOf(
-            listOf("d", "books:$coordinate"), listOf("m", "books"),
+            listOf("d", "books:$coordinate"), listOf("a", coordinate), listOf("m", "books"),
             listOf("rating", "0.800"), listOf("s", "4"),
         )))
 
@@ -30,7 +30,7 @@ class BookRatingEventParserTest {
     @Test
     fun parsesRatingForTheIndexDeclaredEntityType() {
         val result = BookRatingEventParser.parse(event(listOf(
-            listOf("d", "novel:$coordinate"), listOf("m", "novel"), listOf("rating", "0.800"),
+            listOf("d", "novel:$coordinate"), listOf("a", coordinate), listOf("m", "novel"), listOf("rating", "0.800"),
         )))
 
         val rating = (result as BookRatingParseResult.Accepted).rating
@@ -38,10 +38,21 @@ class BookRatingEventParserTest {
         assertEquals("novel", rating.declaredEntityType)
     }
     @Test
+    fun parsesRatingThatReferencesALibraryCardThroughBothAddressTagCases() {
+        val result = BookRatingEventParser.parse(event(listOf(
+            listOf("d", "rating-event-id"), listOf("a", coordinate), listOf("A", coordinate),
+            listOf("rating", "0.800"),
+        )))
+
+        val rating = (result as BookRatingParseResult.Accepted).rating
+        assertEquals(coordinate, rating.bookCoordinate)
+        assertEquals(null, rating.declaredEntityType)
+    }
+    @Test
     fun inclusiveCompatibilityPolicyAcceptsBothEndpoints() {
         listOf("0", "0.000", "1", "1.000").forEach { value ->
             val result = BookRatingEventParser.parse(event(listOf(
-                listOf("d", "books:$coordinate"), listOf("m", "books"), listOf("rating", value),
+                listOf("d", "books:$coordinate"), listOf("a", coordinate), listOf("m", "books"), listOf("rating", value),
             )))
             assertTrue("$value", result is BookRatingParseResult.Accepted)
         }
@@ -51,12 +62,13 @@ class BookRatingEventParserTest {
     fun rejectsMalformedTargetsConflictsAndNonDecimalScores() {
         val cases = listOf(
             listOf(listOf("d", coordinate), listOf("rating", "0.5")),
+            listOf(listOf("d", "books:$coordinate"), listOf("rating", "0.5")),
             listOf(listOf("d", "books:30041:$publisher:chapter"), listOf("rating", "0.5")),
-            listOf(listOf("d", "books:$coordinate"), listOf("d", "books:30040:${"c".repeat(64)}:other"), listOf("rating", "0.5")),
-            listOf(listOf("d", "books:$coordinate"), listOf("m", "movie"), listOf("rating", "0.5")),
-            listOf(listOf("d", "books:$coordinate"), listOf("rating", "-0.1")),
-            listOf(listOf("d", "books:$coordinate"), listOf("rating", "1.001")),
-            listOf(listOf("d", "books:$coordinate"), listOf("rating", "0.5e0")),
+            listOf(listOf("a", coordinate), listOf("d", "books:$coordinate"), listOf("d", "books:30040:${"c".repeat(64)}:other"), listOf("rating", "0.5")),
+            listOf(listOf("a", coordinate), listOf("d", "books:$coordinate"), listOf("m", "movie"), listOf("rating", "0.5")),
+            listOf(listOf("a", coordinate), listOf("rating", "-0.1")),
+            listOf(listOf("a", coordinate), listOf("rating", "1.001")),
+            listOf(listOf("a", coordinate), listOf("rating", "0.5e0")),
         )
         cases.forEach { assertTrue("$it", BookRatingEventParser.parse(event(it)) is BookRatingParseResult.Rejected) }
     }

@@ -8,12 +8,10 @@ import java.math.BigDecimal
 object BookRatingEventParser {
     fun parse(event: NostrEvent): BookRatingParseResult {
         if (event.kind != BookKinds.RATING) return BookRatingParseResult.Rejected("Unexpected event kind.")
-        val target = singleTagValue(event.tags, "d")
-            ?: return BookRatingParseResult.Rejected("A single d tag is required.")
-        val ratingTarget = parseBookTarget(target)
-            ?: return BookRatingParseResult.Rejected("The d tag is not a typed kind-30040 target.")
+        val ratingTarget = parseRatingTarget(event.tags)
+            ?: return BookRatingParseResult.Rejected("A kind-30040 reference is required in a or A.")
         val entityTypes = event.tags.valuesFor("m")
-        if (entityTypes.size > 1 || entityTypes.singleOrNull()?.let { it != ratingTarget.first } == true) {
+        if (entityTypes.size > 1 || ratingTarget.entityType?.let { type -> entityTypes.singleOrNull()?.let { it != type } == true } == true) {
             return BookRatingParseResult.Rejected("The optional m tag conflicts with the rating target.")
         }
         val producerRating = singleTagValue(event.tags, "rating")
@@ -22,7 +20,7 @@ object BookRatingEventParser {
             ?: return BookRatingParseResult.Rejected("The rating must be a decimal between 0 and 1 inclusive.")
         return BookRatingParseResult.Accepted(BookRating(
             eventId = event.id,
-            bookCoordinate = ratingTarget.second,
+            bookCoordinate = ratingTarget.coordinate,
             reviewerPubkey = event.pubkey.lowercase(),
             createdAt = event.createdAt,
             producerRating = producerRating,
@@ -45,6 +43,23 @@ object BookRatingEventParser {
             "${BookKinds.PUBLICATION_INDEX}:${parts[1].lowercase()}:${parts[2]}"
     }
 
+    /** Supports producers that reference publications through Nostr a/A address tags. */
+    private fun parseRatingTarget(tags: List<List<String>>): RatingTarget? {
+        val addressTargets = (tags.valuesFor("a") + tags.valuesFor("A")).mapNotNull(::parsePublicationCoordinate).distinct()
+        if (addressTargets.size != 1) return null
+        val typedTargets = tags.valuesFor("d").mapNotNull(::parseBookTarget)
+        if (typedTargets.any { it.second != addressTargets.single() }) return null
+        val entityTypes = typedTargets.map { it.first }.distinct()
+        if (entityTypes.size > 1) return null
+        return RatingTarget(addressTargets.single(), entityTypes.singleOrNull())
+    }
+
+    private fun parsePublicationCoordinate(value: String): String? {
+        val parts = value.split(':', limit = 3)
+        if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_INDEX || !HEX_64.matches(parts[1]) || parts[2].isBlank()) return null
+        return "${BookKinds.PUBLICATION_INDEX}:${parts[1].lowercase()}:${parts[2]}"
+    }
+
     private fun parseStrictNormalizedRating(value: String): Double? {
         if (!DECIMAL.matches(value)) return null
         val decimal = value.toBigDecimalOrNull() ?: return null
@@ -58,6 +73,8 @@ object BookRatingEventParser {
 
     private val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
     private val DECIMAL = Regex("^(?:0(?:\\.\\d+)?|1(?:\\.0+)?)$")
+
+    private data class RatingTarget(val coordinate: String, val entityType: String?)
 }
 
 sealed interface BookRatingParseResult {
