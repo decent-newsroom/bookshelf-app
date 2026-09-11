@@ -19,6 +19,7 @@ class MercuryBookRepository(
     private val apiClient: MercuryApiClient,
     private val chapterEventSource: ChapterEventSource? = null,
     private val publicationIndexRelaySource: PublicationIndexRelaySource? = null,
+    private val naddrPublicationIndexRelaySource: NaddrPublicationIndexRelaySource? = null,
     private val searchResilience: MercurySearchResilience = MercurySearchResilience(),
     nowMillis: () -> Long = System::currentTimeMillis,
     searchCacheTtlMillis: Long = SEARCH_CACHE_TTL_MILLIS,
@@ -66,6 +67,13 @@ class MercuryBookRepository(
                 }
             }
         }
+        val naddrRelayResult = plan.naddrRelayHints?.let { relayHints ->
+            plan.publicationCoordinate?.let { coordinate ->
+                naddrPublicationIndexRelaySource?.let { source ->
+                    async { runNaddrRelayBranch { source.fetchPublicationIndex(coordinate.coordinate, relayHints) } }
+                }
+            }
+        }
         val sectionResult = plan.sectionQuery?.let { q ->
             async { runSearchBranch { apiClient.searchPublicationSections(q, SECTION_SEARCH_LIMIT) } }
         }
@@ -85,6 +93,7 @@ class MercuryBookRepository(
 
         val exactEvents = events(exactResult?.await())
         val coordinateEvents = events(coordinateResult?.await())
+        val naddrRelayEvents = events(naddrRelayResult?.await())
         val publicationEventLists = publicationResults.map { events(it.await()) }
         val sectionEvents = events(sectionResult?.await())
         val chapterEvents = events(chapterResult?.await())
@@ -124,6 +133,12 @@ class MercuryBookRepository(
         }
         val publicationCoordinate = plan.publicationCoordinate
         coordinateEvents.forEachIndexed { index, event ->
+            val book = mapIndexEvent(event) ?: return@forEachIndexed
+            if (publicationCoordinate != null && book.coordinate == publicationCoordinate.coordinate) {
+                record(book, setOf(MatchProvenance.EXACT_COORDINATE), metadataRank = index)
+            }
+        }
+        naddrRelayEvents.forEachIndexed { index, event ->
             val book = mapIndexEvent(event) ?: return@forEachIndexed
             if (publicationCoordinate != null && book.coordinate == publicationCoordinate.coordinate) {
                 record(book, setOf(MatchProvenance.EXACT_COORDINATE), metadataRank = index)
@@ -207,6 +222,15 @@ class MercuryBookRepository(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: MercuryApiException) {
+            SearchBranch.Failure(exception)
+        }
+
+    private suspend fun <T> runNaddrRelayBranch(block: suspend () -> T): SearchBranch<T> =
+        try {
+            SearchBranch.Success(block())
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
             SearchBranch.Failure(exception)
         }
 
@@ -723,6 +747,7 @@ class MercuryBookRepository(
         val exactEventId: String?,
         val publicationCoordinate: ParsedCoordinate?,
         val chapterCoordinate: ParsedCoordinate?,
+        val naddrRelayHints: List<String>?,
     ) {
         val isEmpty: Boolean =
             publicationSearches.isEmpty() && sectionQuery == null && exactEventId == null &&
@@ -734,7 +759,7 @@ class MercuryBookRepository(
                 val coordinate = parseCoordinate(query.coordinate ?: raw)
                 val eventId = query.eventId ?: raw.lowercase(Locale.US).takeIf { HEX_64.matches(it) }
                 if ((raw.isBlank() && coordinate == null && eventId == null && query.language == null) || raw.length > MAX_SEARCH_QUERY_LENGTH) {
-                    return SearchPlan(emptyList(), null, eventId, null, null)
+                    return SearchPlan(emptyList(), null, eventId, null, null, null)
                 }
                 val searchText = raw
                 val metadataSearch = when (query.scope) {
@@ -760,6 +785,7 @@ class MercuryBookRepository(
                     exactEventId = eventId,
                     publicationCoordinate = coordinate?.takeIf { it.kind == BookKinds.PUBLICATION_INDEX },
                     chapterCoordinate = coordinate?.takeIf { it.kind == BookKinds.PUBLICATION_CONTENT },
+                    naddrRelayHints = query.naddrRelayHints,
                 )
             }
 
@@ -818,7 +844,7 @@ class MercuryBookRepository(
 }
 private sealed interface SearchBranch<out T> {
     data class Success<T>(val value: T) : SearchBranch<T>
-    data class Failure(val exception: MercuryApiException) : SearchBranch<Nothing>
+    data class Failure(val exception: Throwable) : SearchBranch<Nothing>
 }
 
 private class SearchAttempt {
@@ -839,7 +865,7 @@ private class SearchAttempt {
             is SearchBranch.Success -> successCount += 1
             is SearchBranch.Failure -> {
                 failureCount += 1
-                branch.exception.retryAfterMillis?.let {
+                (branch.exception as? MercuryApiException)?.retryAfterMillis?.let {
                     retryAfterMillis = maxOf(retryAfterMillis ?: 0, it)
                 }
             }

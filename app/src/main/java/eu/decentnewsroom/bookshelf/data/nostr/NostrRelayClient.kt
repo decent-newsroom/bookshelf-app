@@ -109,9 +109,14 @@ class NostrRelayClient(
         }
     }
 
-    /** Resolves exact kind 30040 coordinates from the configured and discovered read relays. */
-    suspend fun fetchPublicationIndexes(coordinates: List<String>): List<NostrEvent> {
-        val relaySet = readRelays()
+    /** Resolves exact kind 30040 coordinates from read relays and optional secure NIP-19 hints. */
+    suspend fun fetchPublicationIndexes(
+        coordinates: List<String>,
+        relayHints: List<String> = emptyList(),
+    ): List<NostrEvent> {
+        val relaySet = readRelays().apply {
+            relayHints.mapNotNull(::normalizeSecureRelayUrl).mapNotNull(RelayUrlNormalizer::normalizeOrNull).forEach(::add)
+        }.take(MAX_PUBLICATION_LOOKUP_RELAYS).toCollection(LinkedHashSet())
         return coordinates.mapNotNull(::parsePublicationCoordinate).distinct().mapNotNull { coordinate ->
             fetchLatest(
                 filter = Filter(
@@ -399,6 +404,7 @@ class NostrRelayClient(
         const val PUBLISH_TIMEOUT_SECONDS = 15L
         const val MAX_REASON_LENGTH = 240
         const val MAX_PUBLICATION_AUTHOR_RELAY_LISTS = 64
+        const val MAX_PUBLICATION_LOOKUP_RELAYS = 8
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
 
         fun parsePublicationCoordinate(raw: String): PublicationCoordinate? {

@@ -1,5 +1,6 @@
 package eu.decentnewsroom.bookshelf.data.mercury
 
+import eu.decentnewsroom.bookshelf.data.discovery.NaddrPublicationReferenceDecoder
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 
 /** The user-visible part of the Mercury search surface. */
@@ -21,6 +22,8 @@ data class BookSearchQuery(
     val language: String? = null,
     val eventId: String? = null,
     val coordinate: String? = null,
+    /** Non-null only when input was a valid publication naddr; it may have no relay hints. */
+    val naddrRelayHints: List<String>? = null,
 ) {
     val normalizedText: String get() = text.trim()
 
@@ -40,10 +43,12 @@ data class BookSearchQuery(
                 }
             }
             val value = match?.groupValues?.getOrNull(2)?.trim().takeIf { !it.isNullOrBlank() } ?: trimmed
+            val naddrTarget = NaddrPublicationReferenceDecoder.decodeTarget(value)
             val parsedLanguage = match?.groupValues?.getOrNull(1)?.lowercase()?.let { name ->
                 value.takeIf { name == "language" || name == "lang" }
             }
-            val coordinate = value.split(":", limit = 3).takeIf { it.size == 3 && it[1].matches(HEX_64) && it[2].isNotBlank() }
+            val coordinate = naddrTarget?.coordinate?.split(":", limit = 3)
+                ?: value.split(":", limit = 3).takeIf { it.size == 3 && it[1].matches(HEX_64) && it[2].isNotBlank() }
             val eventId = value.lowercase().takeIf { it.matches(HEX_64) }
             return BookSearchQuery(
                 text = if (coordinate != null || eventId != null || parsedLanguage != null) "" else value,
@@ -51,6 +56,7 @@ data class BookSearchQuery(
                 language = parsedLanguage ?: language,
                 eventId = eventId,
                 coordinate = coordinate?.let { "${it[0].toIntOrNull() ?: return@let null}:${it[1].lowercase()}:${it[2]}" },
+                naddrRelayHints = naddrTarget?.relayHints,
             )
         }
 

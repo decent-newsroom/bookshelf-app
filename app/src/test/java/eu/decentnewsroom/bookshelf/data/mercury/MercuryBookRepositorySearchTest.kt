@@ -483,6 +483,45 @@ class MercuryBookRepositorySearchTest {
         }
     }
     @Test
+    fun naddrSearchQueriesRelaySourceForDecodedCoordinate() = runBlocking {
+        val naddr = "naddr1qqthqeejxumnsvpdw3ex2ctnw4ex2ttfwdkxzmnyqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5pzq0s66re6t57pyfzakaug23ky8t0rm97xuprvt98kq97ddn2pv35sqvzqqqr4tqpmnmyc"
+        val query = BookSearchQuery.from(naddr)
+        val coordinate = requireNotNull(query.coordinate)
+        val parts = coordinate.split(":", limit = 3)
+        val relayEvent = NostrEvent(
+            id = "naddr-relay-event",
+            pubkey = parts[1],
+            createdAt = 2,
+            kind = BookKinds.PUBLICATION_INDEX,
+            tags = listOf(
+                listOf("d", parts[2]),
+                listOf("title", "Relay naddr book"),
+                listOf("author", "Independent publisher"),
+                listOf("a", "${BookKinds.PUBLICATION_CONTENT}:${parts[1]}:chapter-one"),
+            ),
+        )
+        var requestedCoordinate: String? = null
+        var requestedHints: List<String>? = null
+        val server = RecordingHttpServer { "[]" }
+
+        server.use {
+            val repository = MercuryBookRepository(
+                apiClient = MercuryApiClient(OkHttpClient(), server.baseUrl),
+                naddrPublicationIndexRelaySource = NaddrPublicationIndexRelaySource { target, hints ->
+                    requestedCoordinate = target
+                    requestedHints = hints
+                    listOf(relayEvent)
+                },
+            )
+
+            val results = repository.search(query)
+
+            assertEquals(listOf("Relay naddr book"), results.map { it.book.title })
+            assertEquals(coordinate, requestedCoordinate)
+            assertEquals(query.naddrRelayHints, requestedHints)
+        }
+    }
+    @Test
     fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
         val pubkey = testPubkey(4)
         val book = publicationEvent(

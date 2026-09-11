@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.18
+
+- Accept pasted NIP-19 publication `naddr` references in Search, resolve their exact coordinates through secure relay hints and configured read relays, and retain the API fallback.
+
+
 ## v0.1.17
 
 - Expose transient community-rating summaries on book summaries, hydrated through the dedicated ratings repository.

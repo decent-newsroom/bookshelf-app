@@ -7,6 +7,7 @@ import eu.decentnewsroom.bookshelf.data.discovery.ShelfMetadataCache
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiClient
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
+import eu.decentnewsroom.bookshelf.data.mercury.NaddrPublicationIndexRelaySource
 import eu.decentnewsroom.bookshelf.data.mercury.PublicationIndexRelaySource
 import eu.decentnewsroom.bookshelf.data.mercury.PersistentNostrChapterSource
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
@@ -139,6 +140,9 @@ object AppGraph {
                 ),
                 publicationIndexRelaySource = PublicationIndexRelaySource { coordinates ->
                     directoryRelayClient.fetchPublicationIndexes(coordinates)
+                },
+                naddrPublicationIndexRelaySource = NaddrPublicationIndexRelaySource { coordinate, relayHints ->
+                    directoryRelayClient.fetchPublicationIndexes(listOf(coordinate), relayHints)
                 },
             )
         }

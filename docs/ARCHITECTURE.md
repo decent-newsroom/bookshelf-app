@@ -43,7 +43,7 @@ section channels are merged by bounded rank fusion while preserving the
 ordering supplied by Mercury. Reciprocal-rank fusion uses k=60, so a result
 present in both channels gains score without allowing absolute endpoint
 weights to override channel rank. Duplicate publication coordinates combine
-provenance and keep the newest index event. Search discovery never fetches or
+provenance and keep the newest index event. Pasted NIP-19 `naddr` references for kind `30040` decode into exact coordinates. Their secure `wss://` relay hints are queried together with the configured read relays (capped at eight); only a signature-verified event matching the encoded author and `d` tag is accepted. The normal HTTP exact-coordinate lookup remains a parallel fallback. Search discovery never fetches or
 renders complete chapters; that remains the `openBook` boundary.
 
 Independent Mercury search branches return a `BookSearchOutcome` classified as

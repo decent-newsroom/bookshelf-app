@@ -1317,7 +1317,7 @@ private fun BookActionsSheet(
             BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
             BookActionRow(Icons.Outlined.Info, "See details", onDetails)
             if (localRelayConfigured) {
-                BookActionRow(Icons.AutoMirrored.Outlined.Send, if (isBroadcasting) "Broadcasting…" else "Broadcast book and chapters to local relay", onBroadcast, enabled = !isBroadcasting)
+                BookActionRow(Icons.AutoMirrored.Outlined.Send, if (isBroadcasting) "Broadcasting…" else "Broadcast to local relay", onBroadcast, enabled = !isBroadcasting)
             }
             Spacer(Modifier.height(16.dp))
         }
