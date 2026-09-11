@@ -1288,7 +1288,11 @@ private fun BookCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else "",
+                    text = if (book.chapterRefs.isEmpty()) {
+                        "Library card · Full text unavailable" + if (isSaved) " · In My Books" else ""
+                    } else {
+                        "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else ""
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

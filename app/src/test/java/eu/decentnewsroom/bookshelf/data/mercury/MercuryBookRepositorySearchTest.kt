@@ -257,6 +257,29 @@ class MercuryBookRepositorySearchTest {
     }
 
     @Test
+    fun publicationIndexWithoutChaptersIsReturnedAsALibraryCard() = runBlocking {
+        val libraryCard = publicationEvent(
+            pubkey = testPubkey(1),
+            identifier = "copyrighted-book",
+            title = "Copyrighted Book",
+            author = "Publisher",
+            chapterCoordinates = emptyList(),
+        )
+        val server = RecordingHttpServer { request ->
+            if (request.path == "/api/publications/search") eventListJson(libraryCard) else "[]"
+        }
+
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+
+            val result = repository.search(BookSearchQuery("Copyrighted Book")).single().book
+
+            assertEquals("Copyrighted Book", result.title)
+            assertEquals(0, result.chapterCount)
+            assertTrue(result.chapterRefs.isEmpty())
+        }
+    }
+    @Test
     fun exactPublicationEventIdReturnsOnlyTheRequestedIndex() = runBlocking {
         val book = publicationEvent(testPubkey(1), "exact-book", "Exact Book", "Author", listOf(BookKinds.PUBLICATION_CONTENT.toString() + ":" + testPubkey(1) + ":chapter"))
         val id = book.substringAfter("\"id\":\"").substringBefore("\"")
