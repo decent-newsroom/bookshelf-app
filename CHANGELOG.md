@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.17
+
+- Expose transient community-rating summaries on book summaries, hydrated through the dedicated ratings repository.
 - Add verified R1 book-rating parsing, aggregation, Quartz relay reads, and the Community ratings details flow.
 - Route rating publication to configured defaults, the active user's write relays, and the publication author's NIP-65 read relays.
 - Accept inclusive normalized rating endpoints `[0, 1]` as an explicit compatibility policy pending R1 clarification.

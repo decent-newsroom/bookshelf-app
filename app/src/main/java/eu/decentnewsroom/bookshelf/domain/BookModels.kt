@@ -1,6 +1,7 @@
 package eu.decentnewsroom.bookshelf.domain
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 object BookKinds {
     const val USER_RELAY_LIST = 10002
@@ -31,8 +32,16 @@ data class BookSummary(
     val createdAt: Long,
     val chapterCount: Int,
     val chapterRefs: List<ChapterReference>,
+    @Transient val ratingSummary: BookRatingSummary? = null,
 )
 
+@Serializable
+public data class BookRatingSummary(
+    val averageNormalizedRating: Double,
+    val averageStars: Double,
+    val ratingCount: Int,
+    val latestRatingAt: Long,
+)
 data class BookDetail(
     val summary: BookSummary,
     val chapters: List<BookChapter>,

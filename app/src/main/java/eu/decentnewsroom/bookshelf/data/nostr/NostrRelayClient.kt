@@ -134,6 +134,11 @@ class NostrRelayClient(
         }
     }
 
+    /** Bounded global rating query for discovery; callers apply recency/product policy locally. */
+    suspend fun fetchRecentRatings(limit: Int = 1_000): List<NostrEvent> = fetchAll(
+        filter = Filter(kinds = listOf(BookKinds.RATING), limit = limit.coerceIn(1, 1_000)),
+        relaySet = configuredRelays(),
+    ) { event -> NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event }
     /** Fetches only signature-verified R1 rating events for namespaced targets. */
     suspend fun fetchRatings(targetIds: List<String>): List<NostrEvent> {
         val targets = targetIds.map(String::trim).filter(String::isNotBlank).distinct()

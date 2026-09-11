@@ -33,6 +33,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.BookmarkRemove
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +45,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -1308,20 +1314,24 @@ private fun BookActionsSheet(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(book.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = onToggleSaved, modifier = Modifier.fillMaxWidth()) {
-                Text(if (isSaved) "Remove from My Books" else "Add to My Books")
-            }
-            TextButton(onClick = onDetails, modifier = Modifier.fillMaxWidth()) { Text("See details") }
+            BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
+            BookActionRow(Icons.Outlined.Info, "See details", onDetails)
             if (localRelayConfigured) {
-                TextButton(onClick = onBroadcast, modifier = Modifier.fillMaxWidth(), enabled = !isBroadcasting) {
-                    Text(if (isBroadcasting) "Broadcasting…" else "Broadcast book and chapters to local relay")
-                }
+                BookActionRow(Icons.AutoMirrored.Outlined.Send, if (isBroadcasting) "Broadcasting…" else "Broadcast book and chapters to local relay", onBroadcast, enabled = !isBroadcasting)
             }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
+@Composable
+private fun BookActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null)
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+    }
+}
 @Composable
 private fun BookDetailsSheet(
     details: BookDetailsState,
