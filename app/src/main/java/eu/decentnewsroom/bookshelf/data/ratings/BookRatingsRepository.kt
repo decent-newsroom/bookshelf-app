@@ -11,9 +11,12 @@ import kotlinx.coroutines.CancellationException
 public class BookRatingsRepository(
     private val relayClient: NostrRelayClient,
     private val cache: BookRatingCache? = null,
+    /** Blocks relay reads while Android has no validated internet connection. */
+    private val isInternetAvailable: () -> Boolean = { true },
 ) {
     suspend fun ratingsFor(book: BookSummary): List<BookRating> {
         val cached = cache?.ratingsFor(book.coordinate).orEmpty()
+        if (!isInternetAvailable()) return cached
         val fetched = try {
             relayClient.fetchRatings(publicationCoordinates = listOf(book.coordinate))
         } catch (exception: CancellationException) {
@@ -28,6 +31,9 @@ public class BookRatingsRepository(
     }
 
     suspend fun recentlyHighlyRated(nowSeconds: Long = System.currentTimeMillis() / 1_000L): List<BookSuggestion> {
+        if (!isInternetAvailable()) {
+            return BookSuggestionPolicy.recentlyHighlyRated(cache?.allRatings().orEmpty(), nowSeconds)
+        }
         val ratings = relayClient.fetchRecentRatings().mapNotNull { event ->
             (BookRatingEventParser.parse(event) as? BookRatingParseResult.Accepted)?.rating
         }

@@ -271,15 +271,19 @@ class NostrRelayClient(
         return events.mapNotNull(::toDomainEvent).mapNotNull(verifyEvent)
     }
     /** Publishes through default, active-user, and publication-author read routes. */
-    suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport {
+    suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport =
+        publishToRelays(event, ratingRelayUrls(event, publicationAuthorPubkey))
+
+    /** Resolves the current default, active-user-write and publication-author routes for one rating. */
+    suspend fun ratingRelayUrls(event: NostrEvent, publicationAuthorPubkey: String, excludedRelayUrl: String? = null): List<String> {
         ensureUserRelayList(event.pubkey)
         runCatching { refreshPublicationAuthorRelayList(publicationAuthorPubkey) }
             .onFailure { Log.w(LOG_TAG, "Could not refresh publication-author NIP-65 relay list.", it) }
-        val targets = configuredRelays().apply {
+        val excluded = excludedRelayUrl?.let(RelayUrlNormalizer::normalizeOrNull)?.url
+        return configuredRelays().apply {
             writeRelays().forEach(::add)
             publicationAuthorReadRelays(publicationAuthorPubkey).forEach(::add)
-        }
-        return publishEvent(event, targets)
+        }.map(NormalizedRelayUrl::url).filter { it != excluded }
     }
     suspend fun publishDirectory(event: NostrEvent): PublishReport {
         ensureUserRelayList(event.pubkey)
@@ -292,6 +296,10 @@ class NostrRelayClient(
         return publishEvent(event, linkedSetOf(relay))
     }
 
+    suspend fun publishToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport {
+        val targets = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+        return publishEvent(event, targets)
+    }
     private suspend fun publishEvent(event: NostrEvent, targets: Set<NormalizedRelayUrl>): PublishReport {
         if (NostrEventVerifier.verify(event) == null) {
             return failedPublishReport(event, targets, RelayPublishOutcomeType.PROTOCOL_FAILURE, "The signed event failed local verification.")

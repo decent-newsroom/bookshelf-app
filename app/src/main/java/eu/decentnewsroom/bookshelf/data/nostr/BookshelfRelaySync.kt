@@ -122,6 +122,8 @@ interface BookshelfRelaySync {
     fun unsignedRatingJson(draft: RatingEventDraft): String
     fun decodeSignedRating(eventJson: String): NostrEvent
     suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport
+    suspend fun ratingRelayUrls(event: NostrEvent, publicationAuthorPubkey: String): List<String>
+    suspend fun publishRatingToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport
 
     fun setLocalRelayUrl(relayUrl: String?) = Unit
 }
@@ -132,6 +134,7 @@ class QuartzBookshelfRelaySync(
     private val authenticator: ExternalSignerNostrRelayAuthenticator,
     private val defaultRelayUrls: List<String>,
 ) : BookshelfRelaySync {
+    private var localRelayUrl: String? = null
     private val _activeSession = MutableStateFlow(sessionStore.load())
     override val activeSession: StateFlow<NostrSignerSession?> = _activeSession.asStateFlow()
     override val pendingNostrAuthSignRequest: StateFlow<PendingNostrAuthSignRequest?> = authenticator.pending
@@ -319,7 +322,13 @@ class QuartzBookshelfRelaySync(
             .getOrThrow()
     }
 
+    override suspend fun ratingRelayUrls(event: NostrEvent, publicationAuthorPubkey: String): List<String> =
+        relayClient.ratingRelayUrls(event, publicationAuthorPubkey, localRelayUrl)
+
+    override suspend fun publishRatingToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport =
+        relayClient.publishToRelays(event, relayUrls)
     override fun setLocalRelayUrl(relayUrl: String?) {
+        localRelayUrl = relayUrl
         relayClient.setConfiguredRelayUrls(defaultRelayUrls + listOfNotNull(relayUrl))
         _activeSession.value?.let { session ->
             _state.value = BookshelfSyncState.Ready(session.pubkey, relayClient.relayUrls.size)

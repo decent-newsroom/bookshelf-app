@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add validated-offline rating reads, durable locally saved review delivery, optional local Citrine publication, and automatic deferred relay synchronization.
 - Resolve cached and refreshed Nostr author profiles in community review details, displaying reviewer names when available.
 
 ## v0.1.20

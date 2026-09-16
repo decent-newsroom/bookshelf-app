@@ -325,6 +325,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onSignOut = viewModel::signOut,
                             onClearChapterCache = viewModel::clearChapterHtmlCache,
                             onClearRatingCache = viewModel::clearRatingCache,
+                            onRetryPendingReviews = viewModel::retryPendingReviews,
                             onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
                             onLocalRelayUrlChanged = viewModel::setLocalRelayUrl,
                             onThemeChanged = viewModel::setReaderTheme,
@@ -652,6 +653,7 @@ private fun SettingsScreen(
     onSignOut: () -> Unit,
     onClearChapterCache: () -> Unit,
     onClearRatingCache: () -> Unit,
+    onRetryPendingReviews: () -> Unit,
     onChapterRelayUrlsChanged: (String) -> Unit,
     onLocalRelayUrlChanged: (String) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
@@ -683,6 +685,13 @@ private fun SettingsScreen(
             }
         }
         SettingsSection("Relays") {
+            if (state.isOffline) {
+                Notice("Offline: remote relays and refreshes are paused. Cached data remains available.")
+            }
+            if (state.pendingReviewCount > 0) {
+                Notice("Pending review deliveries: ${state.pendingReviewCount}. Cached review data and pending reviews are retained when caches are cleared.")
+                Button(onClick = onRetryPendingReviews) { Text("Retry pending reviews") }
+            }
             if (state.signerSession == null) {
                 Notice("Log in from Account to sync your bookshelf through relays.")
             } else {

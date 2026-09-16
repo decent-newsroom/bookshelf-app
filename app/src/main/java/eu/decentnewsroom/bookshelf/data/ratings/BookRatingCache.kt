@@ -48,6 +48,10 @@ class BookRatingCache private constructor(
         }
     }
 
+    suspend fun allRatings(): List<BookRating> = withContext(Dispatchers.IO) {
+        mutex.withLock { readFile().entries.mapNotNull { it.event.toAcceptedRatingOrNull() } }
+    }
+
     /** Writes only events that remain signature-verified and R1-valid at the persistence boundary. */
     suspend fun merge(events: Iterable<NostrEvent>): BookRatingCacheStats = withContext(Dispatchers.IO) {
         mutex.withLock {

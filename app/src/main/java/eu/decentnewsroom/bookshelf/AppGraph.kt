@@ -2,6 +2,7 @@ package eu.decentnewsroom.bookshelf
 
 import android.content.Context
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
+import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.discovery.ShelfMetadataCache
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
@@ -23,6 +24,8 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCache
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutbox
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxDispatcher
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -61,6 +64,12 @@ object AppGraph {
     private var curatedShelfRepositoryStore: CuratedShelfRepository? = null
     private var bookRatingsRepositoryStore: BookRatingsRepository? = null
     private var bookRatingCacheStore: BookRatingCache? = null
+    private var reviewOutboxStore: ReviewOutbox? = null
+    private var reviewOutboxDispatcherStore: ReviewOutboxDispatcher? = null
+    private var connectivityStore: ValidatedInternetConnectivity? = null
+
+    val connectivity: ValidatedInternetConnectivity
+        get() = connectivityStore ?: error("AppGraph.initialize(context) must be called before using connectivity.")
 
     val mercuryBooks: MercuryBookRepository
         get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
@@ -92,12 +101,21 @@ object AppGraph {
     val bookRatings: BookRatingsRepository
         get() = bookRatingsRepositoryStore ?: error("AppGraph.initialize(context) must be called before using book ratings.")
 
+    val reviewOutbox: ReviewOutbox
+        get() = reviewOutboxStore ?: error("AppGraph.initialize(context) must be called before using review outbox.")
+
+    val reviewOutboxDispatcher: ReviewOutboxDispatcher
+        get() = reviewOutboxDispatcherStore ?: error("AppGraph.initialize(context) must be called before using review outbox dispatcher.")
+
     val curatedShelves: CuratedShelfRepository
         get() = curatedShelfRepositoryStore ?: error("AppGraph.initialize(context) must be called before using curated shelves.")
 
     fun initialize(context: Context) {
         val appContext = context.applicationContext
 
+        if (connectivityStore == null) {
+            connectivityStore = ValidatedInternetConnectivity(appContext)
+        }
         if (readerSettingsStore == null) {
             readerSettingsStore = ReaderSettingsStore(appContext)
         }
@@ -150,7 +168,11 @@ object AppGraph {
             bookRatingCacheStore = BookRatingCache(appContext)
         }
         if (bookRatingsRepositoryStore == null) {
-            bookRatingsRepositoryStore = BookRatingsRepository(directoryRelayClient, checkNotNull(bookRatingCacheStore))
+            bookRatingsRepositoryStore = BookRatingsRepository(
+                directoryRelayClient,
+                checkNotNull(bookRatingCacheStore),
+                isInternetAvailable = { checkNotNull(connectivityStore).isOnline },
+            )
         }
         if (chapterHtmlCacheStore == null) {
             chapterHtmlCacheStore = ChapterHtmlCache(appContext)
@@ -172,6 +194,17 @@ object AppGraph {
             nostrProfileRepositoryStore = NostrProfileRepository(
                 relayClient = directoryRelayClient,
                 cache = NostrProfileCache(appContext),
+            )
+        }
+        if (reviewOutboxStore == null) {
+            reviewOutboxStore = ReviewOutbox(appContext)
+        }
+        if (reviewOutboxDispatcherStore == null) {
+            reviewOutboxDispatcherStore = ReviewOutboxDispatcher(
+                outbox = checkNotNull(reviewOutboxStore),
+                relaySync = checkNotNull(relaySyncStore),
+                localRelayUrl = { checkNotNull(localRelaySettingsStore).relayUrl.value },
+                isOnline = { checkNotNull(connectivityStore).isOnline },
             )
         }
     }

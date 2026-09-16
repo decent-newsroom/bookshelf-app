@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
+import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
@@ -34,6 +35,10 @@ import eu.decentnewsroom.bookshelf.data.ratings.BookRating
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutbox
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxDispatcher
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxEntry
+import eu.decentnewsroom.bookshelf.data.ratings.ReviewDeliveryState
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
@@ -65,6 +70,9 @@ class BookshelfViewModel(
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
     private val bookRatings: BookRatingsRepository = AppGraph.bookRatings,
+    private val reviewOutbox: ReviewOutbox = AppGraph.reviewOutbox,
+    private val reviewOutboxDispatcher: ReviewOutboxDispatcher = AppGraph.reviewOutboxDispatcher,
+    private val connectivity: ValidatedInternetConnectivity = AppGraph.connectivity,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
@@ -143,11 +151,19 @@ class BookshelfViewModel(
                 _uiState.update { it.copy(pendingNostrAuthSignRequest = request) }
             }
         }
+        viewModelScope.launch {
+            connectivity.online.collect { online ->
+                _uiState.update { it.copy(isOffline = !online) }
+                if (online) runCatching { reviewOutboxDispatcher.syncPending() }
+                refreshReviewOutboxStatus()
+            }
+        }
         relaySync.activeSession.value?.let { session ->
             viewModelScope.launch {
                 syncRemoteDirectory(session.pubkey, announceEmpty = false)
             }
         }
+        refreshReviewOutboxStatus()
         refreshChapterCacheStats()
         refreshCuratedShelves()
     }
@@ -456,9 +472,32 @@ class BookshelfViewModel(
         val request = _uiState.value.pendingRatingSignRequest
         if (request == null || request.id != requestId) return
         viewModelScope.launch {
-            runCatching { relaySync.publishRating(relaySync.decodeSignedRating(signedEventJson), request.draft.publicationAuthorPubkey) }
-                .onSuccess { report -> _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = if (report.acceptedRelays > 0) null else it.ratingComposer?.copy(isPublishing = false, error = report.failureMessage()), syncMessage = if (report.acceptedRelays > 0) "Rating published to ${report.acceptedRelays} relays." else null) } }
-                .onFailure { failure -> _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = failure.message ?: "Could not publish rating.")) } }
+            runCatching {
+                reviewOutboxDispatcher.enqueueAndTryCitrine(
+                    relaySync.decodeSignedRating(signedEventJson),
+                    request.draft.publicationAuthorPubkey,
+                )
+            }.onSuccess { entry ->
+                _uiState.update {
+                    it.copy(
+                        pendingRatingSignRequest = null,
+                        ratingComposer = null,
+                        latestReviewDelivery = entry.deliveryLabel(),
+                        syncMessage = entry.deliveryLabel(),
+                    )
+                }
+                refreshReviewOutboxStatus()
+            }.onFailure { failure ->
+                _uiState.update {
+                    it.copy(
+                        pendingRatingSignRequest = null,
+                        ratingComposer = it.ratingComposer?.copy(
+                            isPublishing = false,
+                            error = failure.message ?: "Could not save review locally.",
+                        ),
+                    )
+                }
+            }
         }
     }
     fun failPendingRatingSignature(message: String) { _uiState.update { it.copy(pendingRatingSignRequest = null, ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = message)) } }
@@ -920,6 +959,20 @@ class BookshelfViewModel(
         }
     }
 
+    fun retryPendingReviews() {
+        viewModelScope.launch {
+            runCatching { reviewOutboxDispatcher.syncPending(force = true) }
+                .onFailure { failure -> _uiState.update { it.copy(error = failure.message ?: "Could not retry pending reviews.") } }
+            refreshReviewOutboxStatus()
+        }
+    }
+
+    private fun refreshReviewOutboxStatus() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(pendingReviewCount = reviewOutbox.pendingCount()) }
+        }
+    }
+
     private fun refreshRatingCacheStats() {
         viewModelScope.launch {
             _uiState.update { it.copy(ratingCacheStats = bookRatings.cacheStats()) }
@@ -1081,6 +1134,9 @@ data class BookshelfUiState(
     val isClearingRatingCache: Boolean = false,
     val isClearingChapterCache: Boolean = false,
     val isBroadcastingBook: Boolean = false,
+    val isOffline: Boolean = false,
+    val pendingReviewCount: Int = 0,
+    val latestReviewDelivery: String? = null,
 )
 
 data class BookDetailsState(
@@ -1157,3 +1213,10 @@ private data class DirectoryApplyResult(
     val referenceCount: Int,
     val warning: String?,
 )
+
+private fun ReviewOutboxEntry.deliveryLabel(): String = when {
+    isComplete -> "Review delivered to configured relays."
+    citrine == ReviewDeliveryState.ACCEPTED -> "Review saved locally and published to Citrine; remote relay sync is pending."
+    lastFailure != null -> "Review saved locally; delivery needs retry."
+    else -> "Review saved locally; syncing when a connection is available."
+}
