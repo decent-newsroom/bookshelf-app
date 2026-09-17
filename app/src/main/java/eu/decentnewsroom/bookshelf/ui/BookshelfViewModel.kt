@@ -3,6 +3,15 @@ package eu.decentnewsroom.bookshelf.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightAnchors
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightEventDraft
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightEventFactory
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightStore
+import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
+import eu.decentnewsroom.bookshelf.data.nostr.NostrEventVerifier
+import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
@@ -48,6 +57,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,6 +84,9 @@ class BookshelfViewModel(
     private val reviewOutbox: ReviewOutbox = AppGraph.reviewOutbox,
     private val reviewOutboxDispatcher: ReviewOutboxDispatcher = AppGraph.reviewOutboxDispatcher,
     private val connectivity: ValidatedInternetConnectivity = AppGraph.connectivity,
+    private val highlightStore: HighlightStore = AppGraph.highlights,
+    private val highlightOutbox: HighlightOutbox = AppGraph.highlightOutbox,
+    private val highlightDispatcher: HighlightOutboxDispatcher = AppGraph.highlightDispatcher,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
@@ -136,6 +150,12 @@ class BookshelfViewModel(
                 _uiState.update {
                     it.copy(
                         signerSession = session,
+                        pendingHighlightSignRequest = it.pendingHighlightSignRequest?.takeIf { request -> request.session == session },
+                        highlightComposer = it.highlightComposer?.let { composer ->
+                            if (it.pendingHighlightSignRequest != null && it.pendingHighlightSignRequest.session != session)
+                                composer.copy(isPublishing = false, requiresSignIn = session == null, error = "Account changed. Publish again with the selected account.")
+                            else composer.copy(requiresSignIn = session == null)
+                        },
                         nostrProfile = it.nostrProfile?.takeIf { profile ->
                             session != null && profile.pubkey.equals(session.pubkey, ignoreCase = true)
                         },
@@ -156,6 +176,7 @@ class BookshelfViewModel(
                 _uiState.update { it.copy(isOffline = !online) }
                 if (online) runCatching { reviewOutboxDispatcher.syncPending() }
                 refreshReviewOutboxStatus()
+                retryPendingHighlights()
             }
         }
         relaySync.activeSession.value?.let { session ->
@@ -166,6 +187,13 @@ class BookshelfViewModel(
         refreshReviewOutboxStatus()
         refreshChapterCacheStats()
         refreshCuratedShelves()
+        viewModelScope.launch {
+            refreshHighlights()
+            while (isActive) {
+                deliverPendingHighlights(force = false)
+                delay(30_000)
+            }
+        }
     }
 
     fun selectTab(tab: BookshelfTab) {
@@ -196,6 +224,7 @@ class BookshelfViewModel(
                 isSearching = false,
                 ratingsPage = null,
                 ratingComposer = null,
+                highlightComposer = it.highlightComposer?.takeIf { composer -> composer.isPublishing },
                 error = null,
             )
         }
@@ -450,6 +479,183 @@ class BookshelfViewModel(
     fun updateRatingOpinion(opinion: String) {
         _uiState.update { state ->
             state.copy(ratingComposer = state.ratingComposer?.copy(opinion = opinion))
+        }
+    }
+
+    fun saveHighlight(chapter: BookChapter, text: String, start: Int, end: Int) {
+        val book = _uiState.value.selectedBook ?: return
+        if (book.chapters.none { it.reference.coordinate == chapter.reference.coordinate && it.id == chapter.id }) return
+        viewModelScope.launch {
+            try {
+                require(start >= 0 && end <= text.length && end > start) { "Select text within this chapter." }
+                val quote = text.substring(start, end)
+                require(quote.isNotBlank() && quote.length <= 16_384) { "Select a passage of up to 16,384 characters." }
+                val chapterEvent = requireNotNull(chapter.sourceEvent) { "The original signed chapter is unavailable." }
+                NostrEventVerifier.requireVerified(chapterEvent)
+                val existing = highlightStore.all().firstOrNull {
+                    it.bookCoordinate == book.summary.coordinate && it.chapterEvent.id == chapterEvent.id &&
+                        it.startOffset == start && it.endOffset == end && it.quote == quote
+                }
+                if (existing == null) {
+                    highlightStore.save(ReaderHighlight(
+                        id = UUID.randomUUID().toString(),
+                        bookCoordinate = book.summary.coordinate,
+                        chapterCoordinate = chapter.reference.coordinate,
+                        chapterTitle = chapter.title,
+                        chapterEvent = chapterEvent,
+                        quote = quote,
+                        context = HighlightAnchors.context(text, start, end),
+                        startOffset = start,
+                        endOffset = end,
+                        prefix = HighlightAnchors.prefix(text, start),
+                        suffix = HighlightAnchors.suffix(text, end),
+                        createdAtMillis = System.currentTimeMillis(),
+                        displayedTextHash = HighlightAnchors.textHash(text),
+                    ))
+                }
+                refreshHighlights()
+                _uiState.update { it.copy(syncMessage = if (existing == null) "Highlight saved privately." else "This passage is already highlighted.") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _uiState.update { it.copy(error = failure.message ?: "Could not save highlight.") }
+            }
+        }
+    }
+
+    fun showHighlightComposer(highlight: ReaderHighlight) {
+        if (_uiState.value.pendingHighlightSignRequest != null) return
+        _uiState.update { it.copy(highlightComposer = HighlightComposerState(
+            highlight = highlight, comment = highlight.comment, requiresSignIn = it.signerSession == null,
+        )) }
+    }
+
+    fun updateHighlightComment(comment: String) {
+        _uiState.update { state -> state.copy(highlightComposer = state.highlightComposer?.let {
+            if (it.isPublishing) it else it.copy(comment = comment.take(4_096), error = null)
+        }) }
+    }
+
+    fun dismissHighlightComposer() {
+        if (_uiState.value.highlightComposer?.isPublishing == true) return
+        _uiState.update { it.copy(highlightComposer = null) }
+    }
+
+    fun submitHighlight() {
+        val state = _uiState.value
+        val composer = state.highlightComposer ?: return
+        if (composer.isPublishing || state.pendingHighlightSignRequest != null) return
+        val session = state.signerSession
+        if (session == null) {
+            _uiState.update { it.copy(highlightComposer = composer.copy(requiresSignIn = true, error = "Log in with an Android signer before publishing.")) }
+            return
+        }
+        _uiState.update { it.copy(highlightComposer = composer.copy(isPublishing = true, error = null)) }
+        viewModelScope.launch {
+            try {
+                require(composer.comment.toByteArray(Charsets.UTF_8).size <= NostrEventVerifier.MAX_TAG_ELEMENT_LENGTH) {
+                    "The comment is too long. Use at most 4,096 UTF-8 bytes."
+                }
+                // Reconcile a signature persisted just before process death before offering another signature.
+                refreshHighlights()
+                val stored = highlightStore.all().firstOrNull { it.id == composer.highlight.id }
+                    ?: error("This highlight is no longer available.")
+                require(stored.publishedEventId == null && highlightOutbox.entries().none { it.localHighlightId == stored.id }) {
+                    "This highlight is already published or queued. Use Retry for pending delivery."
+                }
+                require(_uiState.value.signerSession == session) { "Account changed. Try publishing again." }
+                val draft = HighlightEventFactory.create(
+                    pubkey = session.pubkey, chapter = stored.chapterEvent, quote = stored.quote,
+                    context = stored.context.takeIf { it.toByteArray(Charsets.UTF_8).size <= NostrEventVerifier.MAX_TAG_ELEMENT_LENGTH },
+                    comment = composer.comment,
+                )
+                // Save the comment privately before handing off to another application.
+                highlightStore.save(stored.copy(comment = composer.comment))
+                _uiState.update { it.copy(
+                    highlightComposer = composer.copy(isPublishing = true, error = null),
+                    pendingHighlightSignRequest = PendingHighlightSignRequest(
+                        id = UUID.randomUUID().toString(), session = session,
+                        unsignedEventJson = HighlightEventFactory.unsignedJson(draft),
+                        draft = draft, highlightId = stored.id,
+                    ),
+                ) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _uiState.update { it.copy(highlightComposer = it.highlightComposer?.copy(isPublishing = false, error = failure.message ?: "Could not prepare highlight.")) }
+            }
+        }
+    }
+
+    fun completeHighlightSignature(requestId: String?, signedEventJson: String) {
+        val request = _uiState.value.pendingHighlightSignRequest ?: return
+        if (request.id != requestId || _uiState.value.signerSession != request.session) return
+        // Consume this result synchronously: duplicate Activity callbacks cannot enqueue another operation.
+        _uiState.update { it.copy(pendingHighlightSignRequest = null) }
+        viewModelScope.launch {
+            try {
+                val event = HighlightEventFactory.decodeSigned(signedEventJson, request.draft)
+                val stored = highlightStore.all().firstOrNull { it.id == request.highlightId }
+                    ?: error("This highlight is no longer available.")
+                require(_uiState.value.signerSession == request.session) { "Account changed. Try publishing again." }
+                highlightOutbox.enqueue(event, stored.chapterEvent, stored.id)
+                // The outbox is authoritative if marking the private record fails or the process exits.
+                refreshHighlights()
+                _uiState.update { it.copy(highlightComposer = null, syncMessage = "Highlight queued for publishing.") }
+                deliverPendingHighlights(force = true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _uiState.update { it.copy(highlightComposer = it.highlightComposer?.copy(isPublishing = false, error = failure.message ?: "Could not save signed highlight.")) }
+            }
+        }
+    }
+
+    fun failPendingHighlightSignature(message: String) {
+        _uiState.update { it.copy(
+            pendingHighlightSignRequest = null,
+            highlightComposer = it.highlightComposer?.copy(isPublishing = false, error = message),
+        ) }
+    }
+
+    fun retryPendingHighlights() {
+        viewModelScope.launch { deliverPendingHighlights(force = true) }
+    }
+
+    private suspend fun deliverPendingHighlights(force: Boolean) {
+        try {
+            highlightDispatcher.syncPending(force)
+            refreshHighlights()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            _uiState.update { it.copy(error = failure.message ?: "Could not sync pending highlights.") }
+        }
+    }
+
+    private suspend fun refreshHighlights() {
+        try {
+            val entries = highlightOutbox.entries()
+            var saved = highlightStore.all()
+            for (entry in entries) {
+                val local = saved.firstOrNull { it.id == entry.localHighlightId } ?: continue
+                if (local.publishedEventId != entry.event.id) {
+                    val comment = entry.event.tags.firstOrNull { it.firstOrNull() == "comment" }?.getOrNull(1).orEmpty()
+                    highlightStore.markPublished(local.id, entry.event.id, comment)
+                }
+            }
+            saved = highlightStore.all()
+            _uiState.update { it.copy(
+                highlights = saved,
+                highlightDelivery = entries.associate { entry ->
+                    entry.localHighlightId to entry.deliveryLabel
+                },
+                pendingHighlightCount = entries.count { entry -> !entry.isComplete },
+            ) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            _uiState.update { it.copy(error = failure.message ?: "Could not load highlights.") }
         }
     }
 
@@ -1095,6 +1301,22 @@ data class PendingDirectorySignRequest(
 
 data class PendingRatingSignRequest(val id: String, val session: NostrSignerSession, val unsignedEventJson: String, val draft: RatingEventDraft)
 
+data class PendingHighlightSignRequest(
+    val id: String,
+    val session: NostrSignerSession,
+    val unsignedEventJson: String,
+    val draft: HighlightEventDraft,
+    val highlightId: String,
+)
+
+data class HighlightComposerState(
+    val highlight: ReaderHighlight,
+    val comment: String = "",
+    val isPublishing: Boolean = false,
+    val error: String? = null,
+    val requiresSignIn: Boolean = false,
+)
+
 data class BookshelfUiState(
     val tab: BookshelfTab = BookshelfTab.Home,
     val curatedShelves: List<CuratedShelf> = emptyList(),
@@ -1112,6 +1334,11 @@ data class BookshelfUiState(
     val bookDetails: BookDetailsState? = null,
     val ratingsPage: RatingDetailsState? = null,
     val ratingComposer: RatingComposerState? = null,
+    val highlights: List<ReaderHighlight> = emptyList(),
+    val highlightComposer: HighlightComposerState? = null,
+    val pendingHighlightSignRequest: PendingHighlightSignRequest? = null,
+    val highlightDelivery: Map<String, String> = emptyMap(),
+    val pendingHighlightCount: Int = 0,
     val isLoadingBook: Boolean = false,
     val error: String? = null,
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,

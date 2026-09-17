@@ -6,6 +6,7 @@ import kotlinx.serialization.Transient
 object BookKinds {
     const val USER_RELAY_LIST = 10002
     const val PROFILE_METADATA = 0
+    const val HIGHLIGHT = 9802
     const val RATING = 34259
     const val PUBLICATION_INDEX = 30040
     const val PUBLICATION_CONTENT = 30041
@@ -70,6 +71,8 @@ data class BookChapter(
     val createdAt: Long?,
     val renderedHtml: String? = null,
     val renderedHtmlCachePath: String? = null,
+    /** The verified, signed chapter event used to render this chapter, retained for NIP-84 publication. */
+    val sourceEvent: NostrEvent? = null,
 )
 
 data class BookReference(

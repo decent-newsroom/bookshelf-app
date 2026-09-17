@@ -20,6 +20,7 @@ import com.vitorpamplona.quartz.nip42RelayAuth.RelayAuthEvent
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 class NostrRelayException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
@@ -232,6 +234,17 @@ class NostrRelayClient(
             ?.mapNotNull(RelayUrlNormalizer::normalizeOrNull)
             .orEmpty()
     }
+
+    private fun highlightAuthorWriteRelays(pubkey: String): List<NormalizedRelayUrl> = synchronized(relayListLock) {
+        if (relayListOwner == pubkey.lowercase()) {
+            discoveredRelays.write.mapNotNull(RelayUrlNormalizer::normalizeOrNull)
+        } else {
+            publicationAuthorRelayLists[pubkey.lowercase()]?.write
+                ?.mapNotNull(RelayUrlNormalizer::normalizeOrNull)
+                .orEmpty()
+        }
+    }
+
     private fun relaysFor(access: RelayAccess): LinkedHashSet<NormalizedRelayUrl> = synchronized(relayListLock) {
         LinkedHashSet(baseRelays).apply {
             val discovered = if (access == RelayAccess.READ) discoveredRelays.read else discoveredRelays.write
@@ -246,9 +259,11 @@ class NostrRelayClient(
     ): NostrEvent? {
         if (relaySet.isEmpty()) return null
         val filters = relaySet.associateWith { listOf(filter) }
-        val events = runCatching {
+        val events = try {
             client.fetchAll(filters = filters, timeoutMs = timeoutMillis, maxTotalMs = FETCH_MAX_TOTAL_MILLIS)
-        }.getOrElse { failure ->
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Throwable) {
             throw NostrRelayException("Could not reach configured relays.", failure)
         }
         return events.mapNotNull(::toDomainEvent).mapNotNull(verifyEvent)
@@ -261,13 +276,17 @@ class NostrRelayClient(
         verifyEvent: (NostrEvent) -> NostrEvent?,
     ): List<NostrEvent> {
         if (relaySet.isEmpty()) return emptyList()
-        val events = runCatching {
+        val events = try {
             client.fetchAll(
                 filters = relaySet.associateWith { listOf(filter) },
                 timeoutMs = timeoutMillis,
                 maxTotalMs = FETCH_MAX_TOTAL_MILLIS,
             )
-        }.getOrElse { failure -> throw NostrRelayException("Could not reach configured relays.", failure) }
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Throwable) {
+            throw NostrRelayException("Could not reach configured relays.", failure)
+        }
         return events.mapNotNull(::toDomainEvent).mapNotNull(verifyEvent)
     }
     /** Publishes through default, active-user, and publication-author read routes. */
@@ -285,6 +304,47 @@ class NostrRelayClient(
             publicationAuthorReadRelays(publicationAuthorPubkey).forEach(::add)
         }.map(NormalizedRelayUrl::url).filter { it != excluded }
     }
+
+    /**
+     * Resolves NIP-84 targets without changing the active signer's NIP-65 state. A discovery
+     * failure is propagated so a durable caller can retry before treating bootstrap-only routing
+     * as complete delivery.
+     */
+    suspend fun highlightRelayUrls(
+        event: NostrEvent,
+        chapterPublisherPubkey: String,
+        excludedRelayUrl: String? = null,
+    ): List<String> {
+        refreshRelayListForHighlightAuthor(event.pubkey)
+        refreshPublicationAuthorRelayList(chapterPublisherPubkey)
+        val excluded = excludedRelayUrl?.let(RelayUrlNormalizer::normalizeOrNull)?.url
+        return configuredRelays().apply {
+            highlightAuthorWriteRelays(event.pubkey).forEach(::add)
+            publicationAuthorReadRelays(chapterPublisherPubkey).forEach(::add)
+        }.map(NormalizedRelayUrl::url).filter { it != excluded }
+    }
+
+    private suspend fun refreshRelayListForHighlightAuthor(pubkey: String) {
+        val normalizedPubkey = pubkey.lowercase()
+        if (synchronized(relayListLock) { relayListOwner == normalizedPubkey }) return
+        val relayEvent = fetchLatest(userRelayListFilter(normalizedPubkey), configuredRelays()) { candidate ->
+            NostrEventVerifier.verify(
+                candidate,
+                context = NostrEventContext(
+                    expectedKind = BookKinds.USER_RELAY_LIST,
+                    expectedPubkey = normalizedPubkey,
+                ),
+            )?.event
+        }
+        val parsed = relayEvent?.let(::relayListFromVerifiedEvent) ?: UserRelayList()
+        synchronized(relayListLock) {
+            publicationAuthorRelayLists[normalizedPubkey] = parsed
+            while (publicationAuthorRelayLists.size > MAX_PUBLICATION_AUTHOR_RELAY_LISTS) {
+                publicationAuthorRelayLists.remove(publicationAuthorRelayLists.entries.iterator().next().key)
+            }
+        }
+    }
+
     suspend fun publishDirectory(event: NostrEvent): PublishReport {
         ensureUserRelayList(event.pubkey)
         return publishEvent(event, writeRelays())
@@ -300,7 +360,22 @@ class NostrRelayClient(
         val targets = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
         return publishEvent(event, targets)
     }
-    private suspend fun publishEvent(event: NostrEvent, targets: Set<NormalizedRelayUrl>): PublishReport {
+
+    /** Sends immutable highlight-related events but only starts NIP-42 as their signer. */
+    suspend fun publishHighlightEventToRelays(
+        event: NostrEvent,
+        relayUrls: Collection<String>,
+        allowRelayAuthentication: Boolean,
+    ): PublishReport {
+        val targets = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+        return publishEvent(event, targets, allowRelayAuthentication)
+    }
+
+    private suspend fun publishEvent(
+        event: NostrEvent,
+        targets: Set<NormalizedRelayUrl>,
+        allowRelayAuthentication: Boolean = true,
+    ): PublishReport {
         if (NostrEventVerifier.verify(event) == null) {
             return failedPublishReport(event, targets, RelayPublishOutcomeType.PROTOCOL_FAILURE, "The signed event failed local verification.")
         }
@@ -312,7 +387,7 @@ class NostrRelayClient(
                 return failedPublishReport(event, targets, RelayPublishOutcomeType.TRANSPORT_FAILURE, safeReason(failure.message))
             }
         val outcomes = initial.map { (relay, result) -> publishOutcome(relay, result) }.toMutableList()
-        retryAuthenticationRequiredPublishes(quartzEvent, targets, outcomes)
+        if (allowRelayAuthentication) retryAuthenticationRequiredPublishes(quartzEvent, targets, outcomes)
         outcomes.forEach { logOutcome(event.id, it) }
         val targetUrls = targets.map(NormalizedRelayUrl::url)
         return PublishReport(
@@ -527,7 +602,7 @@ private class QuartzLazyNip42Authenticator(
         val challenge = challenges[relay] ?: return AuthAttempt.Failed("The relay required authentication without a usable challenge.")
         val draft = runCatching { NostrAuthEventValidator.draft(auth.pubkey, relay.url, challenge, nowSeconds()) }
             .getOrElse { failure -> return AuthAttempt.Failed(safeAuthReason(failure.message)) }
-        val signed = withTimeoutOrNull(AUTH_SIGNING_TIMEOUT_MILLIS) {
+        val signed = withTimeoutOrNull(AUTH_SIGNING_TIMEOUT_MILLIS.milliseconds) {
             runCatching { auth.signAuthEvent(draft) }.getOrNull()
         } ?: return AuthAttempt.Failed("The Android signer did not approve relay authentication in time.")
         val verified = NostrAuthEventValidator.verify(signed, draft, nowSeconds())
@@ -536,7 +611,7 @@ private class QuartzLazyNip42Authenticator(
         val awaiting = CompletableDeferred<Boolean>()
         pendingResults[authEvent.id] = PendingAuthResult(relay, awaiting)
         client.getOrCreateRelay(relay).sendIfConnected(AuthCmd(authEvent))
-        val accepted = withTimeoutOrNull(AUTH_ACK_TIMEOUT_MILLIS) { awaiting.await() } ?: false
+        val accepted = withTimeoutOrNull(AUTH_ACK_TIMEOUT_MILLIS.milliseconds) { awaiting.await() } ?: false
         pendingResults.remove(authEvent.id)
         return if (accepted) AuthAttempt.Accepted else AuthAttempt.Failed("The relay rejected or did not acknowledge authentication.")
     }

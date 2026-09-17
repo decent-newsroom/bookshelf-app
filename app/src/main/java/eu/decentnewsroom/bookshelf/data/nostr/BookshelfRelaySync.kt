@@ -125,6 +125,19 @@ interface BookshelfRelaySync {
     suspend fun ratingRelayUrls(event: NostrEvent, publicationAuthorPubkey: String): List<String>
     suspend fun publishRatingToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport
 
+    /**
+     * Resolves remote NIP-84 destinations. Implementations include configured bootstrap relays,
+     * the highlight author's write relays, and the chapter signer's read relays, while excluding
+     * the local Citrine relay that the outbox publishes separately. Discovery failures are
+     * deliberately surfaced so durable delivery remains retryable.
+     */
+    suspend fun highlightRelayUrls(event: NostrEvent, chapterPublisherPubkey: String): List<String> = emptyList()
+
+    suspend fun publishHighlightEventToRelays(
+        event: NostrEvent,
+        relayUrls: Collection<String>,
+    ): PublishReport = publishRatingToRelays(event, relayUrls)
+
     fun setLocalRelayUrl(relayUrl: String?) = Unit
 }
 
@@ -327,6 +340,21 @@ class QuartzBookshelfRelaySync(
 
     override suspend fun publishRatingToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport =
         relayClient.publishToRelays(event, relayUrls)
+
+    override suspend fun highlightRelayUrls(event: NostrEvent, chapterPublisherPubkey: String): List<String> =
+        relayClient.highlightRelayUrls(event, chapterPublisherPubkey, localRelayUrl)
+
+    override suspend fun publishHighlightEventToRelays(
+        event: NostrEvent,
+        relayUrls: Collection<String>,
+    ): PublishReport = relayClient.publishHighlightEventToRelays(
+        event = event,
+        relayUrls = relayUrls,
+        // The immutable event may still publish anonymously. Do not ask the current signer to
+        // authenticate a queued event authored by a different account.
+        allowRelayAuthentication = _activeSession.value?.pubkey.equals(event.pubkey, ignoreCase = true),
+    )
+
     override fun setLocalRelayUrl(relayUrl: String?) {
         localRelayUrl = relayUrl
         relayClient.setConfiguredRelayUrls(defaultRelayUrls + listOfNotNull(relayUrl))

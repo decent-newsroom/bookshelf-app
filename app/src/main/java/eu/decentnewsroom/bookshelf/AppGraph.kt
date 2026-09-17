@@ -1,6 +1,9 @@
 package eu.decentnewsroom.bookshelf
 
 import android.content.Context
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightStore
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
+import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
@@ -67,6 +70,17 @@ object AppGraph {
     private var reviewOutboxStore: ReviewOutbox? = null
     private var reviewOutboxDispatcherStore: ReviewOutboxDispatcher? = null
     private var connectivityStore: ValidatedInternetConnectivity? = null
+    private var highlightStore: HighlightStore? = null
+    private var highlightOutboxStore: HighlightOutbox? = null
+    private var highlightDispatcherStore: HighlightOutboxDispatcher? = null
+
+    val highlights: HighlightStore
+        get() = checkNotNull(highlightStore) { "AppGraph.initialize(context) must be called before using highlights." }
+    val highlightOutbox: HighlightOutbox
+        get() = checkNotNull(highlightOutboxStore)
+    val highlightDispatcher: HighlightOutboxDispatcher
+        get() = checkNotNull(highlightDispatcherStore)
+
 
     val connectivity: ValidatedInternetConnectivity
         get() = connectivityStore ?: error("AppGraph.initialize(context) must be called before using connectivity.")
@@ -156,10 +170,10 @@ object AppGraph {
                     httpClient = httpClient,
                     relayUrls = { sourceSettings.relayUrls.value },
                 ),
-                publicationIndexRelaySource = PublicationIndexRelaySource { coordinates ->
+                publicationIndexRelaySource = { coordinates ->
                     directoryRelayClient.fetchPublicationIndexes(coordinates)
                 },
-                naddrPublicationIndexRelaySource = NaddrPublicationIndexRelaySource { coordinate, relayHints ->
+                naddrPublicationIndexRelaySource = { coordinate, relayHints ->
                     directoryRelayClient.fetchPublicationIndexes(listOf(coordinate), relayHints)
                 },
             )
@@ -194,6 +208,16 @@ object AppGraph {
             nostrProfileRepositoryStore = NostrProfileRepository(
                 relayClient = directoryRelayClient,
                 cache = NostrProfileCache(appContext),
+            )
+        }
+        if (highlightStore == null) highlightStore = HighlightStore(appContext)
+        if (highlightOutboxStore == null) highlightOutboxStore = HighlightOutbox(appContext)
+        if (highlightDispatcherStore == null) {
+            highlightDispatcherStore = HighlightOutboxDispatcher(
+                outbox = checkNotNull(highlightOutboxStore),
+                relaySync = checkNotNull(relaySyncStore),
+                localRelayUrl = { checkNotNull(localRelaySettingsStore).relayUrl.value },
+                isOnline = { checkNotNull(connectivityStore).isOnline },
             )
         }
         if (reviewOutboxStore == null) {

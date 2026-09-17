@@ -574,6 +574,7 @@ class MercuryBookRepository(
             content = event.content,
             id = event.id.lowercase(),
             createdAt = event.createdAt,
+            sourceEvent = event,
         )
     }
 
