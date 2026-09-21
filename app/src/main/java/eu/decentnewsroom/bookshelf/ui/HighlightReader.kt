@@ -31,11 +31,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightAnchors
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.domain.BookChapter
+import eu.decentnewsroom.bookshelf.ui.reader.readerTextStyle
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
 
 /**
@@ -78,12 +78,9 @@ internal fun HighlightableChapterText(
             Text(
                 text = annotatedText,
                 modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = colors.text,
-                    fontFamily = FontFamily.Serif,
-                    fontSize = preferences.fontSizeSp.sp,
-                    lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
-                ),
+                style = MaterialTheme.typography.bodyLarge
+                    .merge(readerTextStyle(preferences))
+                    .copy(color = colors.text),
             )
         }
         if (selectedText != null) {

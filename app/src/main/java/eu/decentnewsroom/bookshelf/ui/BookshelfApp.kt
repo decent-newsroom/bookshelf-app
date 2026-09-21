@@ -97,6 +97,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
@@ -140,6 +141,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     var launchedSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
     var launchedAuthSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
     var launchedRatingSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var launchedHighlightSignRequestId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val loginLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -180,6 +182,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         }
         launchedRatingSignRequestId = null
     }
+    val highlightSignLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+        val requestId = result.data?.getStringExtra("id") ?: launchedHighlightSignRequestId
+        when (val parsed = AndroidExternalSigner.parseSignEventResult(result.resultCode, result.data)) {
+            is AndroidSignerResult.Success -> viewModel.completeHighlightSignature(requestId, parsed.value)
+            is AndroidSignerResult.Failed -> viewModel.failPendingHighlightSignature(parsed.message)
+        }
+        launchedHighlightSignRequestId = null
+    }
     LaunchedEffect(state.pendingDirectorySignRequest?.id) {
         val request = state.pendingDirectorySignRequest ?: return@LaunchedEffect
         launchedSignRequestId = request.id
@@ -219,6 +229,12 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         launchedRatingSignRequestId = request.id
         runCatching { ratingSignLauncher.launch(AndroidExternalSigner.signEventIntent(request.session, request.unsignedEventJson, request.id)) }
             .onFailure { failure -> launchedRatingSignRequestId = null; viewModel.failPendingRatingSignature(failure.message ?: "Could not open Android signer.") }
+    }
+    LaunchedEffect(state.pendingHighlightSignRequest?.id) {
+        val request = state.pendingHighlightSignRequest ?: return@LaunchedEffect
+        launchedHighlightSignRequestId = request.id
+        runCatching { highlightSignLauncher.launch(AndroidExternalSigner.signEventIntent(request.session, request.unsignedEventJson, request.id)) }
+            .onFailure { failure -> launchedHighlightSignRequestId = null; viewModel.failPendingHighlightSignature(failure.message ?: "Could not open Android signer.") }
     }
     LaunchedEffect(state.syncMessage) {
         val message = state.syncMessage ?: return@LaunchedEffect
@@ -280,6 +296,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         onFontSizeChanged = viewModel::setReaderFontSize,
                         onLineHeightChanged = viewModel::setReaderLineHeight,
                         onThemeChanged = viewModel::setReaderTheme,
+                        highlights = state.highlights.filter { it.bookCoordinate == selectedBook.summary.coordinate },
+                        highlightDelivery = state.highlightDelivery,
+                        highlightComposer = state.highlightComposer,
+                        onSaveHighlight = viewModel::saveHighlight,
+                        onShowHighlightComposer = viewModel::showHighlightComposer,
+                        onUpdateHighlightComment = viewModel::updateHighlightComment,
+                        onSubmitHighlight = viewModel::submitHighlight,
+                        onDismissHighlightComposer = viewModel::dismissHighlightComposer,
                         seenTips = state.seenOnboardingTips,
                         onTipSeen = viewModel::markOnboardingTipSeen,
                     )
@@ -691,6 +715,14 @@ private fun ReaderScreen(
     onFontSizeChanged: (Float) -> Unit,
     onLineHeightChanged: (Float) -> Unit,
     onThemeChanged: (ReaderTheme) -> Unit,
+    highlights: List<ReaderHighlight>,
+    highlightDelivery: Map<String, String>,
+    highlightComposer: HighlightComposerState?,
+    onSaveHighlight: (BookChapter, String, Int, Int) -> Unit,
+    onShowHighlightComposer: (ReaderHighlight) -> Unit,
+    onUpdateHighlightComment: (String) -> Unit,
+    onSubmitHighlight: () -> Unit,
+    onDismissHighlightComposer: () -> Unit,
     seenTips: Set<OnboardingTip>,
     onTipSeen: (OnboardingTip) -> Unit,
 ) {
@@ -700,6 +732,7 @@ private fun ReaderScreen(
     val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
     val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size)
@@ -725,6 +758,32 @@ private fun ReaderScreen(
                 onThemeChanged = onThemeChanged,
             )
         }
+    }
+
+    if (showHighlights) {
+        BookHighlightsSheet(
+            highlights = highlights,
+            delivery = highlightDelivery,
+            onDismiss = { showHighlights = false },
+            onOpen = { highlight ->
+                showHighlights = false
+                val chapterIndex = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }
+                if (chapterIndex >= 0) coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(chapterIndex, detail.chapters.size)) }
+            },
+            onPublish = { highlight ->
+                showHighlights = false
+                onShowHighlightComposer(highlight)
+            },
+        )
+    }
+
+    highlightComposer?.let { composer ->
+        HighlightComposerSheet(
+            composer = composer,
+            onDismiss = onDismissHighlightComposer,
+            onCommentChanged = onUpdateHighlightComment,
+            onSubmit = onSubmitHighlight,
+        )
     }
 
     if (showContents) {
@@ -819,6 +878,8 @@ private fun ReaderScreen(
                     preferences = preferences,
                     colors = colors,
                     onLinkClick = { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } },
+                    highlights = highlights,
+                    onSaveHighlight = onSaveHighlight,
                     modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
                 )
             }
@@ -834,6 +895,7 @@ private fun ReaderScreen(
                 onToggleSaved = onToggleSaved,
                 onShowContents = { showContents = true },
                 onShowSettings = { showSettings = true },
+                onShowHighlights = { showHighlights = true },
                 modifier = Modifier.align(Alignment.TopCenter),
             )
             ReaderBottomNavigationMenu(
@@ -855,6 +917,7 @@ private fun ReaderControlsMenu(
     onToggleSaved: () -> Unit,
     onShowContents: () -> Unit,
     onShowSettings: () -> Unit,
+    onShowHighlights: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -880,6 +943,10 @@ private fun ReaderControlsMenu(
                 Spacer(Modifier.width(6.dp))
                 TextButton(onClick = onShowSettings) {
                     Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.width(6.dp))
+                TextButton(onClick = onShowHighlights) {
+                    Text("Highlights", color = colors.accent)
                 }
                 Spacer(Modifier.width(6.dp))
                 Button(onClick = onToggleSaved) {
@@ -1389,6 +1456,8 @@ private fun ChapterSection(
     preferences: ReaderPreferences,
     colors: ReaderColors,
     onLinkClick: (String) -> Unit,
+    highlights: List<ReaderHighlight>,
+    onSaveHighlight: (BookChapter, String, Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1419,15 +1488,22 @@ private fun ChapterSection(
         val renderedHtml = chapter.renderedHtml
         if (renderedHtml != null) {
             HtmlChapterText(
+                chapter = chapter,
                 html = renderedHtml,
                 preferences = preferences,
                 colors = colors,
+                highlights = highlights,
+                onSaveHighlight = onSaveHighlight,
                 onLinkClick = onLinkClick,
             )
         } else {
-            Text(
-                text = chapter.content ?: "This chapter is not available from Mercury at this time.",
-                style = MaterialTheme.typography.bodyLarge.merge(readerTextStyle(preferences)).copy(color = colors.text),
+            HighlightableChapterText(
+                chapter = chapter,
+                text = AnnotatedString(chapter.content ?: "This chapter is not available from Mercury at this time."),
+                highlights = highlights,
+                preferences = preferences,
+                colors = colors,
+                onSaveHighlight = onSaveHighlight,
             )
         }
     }
@@ -1435,9 +1511,12 @@ private fun ChapterSection(
 
 @Composable
 private fun HtmlChapterText(
+    chapter: BookChapter,
     html: String,
     preferences: ReaderPreferences,
     colors: ReaderColors,
+    highlights: List<ReaderHighlight>,
+    onSaveHighlight: (BookChapter, String, Int, Int) -> Unit,
     onLinkClick: (String) -> Unit,
 ) {
     val annotatedText = remember(html, colors.accent, onLinkClick) {
@@ -1455,11 +1534,15 @@ private fun HtmlChapterText(
             },
         )
     }
-    Text(
+    HighlightableChapterText(
+        chapter = chapter,
         text = annotatedText,
-        modifier = Modifier.fillMaxWidth(),
-        style = MaterialTheme.typography.bodyLarge.merge(readerTextStyle(preferences)).copy(color = colors.text),
+        highlights = highlights,
+        preferences = preferences,
+        colors = colors,
+        onSaveHighlight = onSaveHighlight,
     )
+
 }
 
 internal fun String.withReaderParagraphSpacing(): String =
