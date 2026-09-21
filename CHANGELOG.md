@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Change Settings behavior, so Back gesture from details navigates to main settings list.
+
 
 ## v0.1.22
 

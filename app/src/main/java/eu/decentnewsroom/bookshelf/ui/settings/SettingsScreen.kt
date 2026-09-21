@@ -41,7 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
@@ -107,44 +106,39 @@ fun SettingsScreen(
     onBackFromSettings: () -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Index) }
-    val back = { section = SettingsSection.Index }
-    BackHandler { onBackFromSettings() }
+    BackHandler { if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index }
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
     when (section) {
         SettingsSection.Index -> SettingsIndex(state, account) { section = it }
-        SettingsSection.Reading -> ReadingSettings(state, actions, back)
-        SettingsSection.Account -> AccountSettings(state, account, accountActions, back)
-        SettingsSection.Sources -> SourcesSettings(state, actions, back)
-        SettingsSection.Relays -> RelaySettings(state, account, actions, back)
-        SettingsSection.Storage -> StorageSettings(state, actions, back)
-        SettingsSection.About -> AboutSettings(back)
+        SettingsSection.Reading -> ReadingSettings(state, actions)
+        SettingsSection.Account -> AccountSettings(state, account, accountActions)
+        SettingsSection.Sources -> SourcesSettings(state, actions)
+        SettingsSection.Relays -> RelaySettings(state, account, actions)
+        SettingsSection.Storage -> StorageSettings(state, actions)
+        SettingsSection.About -> AboutSettings()
     }
 }
 
 @Composable
-private fun SettingsScaffold(title: String, onIndex: (() -> Unit)?, content: LazyListScope.() -> Unit) {
+private fun SettingsScaffold(title: String, isIndex: Boolean = false, content: LazyListScope.() -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    modifier = Modifier.weight(1f),
-                    style = if (onIndex == null) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (onIndex != null) TextButton(onClick = onIndex) { Text("Settings") }
-            }
+            Text(
+                title,
+                style = if (isIndex) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         content()
     }
 }
 
 @Composable
-private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", null) {
+private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", isIndex = true) {
     item { IndexRow(Icons.Outlined.Book, "Reading & Display", "${state.readerPreferences.theme.name} · ${state.readerPreferences.fontSizeSp.roundToInt()} sp · ${state.readerPreferences.lineHeightMultiplier}×") { navigate(SettingsSection.Reading) } }
     item { IndexRow(Icons.Outlined.AccountCircle, "Account & Sync", account.profileName ?: if (account.pubkey == null) "Not connected" else account.pubkey.take(12) + "…") { navigate(SettingsSection.Account) } }
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
@@ -190,7 +184,7 @@ private fun ReaderPreview(preferences: ReaderPreferences) {
 }
 
 @Composable
-private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions, back: () -> Unit) = SettingsScaffold("Reading & Display", back) {
+private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Reading & Display") {
     val p = state.readerPreferences
     item { ReaderPreview(p) }
     sectionTitle("Appearance")
@@ -208,7 +202,7 @@ private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions, ba
 }
 
 @Composable
-private fun AccountSettings(state: SettingsUiState, account: AccountSettingsState, actions: AccountSettingsActions, back: () -> Unit) = SettingsScaffold("Account & Sync", back) {
+private fun AccountSettings(state: SettingsUiState, account: AccountSettingsState, actions: AccountSettingsActions) = SettingsScaffold("Account & Sync") {
     sectionTitle("Account")
     detail("Name", account.profileName ?: "No profile name available")
     detail("Public key", account.pubkey ?: "Not connected")
@@ -227,7 +221,7 @@ private fun AccountSettings(state: SettingsUiState, account: AccountSettingsStat
 }
 
 @Composable
-private fun SourcesSettings(state: SettingsUiState, actions: SettingsActions, back: () -> Unit) = SettingsScaffold("Discovery Sources", back) {
+private fun SourcesSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Discovery Sources") {
     item {
         var draft by rememberSaveable { mutableStateOf("") }
         LaunchedEffect(state.chapterSources) { draft = "" }
@@ -252,7 +246,7 @@ private fun SourcesSettings(state: SettingsUiState, actions: SettingsActions, ba
 }
 
 @Composable
-private fun RelaySettings(state: SettingsUiState, account: AccountSettingsState, actions: SettingsActions, back: () -> Unit) = SettingsScaffold("Nostr Relays", back) {
+private fun RelaySettings(state: SettingsUiState, account: AccountSettingsState, actions: SettingsActions) = SettingsScaffold("Nostr Relays") {
     sectionTitle("Default relays")
     AppGraph.defaultRelays.forEach { relay -> detail("Relay", relay) }
     sectionTitle("Local relay")
@@ -276,7 +270,7 @@ private fun RelaySettings(state: SettingsUiState, account: AccountSettingsState,
 }
 
 @Composable
-private fun StorageSettings(state: SettingsUiState, actions: SettingsActions, back: () -> Unit) = SettingsScaffold("Storage & Offline", back) {
+private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Storage & Offline") {
     item { Text(if (state.isOnline) "Network: online" else "Network: offline") }
     detail("Saved books", state.savedBookCount.toString())
     detail("Pending highlights", state.pendingHighlightCount.toString())
@@ -310,7 +304,7 @@ private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) 
 }
 
 @Composable
-private fun AboutSettings(back: () -> Unit) = SettingsScaffold("About", back) {
+private fun AboutSettings() = SettingsScaffold("About") {
     item { Text("Bookshelf", style = MaterialTheme.typography.headlineSmall) }
     item { Text("Version ${BuildConfig.VERSION_NAME}") }
     item {
