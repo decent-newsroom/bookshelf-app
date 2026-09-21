@@ -17,7 +17,6 @@ import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivi
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
-import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchQuery
@@ -29,7 +28,6 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfileSource
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
 import eu.decentnewsroom.bookshelf.data.nostr.LocalRelaySettingsStore
-import eu.decentnewsroom.bookshelf.data.nostr.RelayConfiguration
 import eu.decentnewsroom.bookshelf.data.nostr.RatingEventDraft
 import eu.decentnewsroom.bookshelf.data.nostr.PendingNostrAuthSignRequest
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
@@ -39,12 +37,9 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
-import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.data.ratings.BookRating
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
-import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
-import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutbox
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxEntry
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewDeliveryState
@@ -74,14 +69,12 @@ class BookshelfViewModel(
     private val chapterHtmlCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
     private val localBookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
-    private val chapterSourceSettings: ChapterSourceSettingsStore = AppGraph.chapterSourceSettings,
     private val onboardingTips: OnboardingTipStore = AppGraph.onboardingTips,
     private val localRelaySettings: LocalRelaySettingsStore = AppGraph.localRelaySettings,
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
     private val bookRatings: BookRatingsRepository = AppGraph.bookRatings,
-    private val reviewOutbox: ReviewOutbox = AppGraph.reviewOutbox,
     private val reviewOutboxDispatcher: ReviewOutboxDispatcher = AppGraph.reviewOutboxDispatcher,
     private val connectivity: ValidatedInternetConnectivity = AppGraph.connectivity,
     private val highlightStore: HighlightStore = AppGraph.highlights,
@@ -130,19 +123,14 @@ class BookshelfViewModel(
             }
         }
         viewModelScope.launch {
-            chapterSourceSettings.relayUrls.collect { relayUrls ->
-                _uiState.update { it.copy(chapterRelayUrls = relayUrls) }
-            }
-        }
-        viewModelScope.launch {
             relaySync.state.collect { syncState ->
-                _uiState.update { it.copy(syncState = syncState, relayConfiguration = relaySync.relayConfiguration) }
+                _uiState.update { it.copy(syncState = syncState) }
             }
         }
         viewModelScope.launch {
             localRelaySettings.relayUrl.collect { relayUrl ->
                 relaySync.setLocalRelayUrl(relayUrl)
-                _uiState.update { it.copy(localRelayUrl = relayUrl, relayConfiguration = relaySync.relayConfiguration) }
+                _uiState.update { it.copy(localRelayUrl = relayUrl) }
             }
         }
         viewModelScope.launch {
@@ -173,9 +161,7 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             connectivity.online.collect { online ->
-                _uiState.update { it.copy(isOffline = !online) }
                 if (online) runCatching { reviewOutboxDispatcher.syncPending() }
-                refreshReviewOutboxStatus()
                 retryPendingHighlights()
             }
         }
@@ -184,8 +170,6 @@ class BookshelfViewModel(
                 syncRemoteDirectory(session.pubkey, announceEmpty = false)
             }
         }
-        refreshReviewOutboxStatus()
-        refreshChapterCacheStats()
         refreshCuratedShelves()
         viewModelScope.launch {
             refreshHighlights()
@@ -313,7 +297,6 @@ class BookshelfViewModel(
             try {
                 val detail = chapterHtmlCache.renderBook(repository.openBook(book))
                 currentCoroutineContext().ensureActive()
-                val cacheStats = chapterHtmlCache.stats()
                 if (localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
                 }
@@ -321,7 +304,6 @@ class BookshelfViewModel(
                     it.copy(
                         isLoadingBook = false,
                         selectedBook = detail,
-                        chapterCacheStats = cacheStats,
                         error = null,
                     )
                 }
@@ -692,7 +674,6 @@ class BookshelfViewModel(
                         syncMessage = entry.deliveryLabel(),
                     )
                 }
-                refreshReviewOutboxStatus()
             }.onFailure { failure ->
                 _uiState.update {
                     it.copy(
@@ -740,41 +721,6 @@ class BookshelfViewModel(
             }
         }
     }
-    fun clearRatingCache() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isClearingRatingCache = true, error = null) }
-            runCatching { bookRatings.clearCache() }.onSuccess { stats ->
-                _uiState.update { it.copy(isClearingRatingCache = false, ratingCacheStats = stats, syncMessage = "Rating cache cleared.") }
-            }.onFailure { failure ->
-                _uiState.update { it.copy(isClearingRatingCache = false, error = failure.message ?: "Could not clear rating cache.") }
-            }
-        }
-    }
-    fun clearChapterHtmlCache() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isClearingChapterCache = true, error = null) }
-
-            runCatching { chapterHtmlCache.clear() }
-                .onSuccess { stats ->
-                    _uiState.update {
-                        it.copy(
-                            isClearingChapterCache = false,
-                            chapterCacheStats = stats,
-                            syncMessage = "Chapter cache cleared.",
-                            error = null,
-                        )
-                    }
-                }.onFailure { failure ->
-                    _uiState.update {
-                        it.copy(
-                            isClearingChapterCache = false,
-                            error = failure.message ?: "Could not clear chapter cache.",
-                        )
-                    }
-                }
-        }
-    }
-
     fun dismissSyncMessage(message: String) {
         _uiState.update { state ->
             if (state.syncMessage == message) {
@@ -783,25 +729,6 @@ class BookshelfViewModel(
                 state
             }
         }
-    }
-
-    fun setChapterRelayUrls(rawRelayUrls: String) {
-        runCatching { chapterSourceSettings.setRelayUrls(rawRelayUrls) }
-            .onSuccess {
-                _uiState.update {
-                    it.copy(
-                        error = null,
-                        syncMessage = "Chapter sources updated.",
-                    )
-                }
-            }.onFailure { failure ->
-                _uiState.update {
-                    it.copy(
-                        error = failure.message ?: "Could not update chapter sources.",
-                        syncMessage = null,
-                    )
-                }
-            }
     }
 
     fun completeExternalSignerLogin(session: NostrSignerSession) {
@@ -1095,27 +1022,6 @@ class BookshelfViewModel(
         onboardingTips.markSeen(tip)
     }
 
-    fun setLocalRelayUrl(rawRelayUrl: String) {
-        runCatching { localRelaySettings.setRelayUrl(rawRelayUrl) }
-            .onSuccess {
-                val relayUrl = localRelaySettings.relayUrl.value
-                _uiState.update {
-                    it.copy(
-                        error = null,
-                        syncMessage = relayUrl?.let { url -> "Local relay saved: $url" }
-                            ?: "Local relay disabled.",
-                    )
-                }
-            }
-            .onFailure { failure ->
-                _uiState.update {
-                    it.copy(
-                        error = failure.message ?: "Could not save local relay.",
-                        syncMessage = null,
-                    )
-                }
-            }
-    }
     fun setReaderFontSize(fontSizeSp: Float) {
         readerSettings.setFontSizeSp(fontSizeSp)
     }
@@ -1162,32 +1068,6 @@ class BookshelfViewModel(
                     )
                 }
             }
-        }
-    }
-
-    fun retryPendingReviews() {
-        viewModelScope.launch {
-            runCatching { reviewOutboxDispatcher.syncPending(force = true) }
-                .onFailure { failure -> _uiState.update { it.copy(error = failure.message ?: "Could not retry pending reviews.") } }
-            refreshReviewOutboxStatus()
-        }
-    }
-
-    private fun refreshReviewOutboxStatus() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(pendingReviewCount = reviewOutbox.pendingCount()) }
-        }
-    }
-
-    private fun refreshRatingCacheStats() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(ratingCacheStats = bookRatings.cacheStats()) }
-        }
-    }
-    private fun refreshChapterCacheStats() {
-        viewModelScope.launch {
-            val stats = chapterHtmlCache.stats()
-            _uiState.update { it.copy(chapterCacheStats = stats) }
         }
     }
 
@@ -1352,17 +1232,9 @@ data class BookshelfUiState(
     val pendingRatingSignRequest: PendingRatingSignRequest? = null,
     val readerPreferences: ReaderPreferences = ReaderPreferences(),
     val readingProgress: Map<String, ReadingProgress> = emptyMap(),
-    val chapterRelayUrls: List<String> = emptyList(),
     val seenOnboardingTips: Set<OnboardingTip> = emptySet(),
     val localRelayUrl: String? = null,
-    val relayConfiguration: RelayConfiguration = RelayConfiguration(),
-    val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
-    val ratingCacheStats: BookRatingCacheStats = BookRatingCacheStats(),
-    val isClearingRatingCache: Boolean = false,
-    val isClearingChapterCache: Boolean = false,
     val isBroadcastingBook: Boolean = false,
-    val isOffline: Boolean = false,
-    val pendingReviewCount: Int = 0,
     val latestReviewDelivery: String? = null,
 )
 

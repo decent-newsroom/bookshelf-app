@@ -47,6 +47,14 @@ class ReaderSettingsStore(context: Context) {
         updateReaderPreferences { preferences -> preferences.copy(theme = theme) }
     }
 
+    fun setFontFamily(fontFamily: ReaderFont) {
+        updateReaderPreferences { preferences -> preferences.copy(fontFamily = fontFamily) }
+    }
+
+    fun setParagraphAlignment(alignment: ParagraphAlignment) {
+        updateReaderPreferences { preferences -> preferences.copy(paragraphAlignment = alignment) }
+    }
+
     fun recordProgress(book: BookDetail, chapterIndex: Int) {
         val chapterCount = book.chapters.size
         if (chapterCount <= 0) {

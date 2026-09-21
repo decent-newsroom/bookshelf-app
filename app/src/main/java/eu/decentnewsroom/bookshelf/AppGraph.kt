@@ -37,7 +37,7 @@ object AppGraph {
     private const val MERCURY_FALLBACK_API_BASE_URL = "https://mercury-relay.imwald.eu"
     private const val MERCURY_RELAY_URL = "wss://mercury-relay.imwald.eu"
 
-    private val defaultRelays =
+    val defaultRelays =
         listOf(
             "wss://relay.decentnewsroom.com",
             "wss://thecitadel.nostr1.com",

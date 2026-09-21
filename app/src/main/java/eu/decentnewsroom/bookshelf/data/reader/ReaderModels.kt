@@ -10,10 +10,26 @@ enum class ReaderTheme {
 }
 
 @Serializable
+enum class ReaderFont {
+    System,
+    Serif,
+    SansSerif,
+}
+
+@Serializable
+enum class ParagraphAlignment {
+    Left,
+    Justified,
+}
+
+@Serializable
 data class ReaderPreferences(
     val fontSizeSp: Float = 18f,
     val lineHeightMultiplier: Float = 1.55f,
     val theme: ReaderTheme = ReaderTheme.Sepia,
+    // Keep the current reader appearance when these fields are absent from saved JSON.
+    val fontFamily: ReaderFont = ReaderFont.Serif,
+    val paragraphAlignment: ParagraphAlignment = ParagraphAlignment.Left,
 )
 
 @Serializable

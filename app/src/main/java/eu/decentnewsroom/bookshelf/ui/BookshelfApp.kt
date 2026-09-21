@@ -86,7 +86,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.input.ImeAction
@@ -97,21 +96,24 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
-import eu.decentnewsroom.bookshelf.BuildConfig
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
 import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
 import eu.decentnewsroom.bookshelf.data.nostr.AndroidSignerResult
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
-import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
-import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
+import eu.decentnewsroom.bookshelf.ui.reader.readerTextStyle
+import eu.decentnewsroom.bookshelf.ui.settings.AccountSettingsActions
+import eu.decentnewsroom.bookshelf.ui.settings.AccountSettingsState
+import eu.decentnewsroom.bookshelf.ui.settings.SettingsActions
+import eu.decentnewsroom.bookshelf.ui.settings.SettingsScreen
+import eu.decentnewsroom.bookshelf.ui.settings.SettingsViewModel
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import kotlinx.coroutines.delay
@@ -316,20 +318,51 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onLongPress = viewModel::showBookActions,
                         )
 
-                        state.tab == BookshelfTab.Settings -> SettingsScreen(
-                            state = state,
-                            signerAvailable = signerAvailable,
-                            onLogin = startExternalSignerLogin,
-                            onSyncToRelays = viewModel::syncToRelays,
-                            onSyncFromRelays = viewModel::syncFromRelays,
-                            onSignOut = viewModel::signOut,
-                            onClearChapterCache = viewModel::clearChapterHtmlCache,
-                            onClearRatingCache = viewModel::clearRatingCache,
-                            onRetryPendingReviews = viewModel::retryPendingReviews,
-                            onChapterRelayUrlsChanged = viewModel::setChapterRelayUrls,
-                            onLocalRelayUrlChanged = viewModel::setLocalRelayUrl,
-                            onThemeChanged = viewModel::setReaderTheme,
-                        )
+                        state.tab == BookshelfTab.Settings -> {
+                            val settingsViewModel: SettingsViewModel = viewModel()
+                            val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
+                            LaunchedEffect(settingsViewModel) { settingsViewModel.refreshStats() }
+                            SettingsScreen(
+                                state = settingsState,
+                                actions = SettingsActions(
+                                    setFontSize = settingsViewModel::setFontSize,
+                                    setLineHeight = settingsViewModel::setLineHeight,
+                                    setTheme = settingsViewModel::setTheme,
+                                    setFont = settingsViewModel::setFont,
+                                    setAlignment = settingsViewModel::setParagraphAlignment,
+                                    addSource = settingsViewModel::addChapterSource,
+                                    removeSource = settingsViewModel::removeChapterSource,
+                                    restoreSources = settingsViewModel::restoreChapterSources,
+                                    setLocalRelay = settingsViewModel::setLocalRelay,
+                                    removeLocalRelay = settingsViewModel::removeLocalRelay,
+                                    clearChapterCache = settingsViewModel::clearChapterCache,
+                                    clearRatingCache = settingsViewModel::clearRatingCache,
+                                    refreshStorage = settingsViewModel::refreshStats,
+                                ),
+                                account = AccountSettingsState(
+                                    profileName = state.nostrProfile?.preferredName,
+                                    pubkey = state.signerSession?.pubkey,
+                                    signerPackage = state.signerSession?.packageName,
+                                    signerAvailable = signerAvailable,
+                                    syncState = state.syncState.settingsLabel(),
+                                    isSyncing = state.isSyncingDirectory,
+                                    isPublishing = state.isPublishingDirectory,
+                                    userReadRelays = settingsState.relayConfiguration.userRead,
+                                    userWriteRelays = settingsState.relayConfiguration.userWrite,
+                                    pendingAuthRequest = state.pendingNostrAuthSignRequest != null,
+                                    pendingHighlightCount = settingsState.pendingHighlightCount,
+                                    pendingReviewCount = settingsState.pendingReviewCount,
+                                ),
+                                accountActions = AccountSettingsActions(
+                                    login = startExternalSignerLogin,
+                                    signOut = viewModel::signOut,
+                                    syncToDirectory = viewModel::syncToRelays,
+                                    syncFromDirectory = viewModel::syncFromRelays,
+                                    retryNow = settingsViewModel::retryPendingPublications,
+                                ),
+                                onBackFromSettings = viewModel::returnHome,
+                            )
+                        }
                     }
                 }
             }
@@ -643,113 +676,6 @@ private fun MyBooksScreen(
     }
 }
 
-@Composable
-private fun SettingsScreen(
-    state: BookshelfUiState,
-    signerAvailable: Boolean,
-    onLogin: () -> Unit,
-    onSyncToRelays: () -> Unit,
-    onSyncFromRelays: () -> Unit,
-    onSignOut: () -> Unit,
-    onClearChapterCache: () -> Unit,
-    onClearRatingCache: () -> Unit,
-    onRetryPendingReviews: () -> Unit,
-    onChapterRelayUrlsChanged: (String) -> Unit,
-    onLocalRelayUrlChanged: (String) -> Unit,
-    onThemeChanged: (ReaderTheme) -> Unit,
-) {
-    var chapterRelayDraft by remember(state.chapterRelayUrls) { mutableStateOf(state.chapterRelayUrls.joinToString("\n")) }
-    var localRelayDraft by remember(state.localRelayUrl) { mutableStateOf(state.localRelayUrl.orEmpty()) }
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        state.error?.let { message -> Notice(message) }
-        SettingsSection("Appearance", initiallyExpanded = true) {
-            Text("Color scheme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(selected = state.readerPreferences.theme == theme, onClick = { onThemeChanged(theme) }, label = { Text(theme.label) }) } }
-            Notice("Reader font: ${state.readerPreferences.fontSizeSp.roundToInt()}sp; line height: ${state.readerPreferences.lineHeightMultiplier}×")
-        }
-        SettingsSection("Account") {
-            Notice("Login is optional. My Books works locally; login enables relay sync and sharing.")
-            val session = state.signerSession
-            if (session == null) {
-                Notice(if (signerAvailable) "Not connected to relay sync." else "No Android Nostr signer found. Local My Books is still available.")
-                Button(onClick = onLogin, enabled = signerAvailable && !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Log in to sync and share") }
-            } else {
-                val accountName = state.nostrProfile?.preferredName ?: session.pubkey.compactHex()
-                Notice("Logged in as $accountName")
-                Text("${session.pubkey.compactHex()} via ${session.packageName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onSignOut, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sign out") }
-            }
-        }
-        SettingsSection("Relays") {
-            if (state.isOffline) {
-                Notice("Offline: remote relays and refreshes are paused. Cached data remains available.")
-            }
-            if (state.pendingReviewCount > 0) {
-                Notice("Pending review deliveries: ${state.pendingReviewCount}. Cached review data and pending reviews are retained when caches are cleared.")
-                Button(onClick = onRetryPendingReviews) { Text("Retry pending reviews") }
-            }
-            if (state.signerSession == null) {
-                Notice("Log in from Account to sync your bookshelf through relays.")
-            } else {
-                Text("Bookshelf sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onSyncToRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text(if (state.syncState is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed) "Retry relay sync" else "Sync to relays") }
-                    TextButton(onClick = onSyncFromRelays, enabled = !state.isSyncingDirectory && !state.isPublishingDirectory) { Text("Sync from relays") }
-                }
-                Notice("Relay sync: ${state.syncState.label}")
-                if (state.isSyncingDirectory) LoadingInline("Syncing bookshelf...")
-                if (state.isPublishingDirectory) LoadingInline("Sharing bookshelf...")
-            }
-            SettingsRelayList("Search APIs", listOf("https://decentnewsroom.com/books/api", "https://mercury-relay.imwald.eu (fallback)"), "Defaults; not editable.")
-            SettingsRelayList("Default publication relays", state.chapterRelayUrls, "Used for chapter sources. One wss:// relay URL per line.")
-            OutlinedTextField(value = chapterRelayDraft, onValueChange = { chapterRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Chapter source relays") }, minLines = 2, maxLines = 5)
-            Button(onClick = { onChapterRelayUrlsChanged(chapterRelayDraft) }) { Text("Save publication relays") }
-            SettingsRelayList("Your read relays", state.relayConfiguration.userRead, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
-            SettingsRelayList("Your write relays", state.relayConfiguration.userWrite, "Hydrated from your NIP-65 kind 10002 event; not editable here.")
-            Text("Local relay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            OutlinedTextField(value = localRelayDraft, onValueChange = { localRelayDraft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Local relay URL, i.e. citrine") }, placeholder = { Text("ws://127.0.0.1:…") }, supportingText = { Text("Optional. Used alongside the default relays; leave empty to disable.") }, singleLine = true)
-            Button(onClick = { onLocalRelayUrlChanged(localRelayDraft) }) { Text("Save local relay") }
-            SettingsRelayList("Bootstrap relays in use", state.relayConfiguration.bootstrap, "Includes the optional local relay.")
-        }
-        SettingsSection("Cache") {
-            Notice("Rendered chapter cache: ${state.chapterCacheStats.label}")
-            Button(onClick = onClearChapterCache, enabled = state.chapterCacheStats.entryCount > 0 && !state.isClearingChapterCache) { Text(if (state.isClearingChapterCache) "Clearing..." else "Clear chapter cache") }
-            Notice("Rating cache: ${state.ratingCacheStats.label}")
-            Button(onClick = onClearRatingCache, enabled = state.ratingCacheStats.entryCount > 0 && !state.isClearingRatingCache) { Text(if (state.isClearingRatingCache) "Clearing..." else "Clear rating cache") }
-        }
-        Text(
-            text = "Version ${BuildConfig.VERSION_NAME}",
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SettingsSection(title: String, initiallyExpanded: Boolean = false, content: @Composable () -> Unit) {
-    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Collapse" else "Expand") }
-            }
-            if (expanded) content()
-        }
-    }
-}
-
-@Composable
-private fun SettingsRelayList(title: String, relays: List<String>, description: String) {
-    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-    Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Text(relays.joinToString("\n").ifBlank { "Not available until a signed NIP-65 relay list is loaded." }, style = MaterialTheme.typography.bodySmall)
-}
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ReaderScreen(
@@ -1473,7 +1399,7 @@ private fun ChapterSection(
             text = chapter.title,
             style = MaterialTheme.typography.headlineSmall,
             color = colors.text,
-            fontFamily = FontFamily.Serif,
+            fontFamily = readerTextStyle(preferences).fontFamily,
             fontWeight = FontWeight.Bold,
         )
         Box(
@@ -1501,11 +1427,7 @@ private fun ChapterSection(
         } else {
             Text(
                 text = chapter.content ?: "This chapter is not available from Mercury at this time.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.text,
-                fontFamily = FontFamily.Serif,
-                fontSize = preferences.fontSizeSp.sp,
-                lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
+                style = MaterialTheme.typography.bodyLarge.merge(readerTextStyle(preferences)).copy(color = colors.text),
             )
         }
     }
@@ -1536,12 +1458,7 @@ private fun HtmlChapterText(
     Text(
         text = annotatedText,
         modifier = Modifier.fillMaxWidth(),
-        style = MaterialTheme.typography.bodyLarge.copy(
-            color = colors.text,
-            fontFamily = FontFamily.Serif,
-            fontSize = preferences.fontSizeSp.sp,
-            lineHeight = (preferences.fontSizeSp * preferences.lineHeightMultiplier).sp,
-        ),
+        style = MaterialTheme.typography.bodyLarge.merge(readerTextStyle(preferences)).copy(color = colors.text),
     )
 }
 
@@ -1685,32 +1602,6 @@ private val BookshelfTab.label: String
             BookshelfTab.Settings -> "Settings"
         }
 
-private val BookRatingCacheStats.label: String
-    get() = if (entryCount == 0) "empty" else "$entryCount events, ${sizeBytes.formatByteCount()}" +
-        (lastSuccessfulSyncAtMillis?.let { " · synced ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))}" } ?: "")
-private val ChapterHtmlCacheStats.label: String
-    get() {
-        if (entryCount == 0) {
-            return "empty"
-        }
-
-        val files = if (entryCount == 1) "1 file" else "$entryCount files"
-        return "$files, ${sizeBytes.formatByteCount()}"
-    }
-
-private fun Long.formatByteCount(): String {
-    if (this < 1024L) {
-        return "$this B"
-    }
-
-    val kib = this / 1024.0
-    if (this < 1024L * 1024L) {
-        return "${kib.formatOneDecimal()} KB"
-    }
-
-    return "${(kib / 1024.0).formatOneDecimal()} MB"
-}
-
 private fun Double.formatOneDecimal(): String = ((this * 10.0).roundToInt() / 10.0).toString()
 
 private val ReaderTheme.label: String
@@ -1721,15 +1612,13 @@ private val ReaderTheme.label: String
             ReaderTheme.Night -> "Night"
         }
 
-private val eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.label: String
-    get() =
-        when (this) {
-            eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.NotConfigured -> "Not configured"
-            eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.SignedOut -> "Signed out"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Ready -> "Ready (${relayCount} relays)"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Syncing -> "Syncing ${pubkey.compactHex()}"
-            is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed -> "Failed: ${message}"
-        }
+private fun eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.settingsLabel(): String = when (this) {
+    eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.NotConfigured -> "Not configured"
+    eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.SignedOut -> "Signed out"
+    is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Ready -> "Ready to sync"
+    is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Syncing -> "Syncing"
+    is eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState.Failed -> "Sync failed: $message"
+}
 
 private fun String.compactHex(): String =
     if (length <= 16) {
