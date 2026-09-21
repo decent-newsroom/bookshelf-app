@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.23
+
+- Treat relay duplicate acknowledgements as successful immutable-highlight delivery so retries can complete.
 - Change Settings behavior, so Back gesture from details navigates to main settings list.
 
 

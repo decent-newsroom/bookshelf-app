@@ -258,7 +258,7 @@ class HighlightOutboxDispatcher(
         var current = entry
         if (highlightRoutes.isNotEmpty()) {
             current = try {
-                persistReport(current, local, relaySync.publishHighlightEventToRelays(current.event, highlightRoutes), highlight = true)
+                persistReport(current, local, publishToRoutes(current.event, highlightRoutes), highlight = true)
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -269,7 +269,7 @@ class HighlightOutboxDispatcher(
         val chapterRoutes = routes.filter { updatedState[it]?.chapter != HighlightDeliveryState.ACCEPTED }
         if (chapterRoutes.isEmpty()) return current
         return try {
-            persistReport(current, local, relaySync.publishHighlightEventToRelays(current.chapterEvent, chapterRoutes), highlight = false)
+            persistReport(current, local, publishToRoutes(current.chapterEvent, chapterRoutes), highlight = false)
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Exception) {
@@ -282,10 +282,10 @@ class HighlightOutboxDispatcher(
             val deliveries = (if (local) previous.local else previous.remote).toMutableMap()
             report.outcomes.forEach { outcome ->
                 val prior = deliveries[outcome.relayUrl] ?: HighlightPairDelivery()
-                val nextState = if (outcome.type == RelayPublishOutcomeType.ACCEPTED) HighlightDeliveryState.ACCEPTED else HighlightDeliveryState.FAILED
+                val nextState = if (outcome.isDurablyAccepted()) HighlightDeliveryState.ACCEPTED else HighlightDeliveryState.FAILED
                 deliveries[outcome.relayUrl] = if (highlight) prior.copy(highlight = nextState) else prior.copy(chapter = nextState)
             }
-            val failure = report.outcomes.firstOrNull { it.type != RelayPublishOutcomeType.ACCEPTED }?.reason
+            val failure = report.outcomes.firstOrNull { !it.isDurablyAccepted() }?.reason
             previous.withAttempt(local = local, deliveries = deliveries, failure = failure)
         } ?: entry
 
@@ -319,3 +319,10 @@ class HighlightOutboxDispatcher(
 
     private companion object { const val MAX_RETRY_DELAY_MILLIS = 15 * 60 * 1_000L }
 }
+
+/** A duplicate reply confirms the relay already durably stores the immutable event. */
+internal fun eu.decentnewsroom.bookshelf.data.nostr.RelayPublishOutcome.isDurablyAccepted(): Boolean =
+    type == RelayPublishOutcomeType.ACCEPTED ||
+        (type == RelayPublishOutcomeType.REJECTED && reason?.trim()?.lowercase()?.let {
+            it.startsWith("duplicate") || it.startsWith("already have") || it.startsWith("already exists")
+        } == true)

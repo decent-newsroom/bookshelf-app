@@ -2,6 +2,8 @@ package eu.decentnewsroom.bookshelf.data.highlights
 
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
 import com.vitorpamplona.quartz.utils.Secp256k1InstanceKotlin
+import eu.decentnewsroom.bookshelf.data.nostr.RelayPublishOutcome
+import eu.decentnewsroom.bookshelf.data.nostr.RelayPublishOutcomeType
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.runBlocking
@@ -56,6 +58,22 @@ class HighlightOutboxTest {
 
         assertTrue(failure is IllegalStateException)
         assertEquals("not json", file.readText())
+    }
+
+    @Test
+    fun duplicateAcknowledgementCountsAsDeliveredForImmutableEvents() {
+        assertTrue(
+            RelayPublishOutcome("wss://relay.example", RelayPublishOutcomeType.REJECTED, "duplicate: already have this event")
+                .isDurablyAccepted(),
+        )
+        assertTrue(
+            RelayPublishOutcome("wss://relay.example", RelayPublishOutcomeType.REJECTED, "already have this event")
+                .isDurablyAccepted(),
+        )
+        assertTrue(
+            !RelayPublishOutcome("wss://relay.example", RelayPublishOutcomeType.REJECTED, "invalid: duplicate tag")
+                .isDurablyAccepted(),
+        )
     }
 
     private fun chapter(): NostrEvent = signed(
