@@ -8,12 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
@@ -33,11 +30,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
@@ -111,10 +108,10 @@ fun SettingsScreen(
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Index) }
     val back = { section = SettingsSection.Index }
-    BackHandler { if (section == SettingsSection.Index) onBackFromSettings() else back() }
+    BackHandler { onBackFromSettings() }
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
     when (section) {
-        SettingsSection.Index -> SettingsIndex(state, account, onBackFromSettings) { section = it }
+        SettingsSection.Index -> SettingsIndex(state, account) { section = it }
         SettingsSection.Reading -> ReadingSettings(state, actions, back)
         SettingsSection.Account -> AccountSettings(state, account, accountActions, back)
         SettingsSection.Sources -> SourcesSettings(state, actions, back)
@@ -125,19 +122,29 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsScaffold(title: String, onBack: () -> Unit, content: LazyListScope.() -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
+private fun SettingsScaffold(title: String, onIndex: (() -> Unit)?, content: LazyListScope.() -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = if (onIndex == null) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (onIndex != null) TextButton(onClick = onIndex) { Text("Settings") }
+            }
+        }
+        content()
     }
 }
 
 @Composable
-private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, onBack: () -> Unit, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", onBack) {
+private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", null) {
     item { IndexRow(Icons.Outlined.Book, "Reading & Display", "${state.readerPreferences.theme.name} · ${state.readerPreferences.fontSizeSp.roundToInt()} sp · ${state.readerPreferences.lineHeightMultiplier}×") { navigate(SettingsSection.Reading) } }
     item { IndexRow(Icons.Outlined.AccountCircle, "Account & Sync", account.profileName ?: if (account.pubkey == null) "Not connected" else account.pubkey.take(12) + "…") { navigate(SettingsSection.Account) } }
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }

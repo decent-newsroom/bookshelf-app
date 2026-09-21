@@ -3,6 +3,7 @@
 package eu.decentnewsroom.bookshelf.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,18 +20,24 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightAnchors
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
@@ -72,36 +79,49 @@ internal fun HighlightableChapterText(
     }
     val selectedText = selectionState.selectedTexts.singleOrNull()?.text
     val selectedRange = selectedText?.let { uniquelySelectedRange(displayedText, it) }
+    val textLayoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SelectionContainer(state = selectionState) {
-            Text(
-                text = annotatedText,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyLarge
-                    .merge(readerTextStyle(preferences))
-                    .copy(color = colors.text),
-            )
-        }
-        if (selectedText != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        val range = selectedRange ?: return@Button
-                        onSaveHighlight(chapter, displayedText, range.first, range.last + 1)
-                        selectionState.clear()
-                    },
-                    enabled = selectedRange != null,
-                ) { Text("Highlight") }
-                TextButton(onClick = selectionState::clear) { Text("Cancel") }
-            }
-            if (selectedRange == null) {
+        Box {
+            SelectionContainer(state = selectionState) {
                 Text(
-                    "This passage appears more than once in the chapter. Refine the selection to save an exact highlight.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.muted,
+                    text = annotatedText,
+                    modifier = Modifier.fillMaxWidth(),
+                    onTextLayout = { textLayoutResult.value = it },
+                    style = MaterialTheme.typography.bodyLarge
+                        .merge(readerTextStyle(preferences))
+                        .copy(color = colors.text),
                 )
             }
+            if (selectedRange != null) {
+                textLayoutResult.value?.let { layout ->
+                    val bounds = layout.getBoundingBox(selectedRange.last.coerceAtMost(displayedText.lastIndex))
+                    Popup(
+                        alignment = Alignment.TopStart,
+                        offset = IntOffset(bounds.left.toInt(), bounds.bottom.toInt()),
+                    ) {
+                        Surface(shape = MaterialTheme.shapes.small, shadowElevation = 6.dp) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Button(onClick = {
+                                    onSaveHighlight(chapter, displayedText, selectedRange.first, selectedRange.last + 1)
+                                    selectionState.clear()
+                                }) { Text("Create highlight") }
+                                TextButton(onClick = selectionState::clear) { Text("Cancel") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (selectedText != null && selectedRange == null) {
+            Text(
+                "This passage appears more than once in the chapter. Refine the selection to save an exact highlight.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.muted,
+            )
         }
     }
 }
@@ -131,7 +151,7 @@ internal fun BookHighlightsSheet(
         ) {
             Text("Highlights", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             if (highlights.isEmpty()) {
-                Text("Select a passage in a chapter, then tap Highlight to save it privately.")
+                Text("No highlights yet. Long-press and drag across a passage in a chapter, then tap Create highlight in the floating selection control.")
             } else {
                 highlights.sortedByDescending(ReaderHighlight::createdAtMillis).forEach { highlight ->
                     HighlightCard(

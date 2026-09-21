@@ -945,12 +945,13 @@ private fun ReaderControlsMenu(
                     Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.width(6.dp))
-                TextButton(onClick = onShowHighlights) {
-                    Text("Highlights", color = colors.accent)
-                }
-                Spacer(Modifier.width(6.dp))
                 Button(onClick = onToggleSaved) {
                     Text(if (isSaved) "Remove" else "Save")
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onShowHighlights) {
+                    Text("Highlights", color = colors.accent)
                 }
             }
             LinearProgressIndicator(

@@ -7,11 +7,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## v0.1.20
+
+## v0.1.22
+
+- Align Settings headers with the main app content and use the edge Back gesture to return Home.
+- Improve highlights context menu.
+
+
+## v0.1.21
 
 - Reorganize Settings into dedicated Reading, Account, Sources, Relays, Storage, and About screens.
 - Add persistent reader font and paragraph alignment controls with a live preview.
 - Show pending publications, offline state, and safe cache actions alongside the existing account and relay configuration.
+
+
+## v0.1.20
+
 - Highlights
 - Add validated-offline rating reads, durable locally saved review delivery, optional local Citrine publication, and automatic deferred relay synchronization.
 - Resolve cached and refreshed Nostr author profiles in community review details, displaying reviewer names when available.
