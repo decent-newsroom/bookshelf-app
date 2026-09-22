@@ -14,7 +14,7 @@ The main source boundaries are:
 - `data/rendering`: AsciiDoc rendering and rendered-HTML caching.
 - `data/bookshelf`: local saved-book state and kind `30045` directory rules.
 - `data/nostr`: Android signer integration and directory relay synchronization.
-- `ui`: Compose screens and reader presentation.
+- `ui`: Compose composition shell and feature presentation. `ui/home`, `ui/search`, `ui/library`, `ui/books`, `ui/ratings`, and `ui/reader` own bounded feature screens and components; `ui/shell` owns Android Activity Result signer effects; `ui/components` owns shared feedback primitives; and `ui/onboarding` owns tooltip presentation.
 
 ## Mercury Search
 
@@ -133,7 +133,7 @@ Saved-book state is device-local and does not require a Nostr login. `LocalBooks
 
 Reader preferences and per-book chapter progress are stored separately in app-private `SharedPreferences`. Opening a saved book records its current chapter and a last-opened timestamp. Home joins that state with the device-local saved-book summaries and shows only the most recently opened saved book as **Continue reading**; selecting it follows the cache-aware `openBook` path and restores the persisted chapter. Unsaved books cannot appear in this card. Reader content is persisted independently only after a saved book has opened successfully, so a saved book with no snapshot remains visible but explains that it has not yet been downloaded for offline reading.
 
-Contextual onboarding is app-private. `OnboardingTipStore` records stable tip identifiers only after a tooltip closes, whether the person discovers the described control or skips it. Each new UI affordance receives its own identifier, so newly added tips remain eligible for people who have completed earlier ones.
+Contextual onboarding is app-private. The reader menu tip records its stable identifier as soon as its one-time impression is presented, and every tooltip includes an explicit **Got it** dismissal. Leaving the reader before the auto-dismiss timeout therefore cannot replay that hint indefinitely. Each new UI affordance receives its own identifier, so newly added tips remain eligible for people who have completed earlier ones.
 
 With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its configured bootstrap relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`. Saving or removing a book commits locally before requesting a signature. Settings also provides a signer-approved **Sync to relays** action that signs and publishes the complete current local directory, so a rejected signer request or relay failure can be retried without another book change. **Sync from relays** remains a separate pull action. Published directory drafts contain exactly one `client` tag with the value `Bookshelf`; it is metadata only and is not persisted with the editable collection tags. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
 
@@ -195,6 +195,7 @@ Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEven
 - [`decisions/0019-nip65-user-relay-routing.md`](decisions/0019-nip65-user-relay-routing.md)
 - [`decisions/0027-reviewer-profile-resolution.md`](decisions/0027-reviewer-profile-resolution.md)
 - [decisions/0028-offline-review-outbox.md](decisions/0028-offline-review-outbox.md)
+- [decisions/0031-capped-dismissible-contextual-onboarding.md](decisions/0031-capped-dismissible-contextual-onboarding.md)
 ## Curated Discovery Shelves
 
 The Home tab is driven by the checked-in editorial catalog in `data/discovery/CuratedShelfCatalog.kt`. Each shelf stores only its title, stable id, and ordered NIP-19 `naddr` publication references; displayed title, author, cover, and chapter-reference metadata always come from kind `30040` publication-index events.

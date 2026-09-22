@@ -1,5 +1,7 @@
 package eu.decentnewsroom.bookshelf.ui
 
+import eu.decentnewsroom.bookshelf.ui.reader.withReaderParagraphSpacing
+
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

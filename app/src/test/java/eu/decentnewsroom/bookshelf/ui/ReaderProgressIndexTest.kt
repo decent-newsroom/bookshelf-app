@@ -1,6 +1,7 @@
 package eu.decentnewsroom.bookshelf.ui
 
 import eu.decentnewsroom.bookshelf.data.reader.normalizedReaderChapterIndex
+import eu.decentnewsroom.bookshelf.ui.reader.chapterIndexForReaderListItem
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

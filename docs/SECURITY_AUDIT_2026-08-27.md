@@ -178,24 +178,17 @@ This is not a direct runtime vulnerability. It increases the blast radius of a C
 - Separate build/test from signing/publishing. Pass only reviewed artifacts and checksums into a minimal signing job, and expose signing secrets only there.
 - Add automated dependency/advisory scanning and a documented triage policy. The direct version catalog alone is not an SCA control.
 
-### SEC-05 — Untrusted chapter links are opened without a URI policy
+### SEC-05 — Remediated: untrusted chapter links use an explicit URI policy
 
-**Severity:** Low  
+**Status:** Resolved
+
 **Category:** Untrusted external navigation / phishing hardening
 
-#### Evidence
+#### Current controls
 
-Chapter content is remote AsciiDoc. The renderer emits HTML fragments ([`ChapterRenderer.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/data/rendering/ChapterRenderer.kt#L28)), and the reader passes the fragment to `AnnotatedString.fromHtml` with link styling but without a `LinkInteractionListener` or URI validation ([`BookshelfApp.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/BookshelfApp.kt#L1121)). Compose documents that HTML links are clickable and that a `LinkAnnotation.Url` without a custom listener is opened through the platform `UriHandler`: [Compose HTML links](https://developer.android.com/develop/ui/compose/text/style-text#display-html) and [`LinkAnnotation.Url`](https://developer.android.com/reference/kotlin/androidx/compose/ui/text/LinkAnnotation.Url).
+Chapter content remains remote AsciiDoc, but [`ReaderChapterContent.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/reader/ReaderChapterContent.kt#L89) installs a `LinkInteractionListener` instead of handing links directly to the platform. [`ChapterLinkPolicy.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/ChapterLinkPolicy.kt#L7) accepts only absolute HTTPS URLs with a host and no user-info. [`ReaderScreen.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/reader/ReaderScreen.kt#L53) shows the normalized destination host and requires confirmation before opening the URI. Regression coverage includes dangerous schemes, cleartext URLs, deceptive host forms, and valid HTTPS links in [`ChapterLinkPolicyTest.kt`](../app/src/test/java/eu/decentnewsroom/bookshelf/ui/ChapterLinkPolicyTest.kt).
 
-Because SEC-01 allows forged chapter content, a malicious relay does not even need the referenced author's signing key to place a link in a chapter.
-
-#### Impact
-
-The user must click the link, and content is not executed in an in-app WebView, which substantially limits impact. However, attacker-controlled schemes/hosts can trigger external apps or convincing phishing pages without an app-provided destination preview or trust decision.
-
-#### Recommendation
-
-Provide a `LinkInteractionListener` that parses the destination before opening it. Allow only `https` by default (optionally a consciously supported subset such as `mailto`), reject malformed and dangerous/custom schemes, and show the full host in a confirmation sheet before leaving the reader. Add tests for `javascript:`, `content:`, `file:`, `intent:`, `nostrsigner:`, cleartext `http:`, deceptive hostnames, and valid HTTPS links.
+Forged chapter content can still contain links, but it cannot invoke custom, cleartext, relative, malformed, or user-info URLs through the reader, and an accepted destination is previewed for an explicit user decision.
 
 ### SEC-06 — Author-controlled cover URLs are fetched automatically
 
@@ -204,7 +197,7 @@ Provide a `LinkInteractionListener` that parses the destination before opening i
 
 #### Evidence
 
-Publication metadata accepts any syntactically valid HTTP or HTTPS cover host ([`MercuryBookRepository.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/data/mercury/MercuryBookRepository.kt#L236), [`MercuryBookRepository.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/data/mercury/MercuryBookRepository.kt#L406)). Visible book cards pass that URL directly to Coil `AsyncImage`, which performs a network request automatically ([`BookshelfApp.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/BookshelfApp.kt#L1155)). The app includes Coil's OkHttp network loader specifically to support these requests ([`app/build.gradle.kts`](../app/build.gradle.kts#L108)).
+Visible book cards now pass cover candidates through [`TrustedCoverImagePolicy`](../app/src/main/java/eu/decentnewsroom/bookshelf/data/mercury/TrustedCoverImagePolicy.kt) before Coil makes an automatic request ([`BookCard.kt`](../app/src/main/java/eu/decentnewsroom/bookshelf/ui/books/BookCard.kt#L91)). The policy rejects malformed, cleartext, and user-info URLs, but accepts an arbitrary absolute HTTPS host; a publication author can therefore still use a unique HTTPS cover URL for tracking. The app includes Coil's OkHttp network loader specifically to support these requests ([`app/build.gradle.kts`](../app/build.gradle.kts#L108)).
 
 #### Impact
 

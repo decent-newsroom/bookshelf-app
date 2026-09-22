@@ -41,9 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.BuildConfig
@@ -311,8 +313,20 @@ private fun AboutSettings() = SettingsScaffold("About") {
     item { Text("Bookshelf", style = MaterialTheme.typography.headlineSmall) }
     item { Text("Version ${BuildConfig.VERSION_NAME}") }
     item {
-        val uriHandler = LocalUriHandler.current
-        TextButton(onClick = { uriHandler.openUri("https://github.com/decent-newsroom/bookshelf-app") }) { Text("Source code") }
+        Column {
+            Text(
+                text = buildAnnotatedString {
+                    withLink(LinkAnnotation.Url("https://github.com/decent-newsroom/bookshelf-app")) {
+                        append("Source code")
+                    }
+                },
+            )
+            Text(
+                "decent-newsroom/bookshelf-app",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
