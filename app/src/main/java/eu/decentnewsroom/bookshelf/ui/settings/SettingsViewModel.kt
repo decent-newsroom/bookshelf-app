@@ -19,6 +19,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ParagraphAlignment
 import eu.decentnewsroom.bookshelf.data.reader.ReaderFont
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
+import eu.decentnewsroom.bookshelf.data.reader.OfflineBookCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +39,7 @@ class SettingsViewModel(
     private val connectivity: ValidatedInternetConnectivity = AppGraph.connectivity,
     private val bookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val chapterCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
+    private val offlineBookCache: OfflineBookCache = AppGraph.offlineBookCache,
     private val ratings: BookRatingsRepository = AppGraph.bookRatings,
     private val highlights: HighlightOutbox = AppGraph.highlightOutbox,
     private val highlightDispatcher: HighlightOutboxDispatcher = AppGraph.highlightDispatcher,
@@ -132,12 +134,14 @@ class SettingsViewModel(
             coroutineScope {
                 val chapter = async { chapterCache.stats() }
                 val rating = async { ratings.cacheStats() }
+                val offlineBooks = async { offlineBookCache.stats() }
                 val pendingHighlights = async { highlights.pending().size }
                 val pendingReviews = async { reviews.pendingCount() }
                 _uiState.update {
                     it.copy(
                         chapterCacheStats = chapter.await(),
                         ratingCacheStats = rating.await(),
+                        offlineBookCacheStats = offlineBooks.await(),
                         pendingHighlightCount = pendingHighlights.await(),
                         pendingReviewCount = pendingReviews.await(),
                     )
@@ -157,6 +161,16 @@ class SettingsViewModel(
             try { chapterCache.clear(); refreshStatsNow() }
             catch (failure: CancellationException) { throw failure }
             catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear chapter cache.") } }
+            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
+        }
+    }
+
+    fun clearOfflineBookCache() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
+            try { offlineBookCache.clear(); refreshStatsNow() }
+            catch (failure: CancellationException) { throw failure }
+            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear offline books.") } }
             finally { _uiState.update { it.copy(isRefreshingStats = false) } }
         }
     }

@@ -33,10 +33,11 @@ import eu.decentnewsroom.bookshelf.data.nostr.PendingNostrAuthSignRequest
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTipStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
+import eu.decentnewsroom.bookshelf.data.reader.ReaderContentCoordinator
+import eu.decentnewsroom.bookshelf.data.reader.OfflineBookUnavailableException
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
-import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.ratings.BookRating
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
@@ -66,7 +67,7 @@ import kotlin.math.roundToInt
 
 class BookshelfViewModel(
     private val repository: MercuryBookRepository = AppGraph.mercuryBooks,
-    private val chapterHtmlCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
+    private val readerContent: ReaderContentCoordinator = AppGraph.readerContent,
     private val localBookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val readerSettings: ReaderSettingsStore = AppGraph.readerSettings,
     private val onboardingTips: OnboardingTipStore = AppGraph.onboardingTips,
@@ -295,7 +296,10 @@ class BookshelfViewModel(
             }
 
             try {
-                val detail = chapterHtmlCache.renderBook(repository.openBook(book))
+                val detail = readerContent.open(
+                    book = book,
+                    isSaved = localBookshelf.isSaved(book.coordinate),
+                )
                 currentCoroutineContext().ensureActive()
                 if (localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
@@ -307,11 +311,22 @@ class BookshelfViewModel(
                         error = null,
                     )
                 }
+            } catch (exception: OfflineBookUnavailableException) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingBook = false,
+                        error = if (localBookshelf.isSaved(book.coordinate)) {
+                            "This book has not been downloaded for offline reading."
+                        } else {
+                            "Connect to the internet to read this book."
+                        },
+                    )
+                }
             } catch (exception: MercuryApiException) {
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false,
-                        error = exception.message ?: "Mercury is unavailable.",
+                        error = "Could not load this book right now. Try again when you have an internet connection.",
                     )
                 }
             } catch (exception: CancellationException) {
@@ -547,7 +562,10 @@ class BookshelfViewModel(
                 }
                 require(_uiState.value.signerSession == session) { "Account changed. Try publishing again." }
                 val draft = HighlightEventFactory.create(
-                    pubkey = session.pubkey, chapter = stored.chapterEvent, quote = stored.quote,
+                    pubkey = session.pubkey,
+                    bookCoordinate = stored.bookCoordinate,
+                    chapter = stored.chapterEvent,
+                    quote = stored.quote,
                     context = stored.context.takeIf { it.toByteArray(Charsets.UTF_8).size <= NostrEventVerifier.MAX_TAG_ELEMENT_LENGTH },
                     comment = composer.comment,
                 )
@@ -879,6 +897,9 @@ class BookshelfViewModel(
         viewModelScope.launch {
             try {
                 val change = localBookshelf.toggle(book)
+                if (change.isSaved) {
+                    _uiState.value.selectedBook?.takeIf { it.summary.coordinate == book.coordinate }?.let { readerContent.cacheOpenedBook(it) }
+                }
                 if (session == null) {
                     _uiState.update {
                         it.copy(

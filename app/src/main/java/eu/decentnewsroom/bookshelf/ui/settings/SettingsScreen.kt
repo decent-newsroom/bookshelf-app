@@ -92,6 +92,7 @@ data class SettingsActions(
     val removeLocalRelay: () -> Unit = {},
     val clearChapterCache: () -> Unit = {},
     val clearRatingCache: () -> Unit = {},
+    val clearOfflineBookCache: () -> Unit = {},
     val refreshStorage: () -> Unit = {},
 )
 
@@ -143,7 +144,7 @@ private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState,
     item { IndexRow(Icons.Outlined.AccountCircle, "Account & Sync", account.profileName ?: if (account.pubkey == null) "Not connected" else account.pubkey.take(12) + "…") { navigate(SettingsSection.Account) } }
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
     item { IndexRow(Icons.Outlined.Router, "Nostr Relays", "${AppGraph.defaultRelays.size} defaults · ${if (state.localRelayUrl == null) 0 else 1} local") { navigate(SettingsSection.Relays) } }
-    item { IndexRow(Icons.Outlined.Storage, "Storage & Offline", "${state.chapterCacheStats.sizeBytes + state.ratingCacheStats.sizeBytes} cached bytes") { navigate(SettingsSection.Storage) } }
+    item { IndexRow(Icons.Outlined.Storage, "Storage & Offline", "${state.chapterCacheStats.sizeBytes + state.ratingCacheStats.sizeBytes + state.offlineBookCacheStats.sizeBytes} cached bytes") { navigate(SettingsSection.Storage) } }
     item { IndexRow(Icons.Outlined.Info, "About", "Version ${BuildConfig.VERSION_NAME}") { navigate(SettingsSection.About) } }
 }
 
@@ -278,6 +279,7 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = 
     sectionTitle("Disposable caches")
     detail("Chapter HTML", "${state.chapterCacheStats.entryCount} files · ${state.chapterCacheStats.sizeBytes.formatBytes()}")
     detail("Community ratings", "${state.ratingCacheStats.entryCount} events · ${state.ratingCacheStats.sizeBytes.formatBytes()}")
+    detail("Offline reading", "${state.offlineBookCacheStats.entryCount} books · ${state.offlineBookCacheStats.sizeBytes.formatBytes()}")
     item { if (state.isRefreshingStats) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }
     item { Text("Clearing these caches keeps saved books, reading progress, highlights, and unpublished items. Ratings may need to load again.", style = MaterialTheme.typography.bodySmall) }
@@ -291,13 +293,14 @@ private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { target = "chapter" }, enabled = state.chapterCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear chapters") }
         TextButton(onClick = { target = "rating" }, enabled = state.ratingCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear ratings") }
+        TextButton(onClick = { target = "offline" }, enabled = state.offlineBookCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear offline books") }
     }
     target?.let { cache ->
         AlertDialog(
             onDismissRequest = { target = null },
-            title = { Text(if (cache == "chapter") "Clear chapter cache?" else "Clear rating cache?") },
-            text = { Text(if (cache == "chapter") "Rendered chapters will be regenerated. Books and reading progress stay saved." else "Cached community ratings will need to reload. Pending signed reviews stay queued.") },
-            confirmButton = { TextButton(onClick = { if (cache == "chapter") actions.clearChapterCache() else actions.clearRatingCache(); target = null }) { Text("Clear cache") } },
+            title = { Text(if (cache == "chapter") "Clear chapter cache?" else if (cache == "rating") "Clear rating cache?" else "Clear offline books?") },
+            text = { Text(if (cache == "chapter") "Rendered chapters will be regenerated. Books and reading progress stay saved." else if (cache == "rating") "Cached community ratings will need to reload. Pending signed reviews stay queued." else "Downloaded reader content will be removed. Books, progress, highlights, and unpublished items stay saved.") },
+            confirmButton = { TextButton(onClick = { if (cache == "chapter") actions.clearChapterCache() else if (cache == "rating") actions.clearRatingCache() else actions.clearOfflineBookCache(); target = null }) { Text("Clear cache") } },
             dismissButton = { TextButton(onClick = { target = null }) { Text("Cancel") } },
         )
     }

@@ -24,6 +24,8 @@ import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTipStore
 import eu.decentnewsroom.bookshelf.data.nostr.ExternalSignerNostrRelayAuthenticator
 import eu.decentnewsroom.bookshelf.data.nostr.QuartzBookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
+import eu.decentnewsroom.bookshelf.data.reader.OfflineBookCache
+import eu.decentnewsroom.bookshelf.data.reader.ReaderContentCoordinator
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCache
@@ -63,6 +65,8 @@ object AppGraph {
     private var relaySyncStore: BookshelfRelaySync? = null
     private var nostrProfileRepositoryStore: NostrProfileRepository? = null
     private var chapterHtmlCacheStore: ChapterHtmlCache? = null
+    private var offlineBookCacheStore: OfflineBookCache? = null
+    private var readerContentCoordinatorStore: ReaderContentCoordinator? = null
     private var shelfMetadataCacheStore: ShelfMetadataCache? = null
     private var curatedShelfRepositoryStore: CuratedShelfRepository? = null
     private var bookRatingsRepositoryStore: BookRatingsRepository? = null
@@ -111,6 +115,12 @@ object AppGraph {
 
     val chapterHtmlCache: ChapterHtmlCache
         get() = chapterHtmlCacheStore ?: error("AppGraph.initialize(context) must be called before using chapter HTML cache.")
+
+    val offlineBookCache: OfflineBookCache
+        get() = offlineBookCacheStore ?: error("AppGraph.initialize(context) must be called before using offline book cache.")
+
+    val readerContent: ReaderContentCoordinator
+        get() = readerContentCoordinatorStore ?: error("AppGraph.initialize(context) must be called before using reader content.")
 
     val bookRatings: BookRatingsRepository
         get() = bookRatingsRepositoryStore ?: error("AppGraph.initialize(context) must be called before using book ratings.")
@@ -190,6 +200,17 @@ object AppGraph {
         }
         if (chapterHtmlCacheStore == null) {
             chapterHtmlCacheStore = ChapterHtmlCache(appContext)
+        }
+        if (offlineBookCacheStore == null) {
+            offlineBookCacheStore = OfflineBookCache(appContext)
+        }
+        if (readerContentCoordinatorStore == null) {
+            readerContentCoordinatorStore = ReaderContentCoordinator(
+                repository = mercuryBooks,
+                offlineBookCache = checkNotNull(offlineBookCacheStore),
+                chapterHtmlCache = checkNotNull(chapterHtmlCacheStore),
+                isInternetAvailable = { checkNotNull(connectivityStore).isOnline },
+            )
         }
         if (shelfMetadataCacheStore == null) {
             shelfMetadataCacheStore = ShelfMetadataCache(appContext)

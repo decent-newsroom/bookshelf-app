@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Cache successfully opened saved books for offline reading, use cached chapters before remote fallbacks, and present source-neutral offline availability notices in the reader.
+- Publish highlights with NIP-22 root tags for their kind `30040` book index and parent tags for the kind `30041` chapter containing the quote.
+
 ## v0.1.23
 
 - Treat relay duplicate acknowledgements as successful immutable-highlight delivery so retries can complete.

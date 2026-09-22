@@ -8,6 +8,7 @@ This directory records architectural context and implementation decisions that s
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) covers local development, verification, and release mechanics.
 - [`SEARCH_IMPROVEMENT_PROPOSAL.md`](SEARCH_IMPROVEMENT_PROPOSAL.md) records the Mercury search and 503-resilience refactor, with implemented and follow-up slices called out.
 - [`QUARTZ_RELAY_CLIENT_MIGRATION.md`](QUARTZ_RELAY_CLIENT_MIGRATION.md) records the implemented Quartz migration for directory/profile relay transport.
+- [`HIGHLIGHT_THREADING.md`](HIGHLIGHT_THREADING.md) defines the NIP-22 root and parent tags used to associate highlights with book indexes and quoted chapters.
 - [plans/book-ratings-and-suggestions.md](plans/book-ratings-and-suggestions.md) records the proposed rating-event ingestion and high-rated-book discovery plan.
 - [plans/airplane-mode-offline-review-sync.md](plans/airplane-mode-offline-review-sync.md) records the implemented offline cache policy, local Citrine review delivery, and deferred remote-relay synchronization design.
 - [references/R1-ratings.md](references/R1-ratings.md) preserves the supplied R1 rating-event format for implementation reference.

@@ -12,6 +12,7 @@ class HighlightEventFactoryTest {
     private val createdAt = 1_700_000_000L
     private val privateKey = ByteArray(32) { 9 }
     private val author = Secp256k1InstanceKotlin.compressedPubKeyFor(privateKey).copyOfRange(1, 33).toHex()
+    private val bookCoordinate = "${BookKinds.PUBLICATION_INDEX}:$author:book-one"
 
     @Test
     fun createAddsChapterIdentityPublisherSourceAndMentionTags() {
@@ -19,6 +20,7 @@ class HighlightEventFactoryTest {
 
         val draft = HighlightEventFactory.create(
             pubkey = author,
+            bookCoordinate = bookCoordinate,
             chapter = chapter,
             quote = "A useful passage",
             context = "The surrounding paragraph",
@@ -29,7 +31,11 @@ class HighlightEventFactoryTest {
         assertEquals(author, draft.pubkey)
         assertEquals(BookKinds.HIGHLIGHT, draft.kind)
         assertEquals("A useful passage", draft.content)
+        assertTrue(draft.tags.contains(listOf("A", bookCoordinate)))
+        assertTrue(draft.tags.contains(listOf("K", BookKinds.PUBLICATION_INDEX.toString())))
+        assertTrue(draft.tags.contains(listOf("P", author)))
         assertTrue(draft.tags.contains(listOf("a", "${BookKinds.PUBLICATION_CONTENT}:${chapter.pubkey}:chapter-one")))
+        assertTrue(draft.tags.contains(listOf("k", BookKinds.PUBLICATION_CONTENT.toString())))
         assertTrue(draft.tags.contains(listOf("e", chapter.id)))
         assertTrue(draft.tags.contains(listOf("p", chapter.pubkey, "", "publisher")))
         assertTrue(draft.tags.contains(listOf("r", "https://example.com/source", "source")))
@@ -42,6 +48,7 @@ class HighlightEventFactoryTest {
     fun signedEventRoundTripsOnlyWhenItMatchesTheUnsignedDraft() {
         val draft = HighlightEventFactory.create(
             pubkey = author,
+            bookCoordinate = bookCoordinate,
             chapter = chapter(),
             quote = "A useful passage",
             createdAt = createdAt,
@@ -57,6 +64,7 @@ class HighlightEventFactoryTest {
     fun unsignedJsonUsesNostrFieldNamesAndDeclaredKind() {
         val draft = HighlightEventFactory.create(
             pubkey = author,
+            bookCoordinate = bookCoordinate,
             chapter = chapter(),
             quote = "A useful passage",
             createdAt = createdAt,
@@ -67,6 +75,31 @@ class HighlightEventFactoryTest {
         assertTrue(json.contains("\"created_at\":$createdAt"))
         assertTrue(json.contains("\"kind\":${BookKinds.HIGHLIGHT}"))
         assertTrue(json.contains("\"content\":\"A useful passage\""))
+    }
+
+    @Test
+    fun createRejectsMalformedOrNonBookIndexRootCoordinates() {
+        val malformed = runCatching {
+            HighlightEventFactory.create(
+                pubkey = author,
+                bookCoordinate = "30040:not-a-pubkey:book-one",
+                chapter = chapter(),
+                quote = "A useful passage",
+                createdAt = createdAt,
+            )
+        }.exceptionOrNull()
+        val wrongKind = runCatching {
+            HighlightEventFactory.create(
+                pubkey = author,
+                bookCoordinate = "${BookKinds.PUBLICATION_CONTENT}:$author:chapter-one",
+                chapter = chapter(),
+                quote = "A useful passage",
+                createdAt = createdAt,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(malformed is IllegalArgumentException)
+        assertTrue(wrongKind is IllegalArgumentException)
     }
 
     private fun chapter(): NostrEvent = signChapter(

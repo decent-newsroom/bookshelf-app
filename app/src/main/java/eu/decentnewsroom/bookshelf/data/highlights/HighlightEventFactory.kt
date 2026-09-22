@@ -29,6 +29,7 @@ object HighlightEventFactory {
 
     fun create(
         pubkey: String,
+        bookCoordinate: String,
         chapter: NostrEvent,
         quote: String,
         context: String? = null,
@@ -45,6 +46,12 @@ object HighlightEventFactory {
         } ?: throw IllegalArgumentException("A highlighted chapter requires a d tag.")
         require(hex64.matches(chapter.pubkey)) { "Highlighted chapter publisher public key is invalid." }
         require(hex64.matches(chapter.id)) { "Highlighted chapter event ID is invalid." }
+        val bookCoordinateParts = requireAddressCoordinate(
+            coordinate = bookCoordinate,
+            expectedKind = BookKinds.PUBLICATION_INDEX,
+            label = "Highlight book index",
+        )
+        val normalizedBookCoordinate = "${BookKinds.PUBLICATION_INDEX}:${bookCoordinateParts[1].lowercase()}:${bookCoordinateParts[2]}"
 
         val normalizedContext = context?.takeIf { it.isNotBlank() }
         val normalizedComment = comment?.takeIf { it.isNotBlank() }
@@ -52,7 +59,11 @@ object HighlightEventFactory {
         requireTagLength(normalizedComment, "Highlight comment")
         val sourceCoordinate = "${BookKinds.PUBLICATION_CONTENT}:${chapter.pubkey.lowercase()}:$identifier"
         val tags = buildList {
+            add(listOf("A", normalizedBookCoordinate))
+            add(listOf("K", BookKinds.PUBLICATION_INDEX.toString()))
+            add(listOf("P", bookCoordinateParts[1].lowercase()))
             add(listOf("a", sourceCoordinate))
+            add(listOf("k", BookKinds.PUBLICATION_CONTENT.toString()))
             add(listOf("e", chapter.id.lowercase()))
             // A chapter signer is the publisher of this source event, not necessarily its literary author.
             add(listOf("p", chapter.pubkey.lowercase(), "", "publisher"))
@@ -104,21 +115,43 @@ object HighlightEventFactory {
     }
 
     private fun validateTags(tags: List<List<String>>) {
+        val rootAddresses = tags.filter { it.getOrNull(0) == "A" }
+        require(rootAddresses.size == 1) { "A highlight requires exactly one book-index root address tag." }
+        val rootCoordinateParts = requireAddressCoordinate(
+            coordinate = rootAddresses.single().getOrNull(1).orEmpty(),
+            expectedKind = BookKinds.PUBLICATION_INDEX,
+            label = "Highlight root address",
+        )
+        val rootKinds = tags.filter { it.getOrNull(0) == "K" }
+        require(rootKinds.size == 1 && rootKinds.single().getOrNull(1) == BookKinds.PUBLICATION_INDEX.toString()) {
+            "A highlight requires a kind-30040 root kind tag."
+        }
+        val rootAuthors = tags.filter { it.getOrNull(0) == "P" }
+        require(rootAuthors.size == 1 && rootAuthors.single().getOrNull(1).equals(rootCoordinateParts[1], ignoreCase = true)) {
+            "A highlight requires the book-index author root tag."
+        }
+
         val address = tags.filter { it.getOrNull(0) == "a" }
         require(address.size == 1) { "A highlight requires exactly one chapter address tag." }
-        val coordinate = address.single().getOrNull(1).orEmpty()
-        val coordinateParts = coordinate.split(':', limit = 3)
-        require(
-            coordinateParts.size == 3 &&
-                coordinateParts[0] == BookKinds.PUBLICATION_CONTENT.toString() &&
-                hex64.matches(coordinateParts[1]) &&
-                coordinateParts[2].isNotBlank(),
-        ) { "Highlight address must be a kind-30041 chapter coordinate." }
+        val chapterCoordinateParts = requireAddressCoordinate(
+            coordinate = address.single().getOrNull(1).orEmpty(),
+            expectedKind = BookKinds.PUBLICATION_CONTENT,
+            label = "Highlight chapter address",
+        )
+        val chapterKinds = tags.filter { it.getOrNull(0) == "k" }
+        require(chapterKinds.size == 1 && chapterKinds.single().getOrNull(1) == BookKinds.PUBLICATION_CONTENT.toString()) {
+            "A highlight requires a kind-30041 chapter kind tag."
+        }
 
         val events = tags.filter { it.getOrNull(0) == "e" }
         require(events.size == 1 && hex64.matches(events.single().getOrNull(1).orEmpty())) {
             "A highlight requires exactly one chapter event tag."
         }
+        val publisherTags = tags.filter { it.getOrNull(0) == "p" && it.getOrNull(3) == "publisher" }
+        require(
+            publisherTags.size == 1 &&
+                publisherTags.single().getOrNull(1).equals(chapterCoordinateParts[1], ignoreCase = true),
+        ) { "A highlight requires the chapter publisher tag." }
         tags.filter { it.getOrNull(0) == "p" }.forEach { tag ->
             require(hex64.matches(tag.getOrNull(1).orEmpty())) { "Highlight public-key tag is invalid." }
             require(tag.getOrNull(3) == "publisher" || tag.getOrNull(3) == "mention") {
@@ -144,6 +177,21 @@ object HighlightEventFactory {
         val comments = tags.filter { it.getOrNull(0) == "comment" }
         require(comments.size <= 1) { "A highlight has too many comment tags." }
         comments.singleOrNull()?.getOrNull(1)?.let { requireTagLength(it, "Highlight comment") }
+    }
+
+    private fun requireAddressCoordinate(
+        coordinate: String,
+        expectedKind: Int,
+        label: String,
+    ): List<String> {
+        val parts = coordinate.split(':', limit = 3)
+        require(
+            parts.size == 3 &&
+                parts[0] == expectedKind.toString() &&
+                hex64.matches(parts[1]) &&
+                parts[2].isNotBlank(),
+        ) { "$label must be a kind-$expectedKind address coordinate." }
+        return parts
     }
 
     private fun chapterSourceUrl(chapter: NostrEvent): String? = chapter.tags.firstNotNullOfOrNull { tag ->

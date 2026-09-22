@@ -361,6 +361,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     removeLocalRelay = settingsViewModel::removeLocalRelay,
                                     clearChapterCache = settingsViewModel::clearChapterCache,
                                     clearRatingCache = settingsViewModel::clearRatingCache,
+                                    clearOfflineBookCache = settingsViewModel::clearOfflineBookCache,
                                     refreshStorage = settingsViewModel::refreshStats,
                                 ),
                                 account = AccountSettingsState(
@@ -873,15 +874,17 @@ private fun ReaderScreen(
                 items = detail.chapters,
                 key = { _, chapter -> chapter.reference.coordinate },
             ) { index, chapter ->
-                ChapterSection(
-                    chapter = chapter,
-                    preferences = preferences,
-                    colors = colors,
-                    onLinkClick = { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } },
-                    highlights = highlights,
-                    onSaveHighlight = onSaveHighlight,
-                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
-                )
+                if (chapter.available) {
+                    ChapterSection(
+                        chapter = chapter,
+                        preferences = preferences,
+                        colors = colors,
+                        onLinkClick = { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } },
+                        highlights = highlights,
+                        onSaveHighlight = onSaveHighlight,
+                        modifier = Modifier.padding(top = if (index == 0) 0.dp else 24.dp),
+                    )
+                }
             }
             }
         }
@@ -1100,7 +1103,7 @@ private fun ReaderHeader(
             )
         }
         if (detail.truncated || detail.missingChapterCount > 0) {
-            ReaderNotice("Some referenced chapters are not currently available from Mercury.", colors)
+            ReaderNotice("Some referenced chapters are not available on this device.", colors)
         }
     }
 }
@@ -1199,7 +1202,7 @@ private fun ReaderContentsSheet(
 
         if (chapters.isEmpty()) {
             Text(
-                text = "No chapters are available from Mercury.",
+                text = "No chapters are available on this device.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1236,7 +1239,7 @@ private fun ReaderContentsItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) colors.track else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(enabled = chapter.available, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -1248,6 +1251,13 @@ private fun ReaderContentsItem(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (!chapter.available) {
+            Text(
+                text = "Not saved on this device",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.muted,
+            )
+        }
         chapter.summary?.let { summary ->
             Text(
                 text = summary,
@@ -1500,7 +1510,7 @@ private fun ChapterSection(
         } else {
             HighlightableChapterText(
                 chapter = chapter,
-                text = AnnotatedString(chapter.content ?: "This chapter is not available from Mercury at this time."),
+                text = AnnotatedString(chapter.content ?: "This chapter is not available on this device."),
                 highlights = highlights,
                 preferences = preferences,
                 colors = colors,
