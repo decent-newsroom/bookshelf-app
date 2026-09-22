@@ -22,3 +22,6 @@ internal fun coerceReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int
     } else {
         chapterIndex.coerceIn(0, chapterCount - 1)
     }
+
+internal fun readerScrollOffsetForListItem(listItemIndex: Int, scrollOffsetPx: Int): Int =
+    if (listItemIndex < ReaderHeaderItemCount) 0 else scrollOffsetPx.coerceAtLeast(0)

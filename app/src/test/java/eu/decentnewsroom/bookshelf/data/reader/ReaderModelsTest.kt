@@ -27,4 +27,20 @@ class ReaderModelsTest {
         assertEquals(ReaderFont.Serif, preferences.fontFamily)
         assertEquals(ParagraphAlignment.Left, preferences.paragraphAlignment)
     }
+
+    @Test
+    fun legacyProgressDefaultsToChapterTop() {
+        val progress = json.decodeFromString<ReadingProgress>(
+            """{"bookCoordinate":"book","currentChapterIndex":2,"chapterCount":5,"updatedAtMillis":9}""",
+        )
+        assertEquals(0, progress.chapterScrollOffsetPx)
+    }
+
+    @Test
+    fun initialProgressStartsAtZero() {
+        assertEquals(0f, ReadingProgress.initial("book", 5).progressFraction)
+        assertEquals(0.4f, ReadingProgress("book", 2, 5, 9).progressFraction)
+        assertEquals(0f, ReadingProgress("book", -1, 5, 9).progressFraction)
+        assertEquals(1f, ReadingProgress("book", 99, 5, 9).progressFraction)
+    }
 }

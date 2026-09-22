@@ -1036,8 +1036,8 @@ class BookshelfViewModel(
         }
     }
 
-    fun recordReaderProgress(book: BookDetail, chapterIndex: Int) {
-        readerSettings.recordProgress(book, chapterIndex)
+    fun recordReaderProgress(book: BookDetail, chapterIndex: Int, scrollOffsetPx: Int) {
+        readerSettings.recordProgress(book, chapterIndex, scrollOffsetPx)
     }
 
     fun markOnboardingTipSeen(tip: OnboardingTip) {

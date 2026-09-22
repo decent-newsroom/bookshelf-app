@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Improve reader resume precision by persisting the in-chapter pixel offset, and make fresh reading progress start at 0% instead of counting the first chapter as complete.
 - Move the Reading & Display preview beneath its controls, give it a theme-aware border, and add text alignment to the in-reader controls.
 - Give secondary actions a theme-aware filled background so their padded touch targets align visually with adjacent controls.
 - Present the Settings About source-code destination as a text link with the repository name.

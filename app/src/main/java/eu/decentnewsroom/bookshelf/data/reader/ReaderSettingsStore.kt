@@ -55,16 +55,20 @@ class ReaderSettingsStore(context: Context) {
         updateReaderPreferences { preferences -> preferences.copy(paragraphAlignment = alignment) }
     }
 
-    fun recordProgress(book: BookDetail, chapterIndex: Int) {
+    fun recordProgress(book: BookDetail, chapterIndex: Int, chapterScrollOffsetPx: Int = 0) {
         val chapterCount = book.chapters.size
         if (chapterCount <= 0) {
             return
         }
 
         val normalizedChapterIndex = normalizedReaderChapterIndex(chapterIndex, chapterCount)
+        val normalizedChapterScrollOffsetPx = normalizedReaderChapterScrollOffsetPx(chapterScrollOffsetPx)
         val coordinate = book.summary.coordinate
         val existing = _progress.value[coordinate]
-        if (existing?.currentChapterIndex == normalizedChapterIndex && existing.chapterCount == chapterCount) {
+        if (existing?.currentChapterIndex == normalizedChapterIndex &&
+            existing.chapterCount == chapterCount &&
+            existing.chapterScrollOffsetPx == normalizedChapterScrollOffsetPx
+        ) {
             return
         }
 
@@ -73,6 +77,7 @@ class ReaderSettingsStore(context: Context) {
             currentChapterIndex = normalizedChapterIndex,
             chapterCount = chapterCount,
             updatedAtMillis = System.currentTimeMillis(),
+            chapterScrollOffsetPx = normalizedChapterScrollOffsetPx,
         )
         val progress = _progress.value.toMutableMap()
         progress[coordinate] = next
@@ -98,6 +103,7 @@ class ReaderSettingsStore(context: Context) {
             ),
             chapterCount = chapterCount,
             updatedAtMillis = System.currentTimeMillis(),
+            chapterScrollOffsetPx = normalizedReaderChapterScrollOffsetPx(existing?.chapterScrollOffsetPx ?: 0),
         )
         val progress = _progress.value.toMutableMap()
         progress[coordinate] = next
@@ -140,3 +146,5 @@ class ReaderSettingsStore(context: Context) {
 
 internal fun normalizedReaderChapterIndex(chapterIndex: Int, chapterCount: Int): Int =
     if (chapterCount <= 0) 0 else chapterIndex.coerceIn(0, chapterCount - 1)
+
+internal fun normalizedReaderChapterScrollOffsetPx(offsetPx: Int): Int = offsetPx.coerceAtLeast(0)

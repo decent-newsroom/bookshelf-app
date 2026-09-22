@@ -25,14 +25,17 @@ import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, FlowPreview::class)
 @Composable
 internal fun ReaderScreen(
     detail: BookDetail, isSaved: Boolean, preferences: ReaderPreferences, progress: ReadingProgress,
     selectedTab: BookshelfTab, onBack: () -> Unit, onTabSelected: (BookshelfTab) -> Unit,
-    onToggleSaved: () -> Unit, onChapterProgressChanged: (BookDetail, Int) -> Unit,
+    onToggleSaved: () -> Unit, onChapterProgressChanged: (BookDetail, Int, Int) -> Unit,
     onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit,
     highlights: List<ReaderHighlight>, highlightDelivery: Map<String, String>, highlightComposer: HighlightComposerState?,
     onSaveHighlight: (BookChapter, String, Int, Int) -> Unit, onShowHighlightComposer: (ReaderHighlight) -> Unit,
@@ -40,7 +43,10 @@ internal fun ReaderScreen(
     seenTips: Set<OnboardingTip>, onTipSeen: (OnboardingTip) -> Unit,
 ) {
     val initialListItemIndex = readerListItemIndexForChapter(progress.currentChapterIndex, detail.chapters.size)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialListItemIndex)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialListItemIndex,
+        initialFirstVisibleItemScrollOffset = progress.chapterScrollOffsetPx.coerceAtLeast(0),
+    )
     val coroutineScope = rememberCoroutineScope(); val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }; var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }; var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
@@ -49,7 +55,22 @@ internal fun ReaderScreen(
     }
     var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
     val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size); val uriHandler = LocalUriHandler.current
-    LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) { snapshotFlow { listState.firstVisibleItemIndex }.distinctUntilChanged().collect { index -> onChapterProgressChanged(detail, chapterIndexForReaderListItem(index, detail.chapters.size)) } }
+    LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .map { (index, offset) -> chapterIndexForReaderListItem(index, detail.chapters.size) to readerScrollOffsetForListItem(index, offset) }
+            .distinctUntilChanged()
+            .debounce(500)
+            .collect { (chapterIndex, scrollOffsetPx) -> onChapterProgressChanged(detail, chapterIndex, scrollOffsetPx) }
+    }
+    DisposableEffect(detail.summary.coordinate, detail.chapters.size, listState) {
+        onDispose {
+            onChapterProgressChanged(
+                detail,
+                chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size),
+                readerScrollOffsetForListItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
+            )
+        }
+    }
     // Consume this one-time impression when it is presented, not only after the
     // timeout. Leaving the reader early must not make the same tip recur.
     LaunchedEffect(showReaderMenusTip) {
