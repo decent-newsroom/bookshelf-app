@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.24
+
 - Improve reader resume precision by persisting the in-chapter pixel offset, and make fresh reading progress start at 0% instead of counting the first chapter as complete.
 - Move the Reading & Display preview beneath its controls, give it a theme-aware border, and add text alignment to the in-reader controls.
 - Give secondary actions a theme-aware filled background so their padded touch targets align visually with adjacent controls.
@@ -16,6 +18,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Restore the Home feed's scroll position after opening a book and returning to Home.
 - Cache successfully opened saved books for offline reading, use cached chapters before remote fallbacks, and present source-neutral offline availability notices in the reader.
 - Publish highlights with NIP-22 root tags for their kind `30040` book index and parent tags for the kind `30041` chapter containing the quote.
+
 
 ## v0.1.23
 
