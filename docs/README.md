@@ -14,6 +14,7 @@ This directory records architectural context and implementation decisions that s
 - [plans/precise-reader-progress.md](plans/precise-reader-progress.md) records the proposed staged upgrade from chapter-level reader progress to durable in-chapter positions.
 - [references/R1-ratings.md](references/R1-ratings.md) preserves the supplied R1 rating-event format for implementation reference.
 - [`decisions/`](decisions/) contains architecture decision records (ADRs) explaining why consequential choices were made.
+- ADR 0033 records private-highlight deletion and preserves the durable outbox boundary for signed events.
 - ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching; ADRs 0017 and 0018 record the Quartz relay transport boundaries; ADR 0019 records NIP-65 user relay routing; ADR 0020 records Settings relay configuration; ADR 0021 records persistent contextual onboarding; ADR 0027 records reviewer-profile resolution without mutating active-user routing; ADR 0028 records offline review delivery; ADR 0029 supersedes ADR 0020 with the dedicated settings boundary; ADR 0031 caps and makes reader onboarding dismissible; ADR 0032 proposes durable in-chapter reader positions.
 
 ## Keeping These Notes Current

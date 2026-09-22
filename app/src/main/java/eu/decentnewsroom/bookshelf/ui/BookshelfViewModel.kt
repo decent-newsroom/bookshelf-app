@@ -528,6 +528,28 @@ class BookshelfViewModel(
         )) }
     }
 
+    fun deletePrivateHighlight(highlight: ReaderHighlight) {
+        if (_uiState.value.pendingHighlightSignRequest?.highlightId == highlight.id) return
+        viewModelScope.launch {
+            try {
+                val stored = highlightStore.all().firstOrNull { it.id == highlight.id }
+                    ?: return@launch
+                require(stored.publishedEventId == null) { "Published highlights cannot be deleted locally." }
+                require(highlightOutbox.entries().none { it.localHighlightId == stored.id }) {
+                    "A queued highlight cannot be deleted while it is being delivered."
+                }
+                if (highlightStore.remove(stored.id)) {
+                    refreshHighlights()
+                    _uiState.update { it.copy(syncMessage = "Private highlight deleted.") }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _uiState.update { it.copy(error = failure.message ?: "Could not delete highlight.") }
+            }
+        }
+    }
+
     fun updateHighlightComment(comment: String) {
         _uiState.update { state -> state.copy(highlightComposer = state.highlightComposer?.let {
             if (it.isPublishing) it else it.copy(comment = comment.take(4_096), error = null)

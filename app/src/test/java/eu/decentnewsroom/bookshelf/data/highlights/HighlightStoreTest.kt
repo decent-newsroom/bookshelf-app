@@ -62,6 +62,29 @@ class HighlightStoreTest {
         assertEquals("damaged", file.readText())
     }
 
+    @Test fun removesOnlyTheRequestedPrivateHighlight() = runBlocking {
+        val file = File(temporary.root, "highlights-v1.json")
+        val first = highlight("A passage to remember.", 2, 9)
+        val second = first.copy(id = "another-local-highlight")
+        val store = HighlightStore(file)
+        store.save(first)
+        store.save(second)
+
+        assertTrue(store.remove(first.id))
+        assertEquals(listOf(second), store.all())
+        assertTrue(!store.remove(first.id))
+    }
+
+    @Test fun retainsPublishedHighlights() = runBlocking {
+        val file = File(temporary.root, "highlights-v1.json")
+        val value = highlight("A passage to remember.", 2, 9).copy(publishedEventId = "signed-highlight-id")
+        val store = HighlightStore(file)
+        store.save(value)
+
+        assertTrue(!store.remove(value.id))
+        assertEquals(listOf(value), store.all())
+    }
+
     private fun highlight(text: String, start: Int, end: Int) = ReaderHighlight(
         id = "local-highlight",
         bookCoordinate = "30040:publisher:book",

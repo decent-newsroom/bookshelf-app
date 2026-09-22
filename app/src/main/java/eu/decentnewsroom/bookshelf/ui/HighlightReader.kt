@@ -143,6 +143,7 @@ internal fun BookHighlightsSheet(
     onDismiss: () -> Unit,
     onOpen: (ReaderHighlight) -> Unit,
     onPublish: (ReaderHighlight) -> Unit,
+    onDelete: (ReaderHighlight) -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -159,6 +160,7 @@ internal fun BookHighlightsSheet(
                         deliveryStatus = delivery[highlight.id],
                         onOpen = { onOpen(highlight) },
                         onPublish = { onPublish(highlight) },
+                        onDelete = { onDelete(highlight) },
                     )
                     HorizontalDivider()
                 }
@@ -174,6 +176,7 @@ private fun HighlightCard(
     deliveryStatus: String?,
     onOpen: () -> Unit,
     onPublish: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(highlight.chapterTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -186,7 +189,10 @@ private fun HighlightCard(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SecondaryButton(onClick = onOpen) { Text("Open passage") }
-            if (highlight.publishedEventId == null) SecondaryButton(onClick = onPublish) { Text("Publish") }
+            if (highlight.publishedEventId == null && deliveryStatus == null) {
+                SecondaryButton(onClick = onPublish) { Text("Publish") }
+                SecondaryButton(onClick = onDelete) { Text("Delete") }
+            }
         }
     }
 }

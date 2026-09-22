@@ -205,6 +205,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         highlightComposer = state.highlightComposer,
                         onSaveHighlight = viewModel::saveHighlight,
                         onShowHighlightComposer = viewModel::showHighlightComposer,
+                        onDeleteHighlight = viewModel::deletePrivateHighlight,
                         onUpdateHighlightComment = viewModel::updateHighlightComment,
                         onSubmitHighlight = viewModel::submitHighlight,
                         onDismissHighlightComposer = viewModel::dismissHighlightComposer,

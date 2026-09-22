@@ -98,6 +98,17 @@ class HighlightStore internal constructor(private val file: File) {
         }
     }
 
+    /** Removes an unpublished, app-private highlight record. */
+    suspend fun remove(id: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val values = read()
+            val highlight = values.firstOrNull { it.id == id } ?: return@withLock false
+            if (highlight.publishedEventId != null) return@withLock false
+            write(values.filterNot { it.id == id })
+            true
+        }
+    }
+
     private fun read(): List<ReaderHighlight> {
         if (!file.exists()) return emptyList()
         // A damaged file must surface an error, not be overwritten as an empty collection.

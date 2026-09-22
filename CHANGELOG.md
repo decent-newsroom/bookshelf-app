@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add a **Delete** action for saved private highlights. Queued or published highlights remain protected because their immutable signed events may still be delivering.
+
 ## v0.1.24
 
 - Improve reader resume precision by persisting the in-chapter pixel offset, and make fresh reading progress start at 0% instead of counting the first chapter as complete.
