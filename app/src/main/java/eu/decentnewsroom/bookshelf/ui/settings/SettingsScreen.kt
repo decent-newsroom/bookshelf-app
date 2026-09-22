@@ -3,6 +3,7 @@
 package eu.decentnewsroom.bookshelf.ui.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -175,7 +176,11 @@ private fun ChoiceRow(content: @Composable () -> Unit) {
 @Composable
 private fun ReaderPreview(preferences: ReaderPreferences) {
     val colors = preferences.theme.readerColors
-    Card(colors = CardDefaults.cardColors(containerColor = colors.background), modifier = Modifier.fillMaxWidth()) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = colors.background),
+        border = BorderStroke(1.dp, colors.muted),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Preview", style = MaterialTheme.typography.labelMedium, color = colors.muted)
             Text(
@@ -189,7 +194,6 @@ private fun ReaderPreview(preferences: ReaderPreferences) {
 @Composable
 private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Reading & Display") {
     val p = state.readerPreferences
-    item { ReaderPreview(p) }
     sectionTitle("Appearance")
     item { Text("Theme") }
     item { ChoiceRow { ReaderTheme.entries.forEach { theme -> FilterChip(selected = p.theme == theme, onClick = { actions.setTheme(theme) }, label = { Text(theme.name) }) } } }
@@ -202,6 +206,7 @@ private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = 
     item { Slider(value = p.lineHeightMultiplier, onValueChange = actions.setLineHeight, valueRange = 1.2f..2f, steps = 7) }
     item { Text("Paragraph alignment") }
     item { ChoiceRow { ParagraphAlignment.entries.forEach { alignment -> FilterChip(selected = p.paragraphAlignment == alignment, onClick = { actions.setAlignment(alignment) }, label = { Text(alignment.name) }) } } }
+    item { ReaderPreview(p) }
 }
 
 @Composable

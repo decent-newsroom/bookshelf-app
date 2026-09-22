@@ -33,7 +33,7 @@ internal fun ReaderScreen(
     detail: BookDetail, isSaved: Boolean, preferences: ReaderPreferences, progress: ReadingProgress,
     selectedTab: BookshelfTab, onBack: () -> Unit, onTabSelected: (BookshelfTab) -> Unit,
     onToggleSaved: () -> Unit, onChapterProgressChanged: (BookDetail, Int) -> Unit,
-    onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit,
+    onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit,
     highlights: List<ReaderHighlight>, highlightDelivery: Map<String, String>, highlightComposer: HighlightComposerState?,
     onSaveHighlight: (BookChapter, String, Int, Int) -> Unit, onShowHighlightComposer: (ReaderHighlight) -> Unit,
     onUpdateHighlightComment: (String) -> Unit, onSubmitHighlight: () -> Unit, onDismissHighlightComposer: () -> Unit,
@@ -55,7 +55,7 @@ internal fun ReaderScreen(
     LaunchedEffect(showReaderMenusTip) {
         if (showReaderMenusTip) onTipSeen(OnboardingTip.ReaderMenus)
     }
-    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) { ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged) }
+    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) { ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged) }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) })
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) { ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { i -> showContents = false; showNavigationMenus = false; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }

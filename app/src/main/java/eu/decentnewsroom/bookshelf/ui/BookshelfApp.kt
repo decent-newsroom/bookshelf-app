@@ -199,6 +199,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         onFontSizeChanged = viewModel::setReaderFontSize,
                         onLineHeightChanged = viewModel::setReaderLineHeight,
                         onThemeChanged = viewModel::setReaderTheme,
+                        onParagraphAlignmentChanged = viewModel::setReaderParagraphAlignment,
                         highlights = state.highlights.filter { it.bookCoordinate == selectedBook.summary.coordinate },
                         highlightDelivery = state.highlightDelivery,
                         highlightComposer = state.highlightComposer,

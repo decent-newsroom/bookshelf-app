@@ -35,6 +35,7 @@ import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTipStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderContentCoordinator
 import eu.decentnewsroom.bookshelf.data.reader.OfflineBookUnavailableException
+import eu.decentnewsroom.bookshelf.data.reader.ParagraphAlignment
 import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
@@ -1053,6 +1054,10 @@ class BookshelfViewModel(
 
     fun setReaderTheme(theme: ReaderTheme) {
         readerSettings.setTheme(theme)
+    }
+
+    fun setReaderParagraphAlignment(alignment: ParagraphAlignment) {
+        readerSettings.setParagraphAlignment(alignment)
     }
 
     private fun refreshCuratedShelves() {

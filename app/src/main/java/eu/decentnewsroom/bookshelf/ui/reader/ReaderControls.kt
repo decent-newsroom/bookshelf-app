@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import eu.decentnewsroom.bookshelf.data.reader.ParagraphAlignment
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.domain.BookChapter
@@ -89,13 +90,15 @@ internal fun ReaderHeader(
 }
 
 @Composable
-internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit) {
+internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Reader", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         SettingHeader("Font size", "${preferences.fontSizeSp.roundToInt()}sp"); Slider(preferences.fontSizeSp, onFontSizeChanged, valueRange = 14f..28f, steps = 13)
         SettingHeader("Line height", "${preferences.lineHeightMultiplier.formatOneDecimal()}x"); Slider(preferences.lineHeightMultiplier, onLineHeightChanged, valueRange = 1.2f..2.0f, steps = 7)
         Text("Theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(preferences.theme == theme, { onThemeChanged(theme) }, label = { Text(theme.label) }) } }
+        Text("Text alignment", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ParagraphAlignment.entries.forEach { alignment -> FilterChip(preferences.paragraphAlignment == alignment, { onParagraphAlignmentChanged(alignment) }, label = { Text(alignment.name) }) } }
         Spacer(Modifier.height(8.dp))
     }
 }
