@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -128,6 +129,7 @@ import kotlin.time.Duration.Companion.milliseconds
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val homeListState = rememberLazyListState()
     BackHandler(
         enabled = state.selectedBook != null ||
             state.isLoadingBook ||
@@ -328,6 +330,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             ),
                             message = state.shelfMessage,
                             profileName = state.nostrProfile?.preferredName,
+                            listState = homeListState,
                             onSearch = viewModel::openSearch,
                             onRetry = viewModel::retryShelves,
                             onOpen = viewModel::openBook,
@@ -457,12 +460,18 @@ private fun HomeScreen(
     continueReading: ContinueReadingBook?,
     message: String?,
     profileName: String?,
+    listState: LazyListState,
     onSearch: () -> Unit,
     onRetry: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onLongPress: (BookSummary) -> Unit,
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
