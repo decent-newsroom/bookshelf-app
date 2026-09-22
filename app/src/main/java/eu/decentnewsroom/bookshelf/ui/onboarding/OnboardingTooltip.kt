@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
@@ -48,7 +49,7 @@ fun OnboardingTooltip(visible: Boolean, text: String, onDismissed: () -> Unit, c
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(text)
-                    androidx.compose.material3.TextButton(
+                    SecondaryButton(
                         onClick = { coroutineScope.launch { state.dismiss() } },
                         modifier = Modifier.align(Alignment.End),
                     ) {

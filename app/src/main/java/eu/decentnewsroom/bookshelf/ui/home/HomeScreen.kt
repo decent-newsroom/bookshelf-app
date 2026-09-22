@@ -23,7 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,12 +57,12 @@ fun HomeScreen(
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(profileName?.let { "Hello, $it" } ?: "Discover", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onSearch) { Text("Search") }
+                SecondaryButton(onClick = onSearch) { Text("Search") }
             }
         }
         continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }, onLongPress = { onLongPress(it.book) }) } }
         if (isLoading && shelves.isEmpty()) item { LoadingInline("Loading shelves...") }
-        message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); TextButton(onClick = onRetry) { Text("Retry") } } } }
+        message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); SecondaryButton(onClick = onRetry) { Text("Retry") } } } }
         shelves.forEach { shelf ->
             item(key = shelf.id) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

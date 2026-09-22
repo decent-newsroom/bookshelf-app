@@ -22,7 +22,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,7 +109,7 @@ internal fun HighlightableChapterText(
                                     onSaveHighlight(chapter, displayedText, selectedRange.first, selectedRange.last + 1)
                                     selectionState.clear()
                                 }) { Text("Create highlight") }
-                                TextButton(onClick = selectionState::clear) { Text("Cancel") }
+                                SecondaryButton(onClick = selectionState::clear) { Text("Cancel") }
                             }
                         }
                     }
@@ -185,8 +185,8 @@ private fun HighlightCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onOpen) { Text("Open passage") }
-            if (highlight.publishedEventId == null) TextButton(onClick = onPublish) { Text("Publish") }
+            SecondaryButton(onClick = onOpen) { Text("Open passage") }
+            if (highlight.publishedEventId == null) SecondaryButton(onClick = onPublish) { Text("Publish") }
         }
     }
 }

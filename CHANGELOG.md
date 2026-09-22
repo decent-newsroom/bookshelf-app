@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Give secondary actions a theme-aware filled background so their padded touch targets align visually with adjacent controls.
 - Present the Settings About source-code destination as a text link with the repository name.
 - Cap the reader's tap-to-reveal-menus hint at one lifetime impression, persist it when shown, and add a **Got it** dismissal control.
 - Split the Compose UI into bounded feature, reader, shared-component, and signer-effect packages while keeping BookshelfApp as the composition root.

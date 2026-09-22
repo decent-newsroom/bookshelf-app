@@ -21,6 +21,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.ui.BookshelfTab
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.components.ReaderNotice
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
@@ -36,13 +37,13 @@ internal fun ReaderControlsMenu(
     Surface(modifier.fillMaxWidth().padding(12.dp), RoundedCornerShape(8.dp), colors.controls, shadowElevation = 8.dp) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("Back", color = colors.accent) }
+                SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }
-                Spacer(Modifier.width(6.dp)); TextButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }
+                SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }
+                Spacer(Modifier.width(6.dp)); SecondaryButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }
                 Spacer(Modifier.width(6.dp)); Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) } }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { SecondaryButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) } }
             LinearProgressIndicator(progress = { progress.progressFraction.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track)
             Text("Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = colors.muted)
         }
@@ -67,9 +68,9 @@ internal fun ReaderHeader(
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("Back", color = colors.accent) }; Spacer(Modifier.weight(1f))
-            TextButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }; Spacer(Modifier.width(6.dp))
-            TextButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
+            SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }; Spacer(Modifier.weight(1f))
+            SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }; Spacer(Modifier.width(6.dp))
+            SecondaryButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
             OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") } }
         }
         LinearProgressIndicator(progress = { progress.progressFraction.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track)

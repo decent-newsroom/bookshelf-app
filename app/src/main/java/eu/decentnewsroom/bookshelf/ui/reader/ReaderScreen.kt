@@ -20,6 +20,7 @@ import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
 import eu.decentnewsroom.bookshelf.data.reader.*
 import eu.decentnewsroom.bookshelf.domain.*
 import eu.decentnewsroom.bookshelf.ui.*
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
@@ -58,7 +59,7 @@ internal fun ReaderScreen(
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) })
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) { ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { i -> showContents = false; showNavigationMenus = false; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }
-    pendingChapterLinkUrl?.let { url -> ChapterLinkPolicy.parse(url)?.let { link -> AlertDialog(onDismissRequest = { pendingChapterLinkUrl = null }, title = { Text("Open external link?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("This chapter links outside Bookshelf."); Text(link.host, fontWeight = FontWeight.SemiBold) } }, confirmButton = { TextButton({ pendingChapterLinkUrl = null; runCatching { uriHandler.openUri(link.url) } }) { Text("Open") } }, dismissButton = { TextButton({ pendingChapterLinkUrl = null }) { Text("Cancel") } }) } ?: run { pendingChapterLinkUrl = null } }
+    pendingChapterLinkUrl?.let { url -> ChapterLinkPolicy.parse(url)?.let { link -> AlertDialog(onDismissRequest = { pendingChapterLinkUrl = null }, title = { Text("Open external link?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("This chapter links outside Bookshelf."); Text(link.host, fontWeight = FontWeight.SemiBold) } }, confirmButton = { SecondaryButton({ pendingChapterLinkUrl = null; runCatching { uriHandler.openUri(link.url) } }) { Text("Open") } }, dismissButton = { SecondaryButton({ pendingChapterLinkUrl = null }) { Text("Cancel") } }) } ?: run { pendingChapterLinkUrl = null } }
     Box(Modifier.fillMaxSize().background(colors.background)) {
         OnboardingTooltip(showReaderMenusTip, "Tap anywhere while reading to show menus for navigation and reader settings.", { showReaderMenusTip = false }) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().pointerInput(detail.summary.coordinate) { detectTapGestures { showNavigationMenus = !showNavigationMenus } }, contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {

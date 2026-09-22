@@ -32,7 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -210,11 +210,11 @@ private fun AccountSettings(state: SettingsUiState, account: AccountSettingsStat
     detail("Name", account.profileName ?: "No profile name available")
     detail("Public key", account.pubkey ?: "Not connected")
     detail("Signer", account.signerPackage ?: if (account.signerAvailable) "Available" else "No Android signer found")
-    item { if (account.pubkey == null) Button(onClick = actions.login, enabled = account.signerAvailable) { Text("Connect account") } else TextButton(onClick = actions.signOut, enabled = !account.isSyncing && !account.isPublishing) { Text("Disconnect") } }
+    item { if (account.pubkey == null) Button(onClick = actions.login, enabled = account.signerAvailable) { Text("Connect account") } else SecondaryButton(onClick = actions.signOut, enabled = !account.isSyncing && !account.isPublishing) { Text("Disconnect") } }
     sectionTitle("Bookshelf sync")
     detail("Relay sync", account.syncState ?: "Unknown")
     item { if (account.pendingAuthRequest) Text("Relay authorization requested in your signer.") }
-    item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = actions.syncToDirectory, enabled = account.pubkey != null && !account.isSyncing && !account.isPublishing) { Text("Sync to relays") }; TextButton(onClick = actions.syncFromDirectory, enabled = account.pubkey != null && !account.isSyncing && !account.isPublishing) { Text("Sync from relays") } } }
+    item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = actions.syncToDirectory, enabled = account.pubkey != null && !account.isSyncing && !account.isPublishing) { Text("Sync to relays") }; SecondaryButton(onClick = actions.syncFromDirectory, enabled = account.pubkey != null && !account.isSyncing && !account.isPublishing) { Text("Sync from relays") } } }
     sectionTitle("Pending publications")
     detail("Highlights", account.pendingHighlightCount.toString())
     detail("Reviews", account.pendingReviewCount.toString())
@@ -238,10 +238,10 @@ private fun SourcesSettings(state: SettingsUiState, actions: SettingsActions) = 
     state.chapterSources.forEach { source -> item(key = source) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f)) { Text(source); Text(if (source in ChapterRelayUrls.DEFAULTS) "Default" else "Custom", style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = { actions.removeSource(source) }, enabled = state.chapterSources.size > 1) { Text("Remove") }
+            SecondaryButton(onClick = { actions.removeSource(source) }, enabled = state.chapterSources.size > 1) { Text("Remove") }
         }
     } }
-    item { TextButton(onClick = actions.restoreSources) { Text("Restore defaults") } }
+    item { SecondaryButton(onClick = actions.restoreSources) { Text("Restore defaults") } }
     sectionTitle("Search services")
     detail("Decent Newsroom Books", "https://decentnewsroom.com/books")
     detail("Mercury fallback", "https://mercury-relay.imwald.eu")
@@ -258,7 +258,7 @@ private fun RelaySettings(state: SettingsUiState, account: AccountSettingsState,
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = draft, onValueChange = { draft = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Local relay URL") }, placeholder = { Text("ws://127.0.0.1:4869") }, isError = state.localRelayError != null, singleLine = true)
             state.localRelayError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { actions.setLocalRelay(draft) }) { Text("Save") }; TextButton(onClick = { actions.removeLocalRelay(); draft = "" }, enabled = state.localRelayUrl != null) { Text("Remove") } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { actions.setLocalRelay(draft) }) { Text("Save") }; SecondaryButton(onClick = { actions.removeLocalRelay(); draft = "" }, enabled = state.localRelayUrl != null) { Text("Remove") } }
         }
     }
     sectionTitle("Effective relay set")
@@ -285,7 +285,7 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = 
     item { if (state.isRefreshingStats) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }
     item { Text("Clearing these caches keeps saved books, reading progress, highlights, and unpublished items. Ratings may need to load again.", style = MaterialTheme.typography.bodySmall) }
-    item { TextButton(onClick = actions.refreshStorage) { Text("Refresh statistics") } }
+    item { SecondaryButton(onClick = actions.refreshStorage) { Text("Refresh statistics") } }
     item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
 }
 
@@ -293,17 +293,17 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = 
 private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) {
     var target by rememberSaveable { mutableStateOf<String?>(null) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = { target = "chapter" }, enabled = state.chapterCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear chapters") }
-        TextButton(onClick = { target = "rating" }, enabled = state.ratingCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear ratings") }
-        TextButton(onClick = { target = "offline" }, enabled = state.offlineBookCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear offline books") }
+        SecondaryButton(onClick = { target = "chapter" }, enabled = state.chapterCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear chapters") }
+        SecondaryButton(onClick = { target = "rating" }, enabled = state.ratingCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear ratings") }
+        SecondaryButton(onClick = { target = "offline" }, enabled = state.offlineBookCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear offline books") }
     }
     target?.let { cache ->
         AlertDialog(
             onDismissRequest = { target = null },
             title = { Text(if (cache == "chapter") "Clear chapter cache?" else if (cache == "rating") "Clear rating cache?" else "Clear offline books?") },
             text = { Text(if (cache == "chapter") "Rendered chapters will be regenerated. Books and reading progress stay saved." else if (cache == "rating") "Cached community ratings will need to reload. Pending signed reviews stay queued." else "Downloaded reader content will be removed. Books, progress, highlights, and unpublished items stay saved.") },
-            confirmButton = { TextButton(onClick = { if (cache == "chapter") actions.clearChapterCache() else if (cache == "rating") actions.clearRatingCache() else actions.clearOfflineBookCache(); target = null }) { Text("Clear cache") } },
-            dismissButton = { TextButton(onClick = { target = null }) { Text("Cancel") } },
+            confirmButton = { SecondaryButton(onClick = { if (cache == "chapter") actions.clearChapterCache() else if (cache == "rating") actions.clearRatingCache() else actions.clearOfflineBookCache(); target = null }) { Text("Clear cache") } },
+            dismissButton = { SecondaryButton(onClick = { target = null }) { Text("Cancel") } },
         )
     }
 }
