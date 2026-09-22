@@ -1,9 +1,9 @@
 package eu.decentnewsroom.bookshelf.ui.components
 
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
@@ -22,7 +22,7 @@ fun SecondaryButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        colors = TextButtonDefaults.textButtonColors(
+        colors = ButtonDefaults.textButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         ),
