@@ -43,15 +43,17 @@ data class BookSearchQuery(
                 }
             }
             val value = match?.groupValues?.getOrNull(2)?.trim().takeIf { !it.isNullOrBlank() } ?: trimmed
-            val naddrTarget = NaddrPublicationReferenceDecoder.decodeTarget(value)
+            val naddrValue = value.removeNostrPrefix()
+            val naddrTarget = NaddrPublicationReferenceDecoder.decodeTarget(naddrValue)
+            val searchValue = if (naddrTarget != null) naddrValue else value
             val parsedLanguage = match?.groupValues?.getOrNull(1)?.lowercase()?.let { name ->
                 value.takeIf { name == "language" || name == "lang" }
             }
             val coordinate = naddrTarget?.coordinate?.split(":", limit = 3)
-                ?: value.split(":", limit = 3).takeIf { it.size == 3 && it[1].matches(HEX_64) && it[2].isNotBlank() }
-            val eventId = value.lowercase().takeIf { it.matches(HEX_64) }
+                ?: searchValue.split(":", limit = 3).takeIf { it.size == 3 && it[1].matches(HEX_64) && it[2].isNotBlank() }
+            val eventId = searchValue.lowercase().takeIf { it.matches(HEX_64) }
             return BookSearchQuery(
-                text = if (coordinate != null || eventId != null || parsedLanguage != null) "" else value,
+                text = if (coordinate != null || eventId != null || parsedLanguage != null) "" else searchValue,
                 scope = parsedScope ?: scope,
                 language = parsedLanguage ?: language,
                 eventId = eventId,
@@ -62,6 +64,9 @@ data class BookSearchQuery(
 
         private val FIELD_QUERY = Regex("^\\s*(title|author|subject|topic|language|lang|identifier|id|source|url|d|slug)\\s*:\\s*(.+?)\\s*$", RegexOption.IGNORE_CASE)
         private val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
+
+        private fun String.removeNostrPrefix(): String =
+            if (startsWith("nostr:", ignoreCase = true)) substring("nostr:".length).trimStart() else this
     }
 }
 

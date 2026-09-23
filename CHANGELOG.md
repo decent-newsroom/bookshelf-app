@@ -7,7 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Normalize pasted `nostr:naddr` references before Search resolves their exact publication coordinates.
 - Add a **Delete** action for saved private highlights. Queued or published highlights remain protected because their immutable signed events may still be delivering.
+- Keep validated online/offline status stable while Android hands the default network between Wi-Fi, cellular, and VPN transports.
 
 ## v0.1.24
 

@@ -12,26 +12,47 @@ import java.io.Closeable
 /** Application-scoped validated-internet state. Local network access alone is not online. */
 class ValidatedInternetConnectivity(context: Context) : Closeable {
     private val connectivityManager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val mutableOnline = MutableStateFlow(connectivityManager.hasValidatedInternet())
+    private val stateLock = Any()
+    private var currentDefaultNetwork: Network? = connectivityManager.activeNetwork
+    private val mutableOnline = MutableStateFlow(
+        currentDefaultNetwork
+            ?.let(connectivityManager::getNetworkCapabilities)
+            .hasValidatedInternet(),
+    )
 
     val online: StateFlow<Boolean> = mutableOnline.asStateFlow()
     val isOnline: Boolean get() = mutableOnline.value
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = update()
-        override fun onLost(network: Network) = update()
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = update()
+        override fun onAvailable(network: Network) = updateForDefaultNetwork(network)
+
+        override fun onLost(network: Network) = synchronized(stateLock) {
+            if (currentDefaultNetwork == network) {
+                currentDefaultNetwork = null
+                mutableOnline.value = false
+            }
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = synchronized(stateLock) {
+            // A late callback for the former default must not overwrite a newer default network.
+            if (currentDefaultNetwork == network) {
+                mutableOnline.value = capabilities.hasValidatedInternet()
+            }
+        }
     }
 
     init { connectivityManager.registerDefaultNetworkCallback(callback) }
 
     override fun close() { connectivityManager.unregisterNetworkCallback(callback) }
 
-    private fun update() { mutableOnline.value = connectivityManager.hasValidatedInternet() }
+    private fun updateForDefaultNetwork(network: Network) = synchronized(stateLock) {
+        currentDefaultNetwork = network
+        mutableOnline.value = connectivityManager.getNetworkCapabilities(network).hasValidatedInternet()
+    }
 }
 
-private fun ConnectivityManager.hasValidatedInternet(): Boolean =
-    activeNetwork
-        ?.let(::getNetworkCapabilities)
-        ?.let { it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
-        ?: false
+private fun NetworkCapabilities?.hasValidatedInternet(): Boolean =
+    this?.let { capabilities ->
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } ?: false
