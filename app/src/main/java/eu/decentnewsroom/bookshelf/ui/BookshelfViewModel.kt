@@ -373,26 +373,64 @@ class BookshelfViewModel(
         bookDetailsJob?.cancel()
         _uiState.update { it.copy(bookDetails = BookDetailsState(book)) }
         bookDetailsJob = viewModelScope.launch {
-            val cached = runCatching { nostrProfiles.cachedProfile(book.pubkey) }.getOrNull()
-            _uiState.update { state ->
-                state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
-                    ?.copy(publisher = cached))
+            launch {
+                val cached = try {
+                    nostrProfiles.cachedProfile(book.pubkey)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    null
+                }
+                _uiState.update { state ->
+                    state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                        ?.copy(publisher = cached))
+                }
+                val publisher = try {
+                    nostrProfiles.refreshProfile(book.pubkey)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    null
+                } ?: cached
+                _uiState.update { state ->
+                    state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                        ?.copy(publisher = publisher, isLoadingPublisher = false))
+                }
             }
-            val publisher = runCatching { nostrProfiles.refreshProfile(book.pubkey) }.getOrNull() ?: cached
-            val aggregate = runCatching { bookRatings.aggregateFor(book) }.getOrNull()
-            val ratingSummary = aggregate?.let {
-                RatingSummaryUi(
-                    averageStars = it.averageStars,
-                    normalizedAverage = it.averageNormalizedRating,
-                    ratingCount = it.ratingCount,
-                    isLoading = false,
-                )
-            } ?: RatingSummaryUi(isLoading = false)
-            _uiState.update { state ->
-                state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
-                    ?.copy(publisher = publisher, isLoadingPublisher = false, ratings = ratingSummary))
+            launch {
+                val cached = try {
+                    bookRatings.cachedRatingsFor(book)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                _uiState.update { state ->
+                    state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                        ?.copy(ratings = ratingSummaryFor(book, cached)))
+                }
+                val refreshed = try {
+                    bookRatings.ratingsFor(book)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    cached
+                }
+                if (refreshed.map(BookRating::eventId).toSet() != cached.map(BookRating::eventId).toSet()) {
+                    _uiState.update { state ->
+                        state.copy(bookDetails = state.bookDetails?.takeIf { it.book.coordinate == book.coordinate }
+                            ?.copy(ratings = ratingSummaryFor(book, refreshed)))
+                    }
+                }
             }
         }
+    }
+
+    private fun ratingSummaryFor(book: BookSummary, ratings: List<BookRating>): RatingSummaryUi {
+        val aggregate = BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
+        return aggregate?.let {
+            RatingSummaryUi(it.averageStars, it.averageNormalizedRating, it.ratingCount, isLoading = false)
+        } ?: RatingSummaryUi(isLoading = false)
     }
 
     fun dismissBookDetails() {
@@ -402,6 +440,7 @@ class BookshelfViewModel(
 
     /** Opens the full, per-book community-rating view from the metadata sheet. */
     fun showRatings(book: BookSummary) {
+        bookDetailsJob?.cancel()
         ratingsJob?.cancel()
         _uiState.update { it.copy(bookDetails = null, ratingsPage = RatingDetailsState(book, RatingSummaryUi())) }
         ratingsJob = viewModelScope.launch {

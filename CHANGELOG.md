@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Show cached community-rating summaries immediately in book details, while publisher and relay refreshes continue independently.
+- Include profile aggregator alongside the current read relays, to improve publisher and reviewer profile lookup.
+
+
 ## v0.1.25
 
 - Let signed-in readers edit their own book rating and written review from Community ratings. Prefill the composer from their current review, save the signed revision to the durable review outbox, and show the updated rating from the local cache.

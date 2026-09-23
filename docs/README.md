@@ -18,6 +18,7 @@ This directory records architectural context and implementation decisions that s
 - ADR 0034 records default-network callback handling that keeps validated connectivity stable across transport handoffs.
 - ADR 0035 records immediate cached-rating display, background refresh, and newest-only rating revisions.
 - ADR 0036 records how an active signer edits their own rating while preserving its replaceable target and durable delivery.
+- ADR 0037 records the dedicated profile lookup relay added to current read routes for kind-0 metadata only.
 - ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching; ADRs 0017 and 0018 record the Quartz relay transport boundaries; ADR 0019 records NIP-65 user relay routing; ADR 0020 records Settings relay configuration; ADR 0021 records persistent contextual onboarding; ADR 0027 records reviewer-profile resolution without mutating active-user routing; ADR 0028 records offline review delivery; ADR 0029 supersedes ADR 0020 with the dedicated settings boundary; ADR 0031 caps and makes reader onboarding dismissible; ADR 0032 proposes durable in-chapter reader positions.
 
 ## Keeping These Notes Current

@@ -47,6 +47,7 @@ class NostrRelayClient(
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var baseRelays = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+    private val profileLookupRelay = requireNotNull(RelayUrlNormalizer.normalizeOrNull(PROFILE_LOOKUP_RELAY_URL))
     private val relayListLock = Any()
     private var relayListOwner: String? = null
     private var discoveredRelays = UserRelayList()
@@ -104,7 +105,8 @@ class NostrRelayClient(
     suspend fun fetchLatestProfile(pubkey: String): NostrEvent? {
         // Profiles are public metadata. Looking up a reviewer must not replace the
         // active signer's NIP-65 routing state.
-        return fetchLatest(profileFilter(pubkey), readRelays()) { event ->
+        val profileRelays = readRelays().apply { add(profileLookupRelay) }
+        return fetchLatest(profileFilter(pubkey), profileRelays) { event ->
             NostrEventVerifier.verify(
                 event,
                 context = NostrEventContext(expectedKind = BookKinds.PROFILE_METADATA, expectedPubkey = pubkey),
@@ -644,6 +646,7 @@ private fun safeAuthReason(reason: String?) = reason.orEmpty()
     .take(MAX_AUTH_REASON_LENGTH)
     .ifBlank { "Could not prepare relay authentication." }
 
+private const val PROFILE_LOOKUP_RELAY_URL = "wss://profiles.nostr1.com"
 private const val AUTH_SIGNING_TIMEOUT_MILLIS = 90_000L
 private const val AUTH_ACK_TIMEOUT_MILLIS = 15_000L
 private const val MAX_AUTH_REASON_LENGTH = 240
