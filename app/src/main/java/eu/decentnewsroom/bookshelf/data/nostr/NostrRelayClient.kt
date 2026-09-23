@@ -147,11 +147,12 @@ class NostrRelayClient(
     /** Bounded global rating query for discovery; callers apply recency/product policy locally. */
     suspend fun fetchRecentRatings(limit: Int = 1_000): List<NostrEvent> = fetchAll(
         filter = Filter(kinds = listOf(BookKinds.RATING), limit = limit.coerceIn(1, 1_000)),
-        relaySet = configuredRelays(),
+        relaySet = readRelays(),
     ) { event -> NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event }
     /** Fetches verified ratings only through interoperable a/A publication-address references. */
     suspend fun fetchRatings(publicationCoordinates: List<String>): List<NostrEvent> {
         val coordinates = publicationCoordinates.map(String::trim).filter(String::isNotBlank).distinct()
+        val ratingRelays = readRelays()
         val filters = buildList {
             if (coordinates.isNotEmpty()) {
                 add(Filter(kinds = listOf(BookKinds.RATING), tags = mapOf("a" to coordinates)))
@@ -159,7 +160,7 @@ class NostrRelayClient(
             }
         }
         return filters.flatMap { filter ->
-            fetchAll(filter = filter, relaySet = configuredRelays()) { event ->
+            fetchAll(filter = filter, relaySet = ratingRelays) { event ->
                 NostrEventVerifier.verify(event, context = NostrEventContext(expectedKind = BookKinds.RATING))?.event
             }
         }.distinctBy(NostrEvent::id)

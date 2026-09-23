@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Search the active user's verified NIP-65 read relays alongside configured relays for community ratings and recent-rating suggestions.
 - Show cached community-rating summaries immediately in book details, while publisher and relay refreshes continue independently.
 - Include profile aggregator alongside the current read relays, to improve publisher and reviewer profile lookup.
 
