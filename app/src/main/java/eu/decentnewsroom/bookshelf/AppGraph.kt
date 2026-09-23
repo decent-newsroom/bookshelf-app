@@ -1,6 +1,7 @@
 package eu.decentnewsroom.bookshelf
 
 import android.content.Context
+import android.util.Log
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightStore
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
@@ -31,6 +32,11 @@ import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCache
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutbox
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxDispatcher
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -53,6 +59,8 @@ object AppGraph {
             .readTimeout(20, TimeUnit.SECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
             .build()
+
+    private val ratingCacheMaintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var readerSettingsStore: ReaderSettingsStore? = null
     private var onboardingTipStore: OnboardingTipStore? = null
@@ -189,7 +197,17 @@ object AppGraph {
             )
         }
         if (bookRatingCacheStore == null) {
-            bookRatingCacheStore = BookRatingCache(appContext)
+            val cache = BookRatingCache(appContext)
+            bookRatingCacheStore = cache
+            // Reading once compacts legacy revisions even if the user never opens ratings.
+            ratingCacheMaintenanceScope.launch {
+                try {
+                    cache.stats()
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    Log.w("AppGraph", "Could not compact the rating cache at startup.", error)
+                }
+            }
         }
         if (bookRatingsRepositoryStore == null) {
             bookRatingsRepositoryStore = BookRatingsRepository(

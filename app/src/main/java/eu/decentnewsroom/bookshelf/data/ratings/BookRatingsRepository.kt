@@ -14,8 +14,11 @@ public class BookRatingsRepository(
     /** Blocks relay reads while Android has no validated internet connection. */
     private val isInternetAvailable: () -> Boolean = { true },
 ) {
+    suspend fun cachedRatingsFor(book: BookSummary): List<BookRating> =
+        BookRatingAggregator.effectiveRatings(cache?.ratingsFor(book.coordinate).orEmpty())
+
     suspend fun ratingsFor(book: BookSummary): List<BookRating> {
-        val cached = cache?.ratingsFor(book.coordinate).orEmpty()
+        val cached = cachedRatingsFor(book)
         if (!isInternetAvailable()) return cached
         val fetched = try {
             relayClient.fetchRatings(publicationCoordinates = listOf(book.coordinate))
@@ -25,9 +28,9 @@ public class BookRatingsRepository(
             return cached
         }
         cache?.merge(fetched)
-        return (cached + fetched.mapNotNull { event ->
+        return BookRatingAggregator.effectiveRatings(cached + fetched.mapNotNull { event ->
             (BookRatingEventParser.parse(event) as? BookRatingParseResult.Accepted)?.rating
-        }).associateBy(BookRating::eventId).values.toList()
+        })
     }
 
     suspend fun recentlyHighlyRated(nowSeconds: Long = System.currentTimeMillis() / 1_000L): List<BookSuggestion> {

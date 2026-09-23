@@ -10,6 +10,8 @@ object BookRatingEventParser {
         if (event.kind != BookKinds.RATING) return BookRatingParseResult.Rejected("Unexpected event kind.")
         val ratingTarget = parseRatingTarget(event.tags)
             ?: return BookRatingParseResult.Rejected("A kind-30040 reference is required in a or A.")
+        val dTags = event.tags.valuesFor("d")
+        if (dTags.size > 1) return BookRatingParseResult.Rejected("A rating must have at most one distinct d tag.")
         val entityTypes = event.tags.valuesFor("m")
         if (entityTypes.size > 1 || ratingTarget.entityType?.let { type -> entityTypes.singleOrNull()?.let { it != type } == true } == true) {
             return BookRatingParseResult.Rejected("The optional m tag conflicts with the rating target.")
@@ -28,6 +30,7 @@ object BookRatingEventParser {
             review = event.content,
             declaredEntityType = entityTypes.singleOrNull(),
             legacyStarTag = event.tags.valuesFor("s").singleOrNull(),
+            dTag = dTags.singleOrNull(),
         ))
     }
 

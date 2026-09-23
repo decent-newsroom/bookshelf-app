@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Show cached community ratings immediately, refresh them in the background when online, and replace older revisions by the newest `kind:pubkey:d` event in both the list and rating cache. Compact old cached revisions locally in the background at app startup, including offline.
 - Normalize pasted `nostr:naddr` references before Search resolves their exact publication coordinates.
 - Add a **Delete** action for saved private highlights. Queued or published highlights remain protected because their immutable signed events may still be delivering.
 - Keep validated online/offline status stable while Android hands the default network between Wi-Fi, cellular, and VPN transports.

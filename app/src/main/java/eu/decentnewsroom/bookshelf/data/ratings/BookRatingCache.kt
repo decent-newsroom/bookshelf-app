@@ -35,7 +35,8 @@ class BookRatingCache private constructor(
         maxEntries: Int = MAX_ENTRIES,
     ) : this(File(File(cacheRoot, cacheDirectoryName), CACHE_FILE_NAME), clock, maxEntries)
 
-    private val mutex = Mutex()
+    // Repository and review outbox may hold separate cache instances for the same file.
+    private val mutex = processMutex
 
     init { require(maxEntries > 0) { "maxEntries must be positive." } }
 
@@ -59,11 +60,9 @@ class BookRatingCache private constructor(
                 event.toAcceptedRatingOrNull()?.let { CachedRatingEvent(event, it.bookCoordinate, clock()) }
             }
             if (accepted.isEmpty()) return@withLock readStats(readFile())
-            val next = readFile().entries.associateBy { it.event.id }.toMutableMap()
-            accepted.forEach { next[it.event.id] = it }
             val cacheFile = CacheFile(
                 lastSuccessfulSyncAtMillis = clock(),
-                entries = next.values
+                entries = canonicalEntries(readFile().entries + accepted)
                     .sortedWith(compareByDescending<CachedRatingEvent> { it.cachedAtMillis }.thenByDescending { it.event.id })
                     .take(maxEntries),
             )
@@ -87,10 +86,31 @@ class BookRatingCache private constructor(
         return (BookRatingEventParser.parse(this) as? BookRatingParseResult.Accepted)?.rating
     }
 
-    private fun readFile(): CacheFile = runCatching {
-        if (!file.isFile) return@runCatching CacheFile()
-        json.decodeFromString<CacheFile>(file.readText(Charsets.UTF_8))
-    }.getOrDefault(CacheFile())
+    private fun readFile(): CacheFile {
+        val stored = runCatching {
+            if (file.isFile) json.decodeFromString<CacheFile>(file.readText(Charsets.UTF_8)) else CacheFile()
+        }.getOrDefault(CacheFile())
+        val canonical = canonicalEntries(stored.entries)
+        if (canonical.size == stored.entries.size) return stored
+        val compacted = stored.copy(entries = canonical)
+        // Legacy caches can contain several revisions. Compact them on first read, including offline.
+        runCatching { writeFile(compacted) }
+        return compacted
+    }
+
+    /** Selects revisions by Nostr address, never by cache arrival time. */
+    private fun canonicalEntries(entries: List<CachedRatingEvent>): List<CachedRatingEvent> {
+        val newest = mutableMapOf<Triple<Int, String, String>, CachedRatingEvent>()
+        entries.forEach { candidate ->
+            val rating = candidate.event.toAcceptedRatingOrNull() ?: return@forEach
+            val previous = newest[rating.revisionKey]
+            val previousRating = previous?.event?.toAcceptedRatingOrNull()
+            if (previousRating == null || ratingOrder.compare(rating, previousRating) > 0) {
+                newest[rating.revisionKey] = candidate
+            }
+        }
+        return newest.values.toList()
+    }
 
     private fun writeFile(cacheFile: CacheFile) {
         val parent = requireNotNull(file.parentFile)
@@ -126,6 +146,8 @@ class BookRatingCache private constructor(
         const val CACHE_FILE_NAME = "events.json"
         const val MAX_ENTRIES = 5_000
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+        val ratingOrder = compareBy<BookRating> { it.createdAt }.thenBy { it.eventId }
+        val processMutex = Mutex()
     }
 }
 

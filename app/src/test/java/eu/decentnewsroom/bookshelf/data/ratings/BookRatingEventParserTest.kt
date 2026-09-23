@@ -25,6 +25,7 @@ class BookRatingEventParserTest {
         assertEquals("0.800", rating.producerRating)
         assertEquals("books", rating.declaredEntityType)
         assertEquals("4", rating.legacyStarTag)
+        assertEquals("books:$coordinate", rating.dTag)
     }
 
     @Test
@@ -65,6 +66,7 @@ class BookRatingEventParserTest {
             listOf(listOf("d", "books:$coordinate"), listOf("rating", "0.5")),
             listOf(listOf("d", "books:30041:$publisher:chapter"), listOf("rating", "0.5")),
             listOf(listOf("a", coordinate), listOf("d", "books:$coordinate"), listOf("d", "books:30040:${"c".repeat(64)}:other"), listOf("rating", "0.5")),
+            listOf(listOf("a", coordinate), listOf("d", "first"), listOf("d", "second"), listOf("rating", "0.5")),
             listOf(listOf("a", coordinate), listOf("d", "books:$coordinate"), listOf("m", "movie"), listOf("rating", "0.5")),
             listOf(listOf("a", coordinate), listOf("rating", "-0.1")),
             listOf(listOf("a", coordinate), listOf("rating", "1.001")),

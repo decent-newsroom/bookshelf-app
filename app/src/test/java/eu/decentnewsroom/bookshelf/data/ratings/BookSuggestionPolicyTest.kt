@@ -27,7 +27,7 @@ class BookSuggestionPolicyTest {
     }
 
     @Test
-    fun keepsOnlyNewestRatingForEachReviewerBeforeApplyingThresholds() {
+    fun keepsOnlyNewestRevisionBeforeApplyingThresholds() {
         val coordinate = "30040:publisher:replacement"
         val ratings = listOf(
             rating(coordinate, "one", .9, now - 10),
@@ -67,5 +67,6 @@ class BookSuggestionPolicyTest {
             review = "",
             declaredEntityType = "books",
             legacyStarTag = null,
+            dTag = "$coordinate-$reviewer",
         )
 }

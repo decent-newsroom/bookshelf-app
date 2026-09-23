@@ -92,6 +92,7 @@ class BookshelfViewModel(
     private var searchJob: Job? = null
     private var bookOpenJob: Job? = null
     private var bookDetailsJob: Job? = null
+    private var ratingsJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -390,65 +391,116 @@ class BookshelfViewModel(
 
     /** Opens the full, per-book community-rating view from the metadata sheet. */
     fun showRatings(book: BookSummary) {
+        ratingsJob?.cancel()
         _uiState.update { it.copy(bookDetails = null, ratingsPage = RatingDetailsState(book, RatingSummaryUi())) }
-        viewModelScope.launch {
-            val ratings = runCatching { bookRatings.ratingsFor(book) }.getOrDefault(emptyList())
-            val aggregate = BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
-            val summary = aggregate?.let { RatingSummaryUi(it.averageStars, it.averageNormalizedRating, it.ratingCount, isLoading = false) }
-                ?: RatingSummaryUi(isLoading = false)
-            val distribution = ratings.groupBy { it.displayStars.roundToInt().coerceIn(1, 5) }
-                .map { (stars, values) -> RatingDistributionUi(stars, values.size) }
-            val sortedRatings = ratings.sortedWith(compareByDescending<BookRating> { it.createdAt }.thenByDescending { it.eventId })
-            val reviewerPubkeys = sortedRatings.map(BookRating::reviewerPubkey).distinct()
-            val cachedProfiles = reviewerPubkeys.associateWith { pubkey ->
-                try {
-                    nostrProfiles.cachedProfile(pubkey)
-                } catch (exception: CancellationException) {
-                    throw exception
-                } catch (_: Exception) {
-                    null
-                }
+        ratingsJob = viewModelScope.launch {
+            val cached = try {
+                bookRatings.cachedRatingsFor(book)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                emptyList()
             }
-            val reviews = sortedRatings.map {
-                RatingReviewUi(
-                    eventId = it.eventId,
-                    reviewerPubkey = it.reviewerPubkey,
-                    stars = it.displayStars,
-                    createdAtMillis = it.createdAt * 1_000,
-                    opinion = it.review,
-                    reviewerName = cachedProfiles[it.reviewerPubkey]?.preferredName,
-                )
+            currentCoroutineContext().ensureActive()
+            showRatingSnapshot(book, cached)
+
+            val cachedReviewerPubkeys = cached.map(BookRating::reviewerPubkey).toSet()
+            launch { refreshReviewerProfiles(book, cachedReviewerPubkeys.toList()) }
+
+            val refreshed = try {
+                bookRatings.ratingsFor(book)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                cached
             }
-            _uiState.update { state ->
-                state.copy(ratingsPage = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }
-                    ?.copy(summary = summary, distribution = distribution, reviews = reviews, isLoadingReviews = false))
-            }
-            coroutineScope {
-                reviewerPubkeys.chunked(MAX_CONCURRENT_REVIEWER_PROFILE_REFRESHES).forEach { batch ->
-                    batch.map { pubkey -> async {
-                        try {
-                            pubkey to nostrProfiles.refreshProfile(pubkey)
-                        } catch (exception: CancellationException) {
-                            throw exception
-                        } catch (_: Exception) {
-                            pubkey to null
-                        }
-                    } }.awaitAll().forEach { (pubkey, profile) ->
-                        val reviewerName = profile?.preferredName ?: return@forEach
-                        _uiState.update { state ->
-                            val page = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate }
-                            state.copy(ratingsPage = page?.let { currentPage ->
-                                currentPage.copy(reviews = currentPage.reviews.map { review ->
-                                    if (review.reviewerPubkey == pubkey) review.copy(reviewerName = reviewerName) else review
-                                })
-                            })
-                        }
-                    }
+            currentCoroutineContext().ensureActive()
+            if (refreshed.map(BookRating::eventId).toSet() != cached.map(BookRating::eventId).toSet()) {
+                showRatingSnapshot(book, refreshed)
+                launch {
+                    refreshReviewerProfiles(
+                        book,
+                        refreshed.map(BookRating::reviewerPubkey).distinct().filterNot { it in cachedReviewerPubkeys },
+                    )
                 }
             }
         }
     }
+
+    private fun showRatingSnapshot(book: BookSummary, ratings: List<BookRating>) {
+        val aggregate = BookRatingAggregator.aggregateForBook(book.coordinate, ratings)
+        val summary = aggregate?.let {
+            RatingSummaryUi(it.averageStars, it.averageNormalizedRating, it.ratingCount, isLoading = false)
+        } ?: RatingSummaryUi(isLoading = false)
+        val distribution = aggregate?.ratings.orEmpty().groupBy { it.displayStars.roundToInt().coerceIn(1, 5) }
+            .map { (stars, values) -> RatingDistributionUi(stars, values.size) }
+        val sortedRatings = ratings.sortedWith(compareByDescending<BookRating> { it.createdAt }.thenByDescending { it.eventId })
+        _uiState.update { state ->
+            val page = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate } ?: return@update state
+            val knownNames = page.reviews.mapNotNull { review ->
+                review.reviewerName?.let { review.reviewerPubkey to it }
+            }.toMap()
+            state.copy(ratingsPage = page.copy(
+                summary = summary,
+                distribution = distribution,
+                reviews = sortedRatings.map { rating ->
+                    RatingReviewUi(
+                        eventId = rating.eventId,
+                        reviewerPubkey = rating.reviewerPubkey,
+                        stars = rating.displayStars,
+                        createdAtMillis = rating.createdAt * 1_000,
+                        opinion = rating.review,
+                        reviewerName = knownNames[rating.reviewerPubkey],
+                    )
+                },
+                isLoadingReviews = false,
+            ))
+        }
+    }
+
+    private suspend fun refreshReviewerProfiles(book: BookSummary, reviewerPubkeys: List<String>) {
+        coroutineScope {
+            reviewerPubkeys.chunked(MAX_CONCURRENT_REVIEWER_PROFILE_REFRESHES).forEach { batch ->
+                batch.map { pubkey -> async {
+                    val cached = try {
+                        nostrProfiles.cachedProfile(pubkey)
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (_: Exception) {
+                        null
+                    }
+                    cached?.preferredName?.let { name -> updateReviewerName(book, pubkey, name) }
+                    val refreshed = try {
+                        nostrProfiles.refreshProfile(pubkey)
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (_: Exception) {
+                        null
+                    }
+                    refreshed?.preferredName?.let { name -> updateReviewerName(book, pubkey, name) }
+                } }.awaitAll()
+            }
+        }
+    }
+
+    private suspend fun updateReviewerName(book: BookSummary, pubkey: String, name: String) {
+        currentCoroutineContext().ensureActive()
+        _uiState.update { state ->
+            val page = state.ratingsPage?.takeIf { it.book.coordinate == book.coordinate } ?: return@update state
+            if (page.reviews.none { it.reviewerPubkey == pubkey && it.reviewerName != name }) return@update state
+            state.copy(ratingsPage = page.copy(reviews = page.reviews.map { review ->
+                    if (review.reviewerPubkey == pubkey && review.reviewerName != name) {
+                        review.copy(reviewerName = name)
+                    } else {
+                        review
+                    }
+                }))
+        }
+    }
+
     fun dismissRatings() {
+        ratingsJob?.cancel()
+        ratingsJob = null
         _uiState.update { it.copy(ratingsPage = null, ratingComposer = null) }
     }
 
