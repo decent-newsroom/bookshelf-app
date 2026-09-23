@@ -40,6 +40,7 @@ class ReviewOutbox private constructor(private val file: File, private val now: 
     }
 
     suspend fun pending(): List<ReviewOutboxEntry> = withContext(Dispatchers.IO) { mutex.withLock { read().entries.filterNot(ReviewOutboxEntry::isComplete) } }
+    suspend fun entry(eventId: String): ReviewOutboxEntry? = withContext(Dispatchers.IO) { mutex.withLock { read().entries.firstOrNull { it.event.id == eventId } } }
     suspend fun pendingCount(): Int = pending().size
 
     suspend fun update(eventId: String, transform: (ReviewOutboxEntry) -> ReviewOutboxEntry): ReviewOutboxEntry? = withContext(Dispatchers.IO) {
@@ -100,21 +101,34 @@ class ReviewOutboxDispatcher(
     private val isOnline: () -> Boolean,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
+    private val deliveryMutex = Mutex()
+
+    /** Saves a signed event before any relay work so the cache can show it immediately. */
+    suspend fun enqueue(event: NostrEvent, publicationAuthorPubkey: String): ReviewOutboxEntry =
+        outbox.enqueue(event, publicationAuthorPubkey)
+
+    /** Delivers an already durable event without changing its signed ID. */
+    suspend fun deliverSaved(entry: ReviewOutboxEntry): ReviewOutboxEntry = deliveryMutex.withLock {
+        var current = outbox.entry(entry.event.id) ?: return@withLock entry
+        if (!current.isComplete) {
+            current = deliverCitrine(current, localRelayUrl())
+            if (isOnline()) current = deliverRemote(current)
+        }
+        current
+    }
+
     suspend fun enqueueAndTryCitrine(event: NostrEvent, publicationAuthorPubkey: String): ReviewOutboxEntry {
-        var entry = outbox.enqueue(event, publicationAuthorPubkey)
-        entry = deliverCitrine(entry, localRelayUrl())
-        if (isOnline()) entry = deliverRemote(entry)
-        return entry
+        return deliverSaved(enqueue(event, publicationAuthorPubkey))
     }
 
     /** Processes all due entries. Returns the number of queued reviews examined. */
-    suspend fun syncPending(force: Boolean = false): Int {
+    suspend fun syncPending(force: Boolean = false): Int = deliveryMutex.withLock {
         val due = outbox.pending().filter { force || it.nextRetryAtMillis <= now() }
         due.forEach { original ->
             var entry = deliverCitrine(original, localRelayUrl())
             if (isOnline()) entry = deliverRemote(entry)
         }
-        return due.size
+        due.size
     }
 
     private suspend fun deliverCitrine(entry: ReviewOutboxEntry, relayUrl: String?): ReviewOutboxEntry {

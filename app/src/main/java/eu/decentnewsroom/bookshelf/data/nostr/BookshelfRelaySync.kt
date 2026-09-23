@@ -36,10 +36,26 @@ data class RatingEventDraft(
     val createdAt: Long,
     val kind: Int = BookKinds.RATING,
     val entityType: String = DEFAULT_ENTITY_TYPE,
+    val targetIdOverride: String? = null,
 ) {
-    val targetId: String get() = "${entityType.trim().ifBlank { DEFAULT_ENTITY_TYPE }}:$publicationCoordinate"
+    val targetId: String get() = targetIdOverride ?: "${entityType.trim().ifBlank { DEFAULT_ENTITY_TYPE }}:$publicationCoordinate"
     val publicationAuthorPubkey: String get() = publicationCoordinate.split(':', limit = 3)[1]
+    val tags: List<List<String>> get() = listOf(
+        listOf("d", targetId), listOf("a", publicationCoordinate), listOf("A", publicationCoordinate),
+        listOf("k", BookKinds.PUBLICATION_INDEX.toString()), listOf("p", publicationAuthorPubkey),
+        listOf("m", if (targetIdOverride != null) entityType else entityType.trim().ifBlank { DEFAULT_ENTITY_TYPE }),
+        listOf("rating", java.math.BigDecimal.valueOf(normalizedRating).stripTrailingZeros().toPlainString()),
+    )
     companion object { const val DEFAULT_ENTITY_TYPE = "book" }
+}
+
+/** The signer may only add an ID and signature to the pending unsigned rating. */
+internal fun RatingEventDraft.requireMatchingSignedPayload(event: NostrEvent) {
+    require(event.pubkey == pubkey.lowercase()) { "Signer returned an event for a different public key." }
+    require(event.createdAt == createdAt) { "Signer returned an event with a different creation time." }
+    require(event.kind == kind) { "Signer returned the wrong event kind." }
+    require(event.tags == tags) { "Signer returned an event with different tags." }
+    require(event.content == content) { "Signer returned an event with different content." }
 }
 enum class RelayPublishOutcomeType {
     ACCEPTED,
@@ -118,9 +134,9 @@ interface BookshelfRelaySync {
     suspend fun publishToRelay(event: NostrEvent, relayUrl: String): PublishReport
 
 
-    fun buildRatingDraft(pubkey: String, publicationCoordinate: String, normalizedRating: Double, content: String = "", createdAt: Long = System.currentTimeMillis() / 1_000L, entityType: String = RatingEventDraft.DEFAULT_ENTITY_TYPE): RatingEventDraft
+    fun buildRatingDraft(pubkey: String, publicationCoordinate: String, normalizedRating: Double, content: String = "", createdAt: Long = System.currentTimeMillis() / 1_000L, entityType: String = RatingEventDraft.DEFAULT_ENTITY_TYPE, targetId: String? = null): RatingEventDraft
     fun unsignedRatingJson(draft: RatingEventDraft): String
-    fun decodeSignedRating(eventJson: String): NostrEvent
+    fun decodeSignedRating(eventJson: String, expectedDraft: RatingEventDraft? = null): NostrEvent
     suspend fun publishRating(event: NostrEvent, publicationAuthorPubkey: String): PublishReport
     suspend fun ratingRelayUrls(event: NostrEvent, publicationAuthorPubkey: String): List<String>
     suspend fun publishRatingToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport
@@ -282,12 +298,31 @@ class QuartzBookshelfRelaySync(
         content: String,
         createdAt: Long,
         entityType: String,
+        targetId: String?,
     ): RatingEventDraft {
         require(HEX_64.matches(pubkey)) { "Rating author public key is invalid." }
         requireValidRatingCoordinate(publicationCoordinate)
         requireValidRatingEntityType(entityType)
         require(normalizedRating.isFinite() && normalizedRating in 0.0..1.0) { "The R1 rating must be between 0 and 1 inclusive." }
-        return RatingEventDraft(pubkey.lowercase(), publicationCoordinate.lowercaseCoordinate(), normalizedRating, content, createdAt, entityType = entityType.trim().ifBlank { RatingEventDraft.DEFAULT_ENTITY_TYPE })
+        val normalizedCoordinate = publicationCoordinate.lowercaseCoordinate()
+        val targetEntityType = targetId?.let { existingTarget ->
+            val namespace = existingTarget.substringBefore(':', missingDelimiterValue = "")
+            val coordinate = existingTarget.substringAfter(':', missingDelimiterValue = "")
+            require(namespace.isNotBlank()) { "Rating target must include an entity type." }
+            requireValidRatingEntityType(namespace)
+            requireValidRatingCoordinate(coordinate)
+            require(coordinate.lowercaseCoordinate() == normalizedCoordinate) { "Rating target does not match the publication." }
+            namespace
+        }
+        return RatingEventDraft(
+            pubkey = pubkey.lowercase(),
+            publicationCoordinate = normalizedCoordinate,
+            normalizedRating = normalizedRating,
+            content = content,
+            createdAt = createdAt,
+            entityType = targetEntityType ?: entityType.trim().ifBlank { RatingEventDraft.DEFAULT_ENTITY_TYPE },
+            targetIdOverride = targetId,
+        )
     }
 
     override fun unsignedRatingJson(draft: RatingEventDraft): String {
@@ -296,19 +331,24 @@ class QuartzBookshelfRelaySync(
         requireValidRatingCoordinate(draft.publicationCoordinate)
         requireValidRatingEntityType(draft.entityType)
         require(draft.normalizedRating.isFinite() && draft.normalizedRating in 0.0..1.0) { "The R1 rating must be between 0 and 1 inclusive." }
+        draft.targetIdOverride?.let { target ->
+            require(target.substringBefore(':', missingDelimiterValue = "") == draft.entityType) { "Rating target entity type changed." }
+            val coordinate = target.substringAfter(':', missingDelimiterValue = "")
+            requireValidRatingCoordinate(coordinate)
+            require(coordinate.lowercaseCoordinate() == draft.publicationCoordinate) { "Rating target does not match the publication." }
+        }
         return json.encodeToString(UnsignedNostrEvent(
             pubkey = draft.pubkey.lowercase(), createdAt = draft.createdAt, kind = draft.kind,
-            tags = listOf(
-                listOf("d", draft.targetId), listOf("a", draft.publicationCoordinate), listOf("A", draft.publicationCoordinate),
-                listOf("k", BookKinds.PUBLICATION_INDEX.toString()), listOf("p", draft.publicationAuthorPubkey),
-                listOf("m", draft.entityType.trim().ifBlank { RatingEventDraft.DEFAULT_ENTITY_TYPE }),
-                listOf("rating", formatNormalizedRating(draft.normalizedRating)),
-            ), content = draft.content,
+            tags = draft.tags, content = draft.content,
         ))
     }
 
-    override fun decodeSignedRating(eventJson: String): NostrEvent {
+    override fun decodeSignedRating(eventJson: String, expectedDraft: RatingEventDraft?): NostrEvent {
         val event = json.decodeFromString<NostrEvent>(eventJson)
+        expectedDraft?.let { draft ->
+            unsignedRatingJson(draft)
+            draft.requireMatchingSignedPayload(event)
+        }
         require(event.kind == BookKinds.RATING) { "Signer returned the wrong event kind." }
         val target = event.tags.singleTagValue("d") ?: throw IllegalArgumentException("A rating requires exactly one d tag.")
         val entityType = target.substringBefore(':', missingDelimiterValue = "")
@@ -317,9 +357,9 @@ class QuartzBookshelfRelaySync(
         requireValidRatingEntityType(entityType)
         requireValidRatingCoordinate(coordinate)
         val addressTargets = event.tags.valuesFor("a") + event.tags.valuesFor("A")
-        require(addressTargets.toSet() == setOf(coordinate)) { "A rating requires matching a or A publication-address tags." }
+        require(addressTargets.map { it.lowercaseCoordinate() }.toSet() == setOf(coordinate.lowercaseCoordinate())) { "A rating requires matching a or A publication-address tags." }
         require(event.tags.valuesFor("k") == listOf(BookKinds.PUBLICATION_INDEX.toString())) { "A rating requires a kind-30040 k tag." }
-        require(event.tags.valuesFor("p") == listOf(coordinate.split(':', limit = 3)[1])) { "A rating requires the publication author p tag." }
+        require(event.tags.valuesFor("p") == listOf(coordinate.split(':', limit = 3)[1].lowercase())) { "A rating requires the publication author p tag." }
         require(event.tags.valuesFor("m").let { it.size <= 1 && (it.isEmpty() || it.single() == entityType) }) { "The rating m tag conflicts with the rating target." }
         val rating = event.tags.singleTagValue("rating") ?: throw IllegalArgumentException("A rating requires exactly one rating tag.")
         require(parseNormalizedRating(rating) != null) { "The R1 rating must be between 0 and 1 inclusive." }
@@ -385,7 +425,6 @@ class QuartzBookshelfRelaySync(
         return "${parts[0]}:${parts[1].lowercase()}:${parts[2]}"
     }
 
-    private fun formatNormalizedRating(value: Double): String = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
     private fun parseNormalizedRating(value: String): Double? {
         if (!NORMALIZED_RATING.matches(value)) return null
         val decimal = value.toBigDecimalOrNull() ?: return null

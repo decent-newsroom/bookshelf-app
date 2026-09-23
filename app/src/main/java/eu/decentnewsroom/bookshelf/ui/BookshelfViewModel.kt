@@ -41,6 +41,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
 import eu.decentnewsroom.bookshelf.data.ratings.BookRating
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingAggregator
+import eu.decentnewsroom.bookshelf.data.ratings.BookRatingEventParser
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingsRepository
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.ratings.ReviewOutboxEntry
@@ -93,6 +94,7 @@ class BookshelfViewModel(
     private var bookOpenJob: Job? = null
     private var bookDetailsJob: Job? = null
     private var ratingsJob: Job? = null
+    private var latestSavedReviewId: String? = null
 
     init {
         viewModelScope.launch {
@@ -142,6 +144,15 @@ class BookshelfViewModel(
                     it.copy(
                         signerSession = session,
                         pendingHighlightSignRequest = it.pendingHighlightSignRequest?.takeIf { request -> request.session == session },
+                        pendingRatingSignRequest = it.pendingRatingSignRequest?.takeIf { request -> request.session == session },
+                        ratingComposer = it.ratingComposer?.let { composer ->
+                            when {
+                                composer.editingEventId != null && it.signerSession != session -> null
+                                composer.isPublishing && it.signerSession != session ->
+                                    composer.copy(isPublishing = false, requiresSignIn = session == null, error = "Account changed. Publish again with the selected account.")
+                                else -> composer.copy(requiresSignIn = session == null)
+                            }
+                        },
                         highlightComposer = it.highlightComposer?.let { composer ->
                             if (it.pendingHighlightSignRequest != null && it.pendingHighlightSignRequest.session != session)
                                 composer.copy(isPublishing = false, requiresSignIn = session == null, error = "Account changed. Publish again with the selected account.")
@@ -448,9 +459,12 @@ class BookshelfViewModel(
                         eventId = rating.eventId,
                         reviewerPubkey = rating.reviewerPubkey,
                         stars = rating.displayStars,
+                        normalizedRating = rating.normalizedRating,
                         createdAtMillis = rating.createdAt * 1_000,
                         opinion = rating.review,
                         reviewerName = knownNames[rating.reviewerPubkey],
+                        dTag = rating.dTag,
+                        canEdit = rating.dTag?.let { BookRatingEventParser.parseBookTarget(it)?.second == book.coordinate } == true,
                     )
                 },
                 isLoadingReviews = false,
@@ -505,11 +519,23 @@ class BookshelfViewModel(
     }
 
     fun showRatingComposer() {
-        val page = _uiState.value.ratingsPage ?: return
+        val state = _uiState.value
+        val page = state.ratingsPage ?: return
+        if (page.isLoadingReviews) return
+        val ownReview = page.reviews.firstOrNull { review ->
+            review.reviewerPubkey.equals(state.signerSession?.pubkey, ignoreCase = true)
+        }?.takeIf(RatingReviewUi::canEdit)
         _uiState.update {
             it.copy(
                 ratingComposer = RatingComposerState(
                     book = page.book,
+                    selectedStars = ownReview?.stars?.roundToInt()?.coerceIn(0, 5),
+                    originalDisplayStars = ownReview?.stars,
+                    originalNormalizedRating = ownReview?.normalizedRating,
+                    opinion = ownReview?.opinion.orEmpty(),
+                    editingEventId = ownReview?.eventId,
+                    editingDTag = ownReview?.dTag,
+                    previousCreatedAt = ownReview?.createdAtMillis?.div(1_000),
                     requiresSignIn = it.signerSession == null,
                 ),
             )
@@ -522,7 +548,7 @@ class BookshelfViewModel(
 
     fun updateRatingStars(stars: Int) {
         _uiState.update { state ->
-            state.copy(ratingComposer = state.ratingComposer?.copy(selectedStars = stars.coerceIn(1, 5)))
+            state.copy(ratingComposer = state.ratingComposer?.copy(selectedStars = stars.coerceIn(1, 5), hasChangedStars = true))
         }
     }
 
@@ -735,18 +761,56 @@ class BookshelfViewModel(
     }
 
     fun submitRatingReview() {
-        val composer = _uiState.value.ratingComposer ?: return
-        val session = _uiState.value.signerSession
+        val state = _uiState.value
+        val composer = state.ratingComposer ?: return
+        if (composer.isPublishing || state.pendingRatingSignRequest != null) return
+        val session = state.signerSession
         val stars = composer.selectedStars
         if (session == null || stars == null) {
             _uiState.update { it.copy(ratingComposer = composer.copy(error = if (session == null) "Log in with an Android signer before publishing a review." else "Select a star rating first.")) }
             return
         }
-        runCatching {
-            relaySync.buildRatingDraft(session.pubkey, composer.book.coordinate, stars / 5.0, composer.opinion, entityType = composer.book.type)
-        }.onSuccess { draft ->
-            _uiState.update { it.copy(ratingComposer = composer.copy(isPublishing = true, error = null), pendingRatingSignRequest = PendingRatingSignRequest(UUID.randomUUID().toString(), session, relaySync.unsignedRatingJson(draft), draft)) }
-        }.onFailure { failure -> _uiState.update { it.copy(ratingComposer = composer.copy(error = failure.message ?: "Could not prepare rating.")) } }
+        val nowSeconds = System.currentTimeMillis() / 1_000
+        if (composer.previousCreatedAt?.let { it > nowSeconds } == true) {
+            _uiState.update { it.copy(ratingComposer = composer.copy(error = "This review is dated ahead of your device clock. Check the clock before editing.")) }
+            return
+        }
+        val normalizedRating = if (composer.editingEventId != null && !composer.hasChangedStars)
+            composer.originalNormalizedRating ?: stars / 5.0
+        else stars / 5.0
+        _uiState.update { it.copy(ratingComposer = composer.copy(isPublishing = true, error = null)) }
+        viewModelScope.launch {
+            // Nostr revisions use second-resolution timestamps. Wait for the next real second
+            // if the existing event was signed in this one; never invent a future timestamp.
+            if (composer.previousCreatedAt == nowSeconds) {
+                val untilNextSecond = (nowSeconds + 1) * 1_000 - System.currentTimeMillis()
+                if (untilNextSecond > 0) delay(untilNextSecond + 1)
+            }
+            if (_uiState.value.signerSession != session || _uiState.value.ratingComposer?.isPublishing != true) return@launch
+            val createdAt = System.currentTimeMillis() / 1_000
+            if (composer.previousCreatedAt?.let { createdAt <= it } == true) {
+                _uiState.update { it.copy(ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = "Your device clock has not advanced past this review yet. Try again shortly.")) }
+                return@launch
+            }
+            runCatching {
+                relaySync.buildRatingDraft(
+                    session.pubkey,
+                    composer.book.coordinate,
+                    normalizedRating,
+                    composer.opinion,
+                    createdAt = createdAt,
+                    entityType = composer.book.type,
+                    targetId = composer.editingDTag,
+                )
+            }.onSuccess { draft ->
+                _uiState.update { current ->
+                    if (current.signerSession != session || current.ratingComposer?.isPublishing != true) current
+                    else current.copy(pendingRatingSignRequest = PendingRatingSignRequest(UUID.randomUUID().toString(), session, relaySync.unsignedRatingJson(draft), draft))
+                }
+            }.onFailure { failure ->
+                _uiState.update { it.copy(ratingComposer = it.ratingComposer?.copy(isPublishing = false, error = failure.message ?: "Could not prepare rating.")) }
+            }
+        }
     }
 
     fun completeRatingSignature(requestId: String?, signedEventJson: String) {
@@ -754,11 +818,16 @@ class BookshelfViewModel(
         if (request == null || request.id != requestId) return
         viewModelScope.launch {
             runCatching {
-                reviewOutboxDispatcher.enqueueAndTryCitrine(
-                    relaySync.decodeSignedRating(signedEventJson),
-                    request.draft.publicationAuthorPubkey,
-                )
+                require(_uiState.value.signerSession == request.session && _uiState.value.pendingRatingSignRequest?.id == request.id) {
+                    "Account changed. Publish again with the selected account."
+                }
+                val event = relaySync.decodeSignedRating(signedEventJson, request.draft)
+                require(_uiState.value.signerSession == request.session && _uiState.value.pendingRatingSignRequest?.id == request.id) {
+                    "Account changed. Publish again with the selected account."
+                }
+                reviewOutboxDispatcher.enqueue(event, request.draft.publicationAuthorPubkey)
             }.onSuccess { entry ->
+                latestSavedReviewId = entry.event.id
                 _uiState.update {
                     it.copy(
                         pendingRatingSignRequest = null,
@@ -766,6 +835,20 @@ class BookshelfViewModel(
                         latestReviewDelivery = entry.deliveryLabel(),
                         syncMessage = entry.deliveryLabel(),
                     )
+                }
+                _uiState.value.ratingsPage?.book?.takeIf { it.coordinate == request.draft.publicationCoordinate }?.let(::showRatings)
+                launch {
+                    runCatching { reviewOutboxDispatcher.deliverSaved(entry) }
+                        .onSuccess { delivered ->
+                            if (latestSavedReviewId == delivered.event.id) {
+                                _uiState.update { it.copy(latestReviewDelivery = delivered.deliveryLabel(), syncMessage = delivered.deliveryLabel()) }
+                            }
+                        }
+                        .onFailure {
+                            if (latestSavedReviewId == entry.event.id) {
+                                _uiState.update { it.copy(latestReviewDelivery = "Review saved locally; delivery needs retry.", syncMessage = "Review saved locally; delivery needs retry.") }
+                            }
+                        }
                 }
             }.onFailure { failure ->
                 _uiState.update {
@@ -1360,9 +1443,12 @@ data class RatingReviewUi(
     val eventId: String,
     val reviewerPubkey: String,
     val stars: Double,
+    val normalizedRating: Double = stars / 5.0,
     val createdAtMillis: Long,
     val opinion: String,
     val reviewerName: String? = null,
+    val dTag: String? = null,
+    val canEdit: Boolean = false,
 )
 
 data class RatingDistributionUi(
@@ -1382,7 +1468,13 @@ data class RatingDetailsState(
 data class RatingComposerState(
     val book: BookSummary,
     val selectedStars: Int? = null,
+    val originalDisplayStars: Double? = null,
+    val originalNormalizedRating: Double? = null,
+    val hasChangedStars: Boolean = false,
     val opinion: String = "",
+    val editingEventId: String? = null,
+    val editingDTag: String? = null,
+    val previousCreatedAt: Long? = null,
     val requiresSignIn: Boolean = false,
     val isPublishing: Boolean = false,
     val error: String? = null,

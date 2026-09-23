@@ -323,6 +323,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         state.ratingsPage?.let { page ->
             RatingsSheet(
                 page = page,
+                activePubkey = state.signerSession?.pubkey,
                 onDismiss = viewModel::dismissRatings,
                 onAddReview = viewModel::showRatingComposer,
             )

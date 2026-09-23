@@ -57,15 +57,30 @@ fun RatingSummaryCard(summary: RatingSummaryUi, onClick: () -> Unit) {
 }
 
 @Composable
-fun RatingsSheet(page: RatingDetailsState, onDismiss: () -> Unit, onAddReview: () -> Unit) {
+fun RatingsSheet(page: RatingDetailsState, activePubkey: String?, onDismiss: () -> Unit, onAddReview: () -> Unit) {
+    val ownReview = activePubkey?.let { pubkey ->
+        page.reviews.firstOrNull { it.reviewerPubkey.equals(pubkey, ignoreCase = true) }
+    }
+    val writtenReviews = page.reviews.filter { review ->
+        review.opinion.isNotBlank() && review.eventId != ownReview?.eventId
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().heightIn(max = 720.dp).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(page.book.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Community ratings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             when { page.summary.isLoading -> LoadingInline("Loading ratings…"); page.summary.ratingCount == 0 -> Text("No community ratings yet.", color = MaterialTheme.colorScheme.onSurfaceVariant); else -> { Text("${page.summary.averageStars?.formatOneDecimal()} out of 5 · ${page.summary.ratingCount} ${if (page.summary.ratingCount == 1) "rating" else "ratings"}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); RatingDistribution(page.distribution, page.summary.ratingCount) } }
-            Button(onClick = onAddReview, modifier = Modifier.fillMaxWidth()) { Text("Add a review") }
+            if (ownReview != null) {
+                Text("Your review", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                RatingReviewCard(ownReview)
+            }
+            Button(onClick = onAddReview, enabled = !page.isLoadingReviews, modifier = Modifier.fillMaxWidth()) {
+                Text(if (ownReview?.canEdit == true) "Edit your review" else "Add a review")
+            }
+            if (ownReview != null && !ownReview.canEdit) {
+                Text("This review cannot be replaced. Adding a review will create a new one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Text("Written reviews", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            when { page.isLoadingReviews -> LoadingInline("Loading reviews…"); page.reviews.none { it.opinion.isNotBlank() } -> Text("No written reviews yet.", color = MaterialTheme.colorScheme.onSurfaceVariant); else -> page.reviews.filter { it.opinion.isNotBlank() }.forEach { RatingReviewCard(it) } }
+            when { page.isLoadingReviews -> LoadingInline("Loading reviews…"); writtenReviews.isEmpty() -> Text("No written reviews yet.", color = MaterialTheme.colorScheme.onSurfaceVariant); else -> writtenReviews.forEach { RatingReviewCard(it) } }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -81,19 +96,31 @@ fun RatingDistribution(distribution: List<RatingDistributionUi>, total: Int) {
 
 @Composable
 fun RatingReviewCard(review: RatingReviewUi) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${review.stars.formatOneDecimal()} ★", fontWeight = FontWeight.SemiBold); Text(review.opinion); Text("${review.reviewerName ?: review.reviewerPubkey.compactHex()} · ${java.text.DateFormat.getDateInstance().format(java.util.Date(review.createdAtMillis))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("${review.stars.formatOneDecimal()} ★", fontWeight = FontWeight.SemiBold); if (review.opinion.isNotBlank()) Text(review.opinion); Text("${review.reviewerName ?: review.reviewerPubkey.compactHex()} · ${java.text.DateFormat.getDateInstance().format(java.util.Date(review.createdAtMillis))}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 
 @Composable
 fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, onStarsChanged: (Int) -> Unit, onOpinionChanged: (String) -> Unit, onSubmit: () -> Unit) {
     ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) { Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Rate ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("${if (composer.editingEventId == null) "Rate" else "Edit your review of"} ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Choose a star rating", style = MaterialTheme.typography.titleMedium)
         Row { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, enabled = !composer.isPublishing) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
+        val originalDisplayStars = composer.originalDisplayStars
+        if (originalDisplayStars != null && (originalDisplayStars == 0.0 || originalDisplayStars % 1.0 != 0.0) && !composer.hasChangedStars) {
+            val currentStars = composer.originalNormalizedRating?.let {
+                java.math.BigDecimal.valueOf(it).multiply(java.math.BigDecimal.valueOf(5L))
+                    .stripTrailingZeros().toPlainString()
+            } ?: originalDisplayStars.toString()
+            Text(
+                "Current rating: $currentStars ★. Choosing a star changes the score.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing, label = { Text("Your opinion (optional)") }, minLines = 4)
         if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
         composer.error?.let { Notice(it) }
-        Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text("Publish review") }
+        Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
         Spacer(Modifier.height(16.dp))
     } }
 }

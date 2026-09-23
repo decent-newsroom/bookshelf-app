@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Let signed-in readers edit their own book rating and written review from Community ratings. Prefill the composer from their current review, save the signed revision to the durable review outbox, and show the updated rating from the local cache.
 - Show cached community ratings immediately, refresh them in the background when online, and replace older revisions by the newest `kind:pubkey:d` event in both the list and rating cache. Compact old cached revisions locally in the background at app startup, including offline.
 - Normalize pasted `nostr:naddr` references before Search resolves their exact publication coordinates.
 - Add a **Delete** action for saved private highlights. Queued or published highlights remain protected because their immutable signed events may still be delivering.
