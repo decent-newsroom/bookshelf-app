@@ -3,6 +3,13 @@ package eu.decentnewsroom.bookshelf.data.mercury
 import eu.decentnewsroom.bookshelf.data.discovery.NaddrPublicationReferenceDecoder
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 
+object BookSearchLimits {
+    const val TEXT = 160
+    const val LANGUAGE = 32
+    const val IDENTIFIER = 512
+    const val SECTION_MIN = 4
+}
+
 /** The user-visible part of the Mercury search surface. */
 enum class SearchScope {
     ALL,
@@ -26,6 +33,19 @@ data class BookSearchQuery(
     val naddrRelayHints: List<String>? = null,
 ) {
     val normalizedText: String get() = text.trim()
+
+    fun validationMessage(): String? {
+        if (eventId != null || coordinate != null) return null
+        if (language != null && language.trim().length > BookSearchLimits.LANGUAGE) {
+            return "Language must be at most ${BookSearchLimits.LANGUAGE} characters."
+        }
+        val maximum = if (scope == SearchScope.IDENTIFIER) BookSearchLimits.IDENTIFIER else BookSearchLimits.TEXT
+        if (normalizedText.length > maximum) return "Search must be at most $maximum characters."
+        if (scope == SearchScope.CHAPTER_CONTENT && normalizedText.length < BookSearchLimits.SECTION_MIN) {
+            return "Enter at least ${BookSearchLimits.SECTION_MIN} characters to search inside books."
+        }
+        return null
+    }
 
     companion object {
         fun from(raw: String, scope: SearchScope = SearchScope.ALL, language: String? = null): BookSearchQuery {
@@ -76,6 +96,7 @@ enum class MatchProvenance {
     AUTHOR,
     SUBJECT,
     IDENTIFIER,
+    CHAPTER_TEXT,
     CHAPTER_TITLE,
     CHAPTER_BODY,
     EXACT_EVENT,

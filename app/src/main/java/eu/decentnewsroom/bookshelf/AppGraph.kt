@@ -7,6 +7,7 @@ import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationRepository
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.discovery.ShelfMetadataCache
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
@@ -68,6 +69,8 @@ object AppGraph {
     private var localRelaySettingsStore: LocalRelaySettingsStore? = null
     private var localBookshelfStore: LocalBookshelfStore? = null
     private var mercuryBooksStore: MercuryBookRepository? = null
+    private var mercuryApiStore: MercuryApiClient? = null
+    private var bookRecommendationStore: BookRecommendationRepository? = null
     private var directoryRelayClientStore: NostrRelayClient? = null
     private var relayAuthenticatorStore: ExternalSignerNostrRelayAuthenticator? = null
     private var relaySyncStore: BookshelfRelaySync? = null
@@ -99,6 +102,9 @@ object AppGraph {
 
     val mercuryBooks: MercuryBookRepository
         get() = mercuryBooksStore ?: error("AppGraph.initialize(context) must be called before using Mercury books.")
+
+    val bookRecommendations: BookRecommendationRepository
+        get() = bookRecommendationStore ?: error("AppGraph.initialize(context) must be called before using recommendations.")
 
     val localBookshelf: LocalBookshelfStore
         get() = localBookshelfStore ?: error("AppGraph.initialize(context) must be called before using the local bookshelf.")
@@ -175,15 +181,19 @@ object AppGraph {
         }
         val directoryRelayClient = checkNotNull(directoryRelayClientStore)
         val relayAuthenticator = checkNotNull(relayAuthenticatorStore)
+        if (mercuryApiStore == null) {
+            mercuryApiStore = MercuryApiClient(
+                httpClient = httpClient,
+                mercuryApiBaseUrl = DECENT_NEWSROOM_BOOKS_API_BASE_URL,
+                fallbackApiBaseUrls = listOf(MERCURY_FALLBACK_API_BASE_URL),
+                relayHint = MERCURY_RELAY_URL,
+            )
+        }
         if (mercuryBooksStore == null) {
             val sourceSettings = checkNotNull(chapterSourceSettingsStore)
             mercuryBooksStore = MercuryBookRepository(
-                apiClient = MercuryApiClient(
-                    httpClient = httpClient,
-                    mercuryApiBaseUrl = DECENT_NEWSROOM_BOOKS_API_BASE_URL,
-                    fallbackApiBaseUrls = listOf(MERCURY_FALLBACK_API_BASE_URL),
-                    relayHint = MERCURY_RELAY_URL,
-                ),
+                apiClient = checkNotNull(mercuryApiStore),
+                isInternetAvailable = { connectivity.isOnline },
                 chapterEventSource = PersistentNostrChapterSource(
                     httpClient = httpClient,
                     relayUrls = { sourceSettings.relayUrls.value },
@@ -194,6 +204,14 @@ object AppGraph {
                 naddrPublicationIndexRelaySource = { coordinate, relayHints ->
                     directoryRelayClient.fetchPublicationIndexes(listOf(coordinate), relayHints)
                 },
+            )
+        }
+        if (bookRecommendationStore == null) {
+            bookRecommendationStore = BookRecommendationRepository(
+                api = checkNotNull(mercuryApiStore),
+                books = mercuryBooks,
+                endpoint = "$DECENT_NEWSROOM_BOOKS_API_BASE_URL/api",
+                isInternetAvailable = { connectivity.isOnline },
             )
         }
         if (bookRatingCacheStore == null) {

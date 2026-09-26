@@ -67,6 +67,7 @@ import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,6 +113,7 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
 import eu.decentnewsroom.bookshelf.ui.books.BookActionsSheet
 import eu.decentnewsroom.bookshelf.ui.books.BookDetailsSheet
+import eu.decentnewsroom.bookshelf.ui.books.BookRecommendationsSheet
 import eu.decentnewsroom.bookshelf.ui.components.LoadingScreen
 import eu.decentnewsroom.bookshelf.ui.home.HomeScreen
 import eu.decentnewsroom.bookshelf.ui.library.MyBooksScreen
@@ -182,36 +184,40 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
             ) {
                 val selectedBook = state.selectedBook
                 when {
-                    selectedBook != null -> ReaderScreen(
-                        detail = selectedBook,
-                        isSaved = state.savedCoordinates.contains(selectedBook.summary.coordinate),
-                        preferences = state.readerPreferences,
-                        progress = state.readingProgress[selectedBook.summary.coordinate]
-                            ?: ReadingProgress.initial(
-                                bookCoordinate = selectedBook.summary.coordinate,
-                                chapterCount = selectedBook.chapters.size,
-                            ),
-                        selectedTab = state.tab,
-                        onBack = viewModel::returnHome,
-                        onTabSelected = viewModel::selectTab,
-                        onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
-                        onChapterProgressChanged = viewModel::recordReaderProgress,
-                        onFontSizeChanged = viewModel::setReaderFontSize,
-                        onLineHeightChanged = viewModel::setReaderLineHeight,
-                        onThemeChanged = viewModel::setReaderTheme,
-                        onParagraphAlignmentChanged = viewModel::setReaderParagraphAlignment,
-                        highlights = state.highlights.filter { it.bookCoordinate == selectedBook.summary.coordinate },
-                        highlightDelivery = state.highlightDelivery,
-                        highlightComposer = state.highlightComposer,
-                        onSaveHighlight = viewModel::saveHighlight,
-                        onShowHighlightComposer = viewModel::showHighlightComposer,
-                        onDeleteHighlight = viewModel::deletePrivateHighlight,
-                        onUpdateHighlightComment = viewModel::updateHighlightComment,
-                        onSubmitHighlight = viewModel::submitHighlight,
-                        onDismissHighlightComposer = viewModel::dismissHighlightComposer,
-                        seenTips = state.seenOnboardingTips,
-                        onTipSeen = viewModel::markOnboardingTipSeen,
-                    )
+                    selectedBook != null -> key(state.readerOpenRequestId) {
+                        ReaderScreen(
+                            detail = selectedBook,
+                            isSaved = state.savedCoordinates.contains(selectedBook.summary.coordinate),
+                            preferences = state.readerPreferences,
+                            progress = state.readingProgress[selectedBook.summary.coordinate]
+                                ?: ReadingProgress.initial(
+                                    bookCoordinate = selectedBook.summary.coordinate,
+                                    chapterCount = selectedBook.chapters.size,
+                                ),
+                            selectedTab = state.tab,
+                            onBack = viewModel::returnHome,
+                            onTabSelected = viewModel::selectTab,
+                            onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
+                            onChapterProgressChanged = viewModel::recordReaderProgress,
+                            onFontSizeChanged = viewModel::setReaderFontSize,
+                            onLineHeightChanged = viewModel::setReaderLineHeight,
+                            onThemeChanged = viewModel::setReaderTheme,
+                            onParagraphAlignmentChanged = viewModel::setReaderParagraphAlignment,
+                            highlights = state.highlights.filter { it.bookCoordinate == selectedBook.summary.coordinate },
+                            highlightDelivery = state.highlightDelivery,
+                            highlightComposer = state.highlightComposer,
+                            onSaveHighlight = viewModel::saveHighlight,
+                            onShowHighlightComposer = viewModel::showHighlightComposer,
+                            onDeleteHighlight = viewModel::deletePrivateHighlight,
+                            onUpdateHighlightComment = viewModel::updateHighlightComment,
+                            onSubmitHighlight = viewModel::submitHighlight,
+                            onDismissHighlightComposer = viewModel::dismissHighlightComposer,
+                            seenTips = state.seenOnboardingTips,
+                            onTipSeen = viewModel::markOnboardingTipSeen,
+                            initialChapterIndex = state.readerInitialChapterIndex,
+                            onInitialPositioned = viewModel::readerInitiallyPositioned,
+                        )
+                    }
 
                     state.isLoadingBook -> LoadingScreen("Opening book...")
 
@@ -220,6 +226,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             state = state,
                             onQueryChanged = viewModel::updateQuery,
                             onSearch = viewModel::submitSearch,
+                            onScopeChanged = viewModel::updateSearchScope,
+                            onOpenMatch = viewModel::openMatchingChapter,
                             onOpen = viewModel::openBook,
                             onLongPress = viewModel::showBookActions,
                         )
@@ -318,6 +326,21 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 details = details,
                 onDismiss = viewModel::dismissBookDetails,
                 onShowRatings = { viewModel.showRatings(details.book) },
+                onMoreLikeThis = { viewModel.showRecommendations(details.book) },
+            )
+        }
+        state.recommendationPage?.let { page ->
+            BookRecommendationsSheet(
+                seed = page.seed,
+                books = page.result.visibleBooks(page.seed.coordinate, state.savedCoordinates),
+                savedCoordinates = state.savedCoordinates,
+                isLoading = page.isLoading,
+                message = page.message,
+                onRetry = viewModel::retryRecommendations,
+                onDismiss = viewModel::dismissRecommendations,
+                onOpen = viewModel::openBook,
+                onDetails = viewModel::showBookDetails,
+                onToggleSaved = viewModel::toggleSaved,
             )
         }
         state.ratingsPage?.let { page ->

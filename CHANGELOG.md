@@ -7,6 +7,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## v0.1.26
+
+- Make the stalled-response cancellation regression test observe body-source reads directly instead of relying on HTTP event-listener timing.
+- Add All, Title, Author, Subject, and Inside books search controls, visible partial-result notices, and an explicit action to open a matching chapter after normal reader loading.
+- Align search validation with the extended Books API, reject unrelated parent-book matches, reconcile chapter hits with current publication revisions, and stop discovery requests while offline.
+- Add More like this in book details with verified, server-ranked recommendations, local saved-book filtering, a bounded session cache, and independent offline/error/retry states.
+- Cancel discovery HTTP work when dismissed or superseded, including response reads and fallback attempts, and preserve reader resume when a matching chapter is unavailable.
 - Search the active user's verified NIP-65 read relays alongside configured relays for community ratings and recent-rating suggestions.
 - Show cached community-rating summaries immediately in book details, while publisher and relay refreshes continue independently.
 - Include profile aggregator alongside the current read relays, to improve publisher and reviewer profile lookup.

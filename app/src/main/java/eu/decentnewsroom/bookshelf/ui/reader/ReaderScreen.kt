@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, FlowPreview::class)
@@ -41,12 +43,27 @@ internal fun ReaderScreen(
     onSaveHighlight: (BookChapter, String, Int, Int) -> Unit, onShowHighlightComposer: (ReaderHighlight) -> Unit,
     onDeleteHighlight: (ReaderHighlight) -> Unit, onUpdateHighlightComment: (String) -> Unit, onSubmitHighlight: () -> Unit, onDismissHighlightComposer: () -> Unit,
     seenTips: Set<OnboardingTip>, onTipSeen: (OnboardingTip) -> Unit,
+    initialChapterIndex: Int? = null,
+    onInitialPositioned: (BookDetail, Int, Int) -> Unit,
 ) {
-    val initialListItemIndex = readerListItemIndexForChapter(progress.currentChapterIndex, detail.chapters.size)
+    val startPosition = readerStartPosition(progress, initialChapterIndex)
+    val initialListItemIndex = readerListItemIndexForChapter(startPosition.chapterIndex, detail.chapters.size)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialListItemIndex,
-        initialFirstVisibleItemScrollOffset = progress.chapterScrollOffsetPx.coerceAtLeast(0),
+        initialFirstVisibleItemScrollOffset = startPosition.scrollOffsetPx,
     )
+    var initialPositionApplied by rememberSaveable { mutableStateOf(initialChapterIndex == null) }
+    LaunchedEffect(listState, initialChapterIndex) {
+        if (!initialPositionApplied) {
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+            onInitialPositioned(
+                detail,
+                chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size),
+                readerScrollOffsetForListItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
+            )
+            initialPositionApplied = true
+        }
+    }
     val coroutineScope = rememberCoroutineScope(); val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }; var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }; var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
@@ -56,7 +73,10 @@ internal fun ReaderScreen(
     var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
     val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size); val uriHandler = LocalUriHandler.current
     LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+        snapshotFlow {
+            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset else null
+        }
+            .filterNotNull()
             .map { (index, offset) -> chapterIndexForReaderListItem(index, detail.chapters.size) to readerScrollOffsetForListItem(index, offset) }
             .distinctUntilChanged()
             .debounce(500)
@@ -64,7 +84,7 @@ internal fun ReaderScreen(
     }
     DisposableEffect(detail.summary.coordinate, detail.chapters.size, listState) {
         onDispose {
-            onChapterProgressChanged(
+            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) onChapterProgressChanged(
                 detail,
                 chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size),
                 readerScrollOffsetForListItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),

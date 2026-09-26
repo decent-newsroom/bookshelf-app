@@ -1,6 +1,6 @@
 # Mercury Search Improvement Proposal
 
-- Status: Query/result and reliability slices implemented; filter and navigation follow-ups remain
+- Status: Query/result, reliability, scope controls, and matched-chapter navigation implemented; global language selection and advanced analyzer guarantees deferred
 - Date: 2026-08-28
 - API reference: [Mercury/swagger.json](Mercury/swagger.json), Mercury Index-Relay 0.2.30
 
@@ -8,7 +8,7 @@
 
 Improve search relevance and explainability while reducing avoidable Mercury API load and making searches useful during transient 503 Service Unavailable responses.
 
-The typed query/result-model and 503-resilience slices are implemented. ARCHITECTURE.md remains the source of truth for current behavior; see ADRs 0009 and 0010. Filter chips and matched-chapter navigation remain follow-up planning.
+The typed query/result, 503-resilience, scope-control, and matched-chapter navigation slices are implemented. ARCHITECTURE.md remains the source of truth; see ADRs 0009, 0010, and 0039. The extended Decent Newsroom API integration is recorded in [the implementation plan](plans/full-text-search-and-recommendations.md). Language selection across all channels and analyzer-specific promises remain deferred.
 
 ## Current Behavior
 
@@ -18,7 +18,7 @@ Independent branches are supervised and reported as complete, partial, or unavai
 
 ## Mercury Capabilities and Limits
 
-Mercury 0.2.30 provides:
+Historical Mercury 0.2.30 capabilities (not guarantees of the preferred Decent Newsroom API):
 
 - POST /api/publications/search for q and structured title, author, language, subject, d, and identifier fields, with a result limit of 1-100.
 - POST /api/publications/sections/search for kind 30041 title and body search. It supports case-insensitive matching, hyphen/space equivalence, AND matching for eligible unquoted words, and ranked or required exact phrases.
@@ -33,8 +33,7 @@ The specification has no cursor, offset, total count, highlights, or snippets. S
 Implemented in the first search-model slice: typed BookSearchQuery/SearchScope,
 single metadata q plus eligible section request, exact coordinate routing,
 expected-kind checks, deterministic merging, provenance, and bounded verified
-section excerpts. UI filter chips and matched-chapter navigation remain
-unimplemented.
+section excerpts. UI filter chips and matched-chapter navigation are now implemented under ADR 0039.
 
 Replace repository-specific raw-text heuristics with a typed request representing:
 
@@ -91,7 +90,7 @@ Retries must be cancellation-aware and must not outlive the active query. These 
 
 ### 5. Search UI and Navigation
 
-Expose All, Title, Author, Subject, and Inside books scopes plus an optional language selector. Explain quoted exact phrases and exact Nostr references without requiring advanced syntax.
+Implemented: All, Title, Author, Subject, and Inside books scopes. Exact Nostr references retain existing routing. A global language selector and quoted-phrase guidance are deferred until compatible backend semantics are confirmed.
 
 Content hits should show the matching chapter title and bounded excerpt. Opening one should use the normal verified book-open path and then select or scroll to the matching chapter coordinate. Never derive a navigation target from untrusted HTML or a remote URL.
 
@@ -106,12 +105,12 @@ Distinguish complete results, partial results, Mercury busy/retrying, total unav
 - Latest-query cancellation, supervised partial results, bounded 503 retry/backoff, concurrency limiting, cooldown, and in-memory caching.
 - Existing result-card UI retained initially.
 
-### Slice 2: Explainable Results and Filters (Partially Implemented)
+### Slice 2: Explainable Results and Filters (Core Implemented)
 
 - BookSearchResult, provenance, bounded excerpts, and deterministic rank fusion.
-- Search scope chips, language filtering, exact-phrase help, and partial-result messages.
+- Implemented: search scope chips and partial-result messages. Deferred: a global language selector and exact-phrase help until supported semantics are confirmed.
 
-### Slice 3: Matched-Chapter Navigation
+### Slice 3: Matched-Chapter Navigation (Implemented)
 
 - Carry an optional chapter coordinate through book opening.
 - Select or scroll after loading and rendering.

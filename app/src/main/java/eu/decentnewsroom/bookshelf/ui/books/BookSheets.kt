@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +75,7 @@ fun BookActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: 
 }
 
 @Composable
-fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRatings: () -> Unit) {
+fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRatings: () -> Unit, onMoreLikeThis: () -> Unit) {
     val book = details.book
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -91,6 +92,7 @@ fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRat
             }
             book.summary?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             RatingSummaryCard(summary = details.ratings, onClick = onShowRatings)
+            TextButton(onClick = onMoreLikeThis, modifier = Modifier.heightIn(min = 48.dp)) { Text("More like this") }
             Text("Publisher", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             when {
                 details.publisher != null -> { DetailRow("Profile", details.publisher.preferredName ?: "Unnamed profile"); DetailRow("Public key", book.pubkey) }

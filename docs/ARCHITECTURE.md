@@ -61,6 +61,24 @@ closed, or the user changes tabs. These controls reduce client-contributed
 load and visible transient failures; they do not substitute for Mercury
 server capacity.
 
+## Extended Books API discovery
+
+Search exposes All, Title, Author, Subject, and Inside books scopes with explicit submission. Recognized prefixes override the selected scope for that query. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work.
+
+Section results resolve through bounded reverse-parent `#a` queries. A parent must actually reference a returned section, and the final newest index revision must still reference the chosen matched chapter. A failed parent lookup does not count as a successful section channel. Partial warnings remain visible alongside useful results. Chapter title/excerpts remain transient; analyzed hits without a literal local match are labeled generically as text matches. The UI does not promise pagination, exact phrase semantics, or complete totals.
+
+An explicit Open matching chapter action carries a transient coordinate through the normal reader-content loading/rendering/cache boundary. The resolved available chapter starts at offset zero, taking precedence over resume for that open. A new open-request composition key prevents a previous reader session from supplying its list position. Configuration restoration retains the current position without reapplying the jump. Progress and the saved book's last-opened timestamp are recorded after the initial target has been laid out. If the target is missing/unavailable, a notice explains that ordinary resume is used instead. Ordinary book opens retain existing behavior.
+
+Book details offers a user-triggered More like this list. `BookRecommendationRepository` uses `POST /publications/recommendations` on the preferred Decent Newsroom API only; legacy capability is unverified, so recommendation requests do not use the normal fallback chain. The endpoint must return a raw array. Its events pass existing signature/kind verification and the shared repository publication mapper. Server order is preserved, with defensive coordinate revision deduplication; neither search fusion nor rating scores are applied.
+
+Recommendation requests use the displayed book event ID. Seed/saved coordinates are filtered locally on each display, including other revisions, and the saved library is not uploaded as exclusions. No repeated fill requests are made for short results. A 404 is an unavailable indexed seed, distinct from empty success, invalid input, or service failure. Library cards remain valid discovery results and open details rather than a reader.
+
+Recommendations have a separate process-memory cache (20 keys, five minutes), keyed by endpoint, seed event ID, limit, and canonical explicit exclusions. Only complete verified mapped responses, including successful empty lists, are cached before local saved filtering. Already visible results can remain marked out of date on refresh failure; expired entries do not serve new requests. No recommendation state is persisted, and no Storage clear action or outbox relationship is introduced. Ratings and rating-derived suggestions retain their independent cache/network rules.
+
+The recommendation repository owns a separate `MercurySearchResilience` instance configured for one concurrent request; its bounded 503 retry/backoff/cooldown cannot change search's controller or book opening. Identical requests coalesce, and the last departing subscriber cancels upstream work. The ViewModel cancels on connectivity loss, seed changes, dismissal, and navigation, and checks request generations before updating state. HTTP cancellation now reaches the OkHttp call through body reading, and cancellation stops endpoint fallback. No recommendation is requested merely because a book card is visible.
+
+See [ADR 0039](decisions/0039-full-text-and-seeded-discovery.md) and the [implementation record](plans/full-text-search-and-recommendations.md).
+
 ## Book and Chapter Loading
 
 Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.

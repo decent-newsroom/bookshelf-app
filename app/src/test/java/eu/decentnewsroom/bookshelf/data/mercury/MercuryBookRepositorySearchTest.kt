@@ -28,6 +28,143 @@ class MercuryBookRepositorySearchTest {
     private val signingKeys = (1..6).associate { marker -> testPubkey(marker) to ByteArray(32) { marker.toByte() } }
 
     @Test
+    fun analyzedSectionHitIsRetainedWithoutInventedLiteralExcerpt() = runBlocking {
+        val pubkey = testPubkey(1)
+        val coordinate = "30041:$pubkey:chapter"
+        val section = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")), "walking through gardens")
+        val parent = publicationEvent(testPubkey(2), "parent", "Parent", "Writer", listOf(coordinate))
+        val server = RecordingHttpServer { request ->
+            if (request.path.endsWith("/sections/search")) eventListJson(section) else eventListJson(parent)
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val result = repository.search(BookSearchQuery("walked", SearchScope.CHAPTER_CONTENT)).single()
+            assertEquals(setOf(MatchProvenance.CHAPTER_TEXT), result.provenance)
+            assertEquals(null, result.excerpt)
+            assertEquals(coordinate, result.matchedChapterCoordinate)
+        }
+    }
+
+    @Test
+    fun orphanSectionIsSuccessfulEmptyBookResult() = runBlocking {
+        val section = eventJson(testPubkey(1), BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")), "needle")
+        val server = RecordingHttpServer { request ->
+            if (request.path.endsWith("/sections/search")) eventListJson(section) else "[]"
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val outcome = repository.searchOutcome(BookSearchQuery("needle", SearchScope.CHAPTER_CONTENT))
+            assertEquals(BookSearchStatus.COMPLETE, outcome.status)
+            assertTrue(outcome.results.isEmpty())
+        }
+    }
+
+    @Test
+    fun sectionParentFailureKeepsMetadataResultsAsPartial() = runBlocking {
+        val section = eventJson(testPubkey(1), BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")), "needle")
+        val parent = publicationEvent(testPubkey(2), "parent", "Parent", "Writer", emptyList())
+        val server = RecordingHttpServer { request ->
+            when {
+                request.path.endsWith("/sections/search") -> eventListJson(section)
+                request.path.endsWith("/publications/search") -> eventListJson(parent)
+                else -> TestHttpResponse(503, "Service Unavailable", "")
+            }
+        }
+        server.use {
+            val repository = MercuryBookRepository(
+                MercuryApiClient(OkHttpClient(), server.baseUrl),
+                searchResilience = MercurySearchResilience(MercurySearchRetryConfig(maxAttempts = 1)),
+            )
+            val outcome = repository.searchOutcome(BookSearchQuery("needle"))
+            assertEquals(BookSearchStatus.PARTIAL, outcome.status)
+            assertEquals("Parent", outcome.results.single().book.title)
+        }
+    }
+
+    @Test
+    fun sectionParentFailureIsUnavailableWithoutMetadataChannel() = runBlocking {
+        val pubkey = testPubkey(1)
+        val section = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")), "needle")
+        val server = RecordingHttpServer { request ->
+            if (request.path.endsWith("/sections/search")) eventListJson(section)
+            else TestHttpResponse(503, "Service Unavailable", "")
+        }
+        server.use {
+            val repository = MercuryBookRepository(
+                MercuryApiClient(OkHttpClient(), server.baseUrl),
+                searchResilience = MercurySearchResilience(MercurySearchRetryConfig(maxAttempts = 1)),
+            )
+            val outcome = repository.searchOutcome(BookSearchQuery("needle", SearchScope.CHAPTER_CONTENT))
+            assertEquals(BookSearchStatus.UNAVAILABLE, outcome.status)
+            assertTrue(outcome.results.isEmpty())
+            assertEquals(null, repository.cachedSearchOutcome(BookSearchQuery("needle", SearchScope.CHAPTER_CONTENT)))
+        }
+    }
+
+    @Test
+    fun sectionParentsMustReferenceMatchedCoordinateAndKeepNewestSection() = runBlocking {
+        val pubkey = testPubkey(1)
+        val coordinate = "30041:$pubkey:chapter"
+        val oldSection = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter"), listOf("title", "Old section")), "needle", createdAt = 1)
+        val newSection = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter"), listOf("title", "New section")), "needle", createdAt = 2)
+        val parent = publicationEvent(testPubkey(2), "parent", "Parent", "Writer", listOf(coordinate))
+        val shared = publicationEvent(testPubkey(3), "shared", "Shared", "Writer", listOf(coordinate))
+        val unrelated = publicationEvent(testPubkey(4), "other", "Unrelated", "Writer", listOf("30041:$pubkey:other"))
+        val server = RecordingHttpServer { request ->
+            if (request.path.endsWith("/sections/search")) eventListJson(oldSection, newSection)
+            else eventListJson(unrelated, parent, shared)
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val results = repository.search(BookSearchQuery("needle", SearchScope.CHAPTER_CONTENT))
+            assertEquals(setOf("Parent", "Shared"), results.map { it.book.title }.toSet())
+            assertTrue(results.all { it.matchedChapterTitle == "New section" && it.matchedChapterCoordinate == coordinate })
+        }
+    }
+
+    @Test
+    fun newestMetadataRevisionCannotRetainRemovedChapterTarget() = runBlocking {
+        val pubkey = testPubkey(1)
+        val coordinate = "30041:$pubkey:chapter"
+        val section = eventJson(pubkey, BookKinds.PUBLICATION_CONTENT, listOf(listOf("d", "chapter")), "needle")
+        val oldParent = publicationEvent(testPubkey(2), "parent", "Old", "Writer", listOf(coordinate), createdAt = 1)
+        val newParent = publicationEvent(testPubkey(2), "parent", "New", "Writer", emptyList(), createdAt = 2)
+        val server = RecordingHttpServer { request ->
+            when {
+                request.path.endsWith("/sections/search") -> eventListJson(section)
+                request.path.endsWith("/publications/search") -> eventListJson(newParent)
+                else -> eventListJson(oldParent)
+            }
+        }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            val result = repository.search(BookSearchQuery("needle")).single()
+            assertEquals("New", result.book.title)
+            assertEquals(null, result.matchedChapterCoordinate)
+            assertEquals(null, result.excerpt)
+        }
+    }
+
+    @Test
+    fun offlineSearchUsesOnlyExplicitFreshCacheAccessor() = runBlocking {
+        var online = true
+        var now = 0L
+        val server = RecordingHttpServer { "[]" }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl), nowMillis = { now }, isInternetAvailable = { online })
+            val query = BookSearchQuery("needle", SearchScope.CHAPTER_CONTENT)
+            assertEquals(BookSearchStatus.COMPLETE, repository.searchOutcome(query).status)
+            val requestCount = server.requests.size
+            online = false
+            assertEquals(BookSearchStatus.COMPLETE, repository.cachedSearchOutcome(query)?.status)
+            now = 31_000L
+            assertEquals(null, repository.cachedSearchOutcome(query))
+            assertEquals(BookSearchStatus.UNAVAILABLE, repository.searchOutcome(query).status)
+            assertEquals(requestCount, server.requests.size)
+        }
+    }
+
+    @Test
     fun preferredBooksApiIsUsedBeforeMercuryFallback() = runBlocking {
         val preferred = RecordingHttpServer { "[]" }
         val fallback = RecordingHttpServer { "[]" }
@@ -394,7 +531,7 @@ class MercuryBookRepositorySearchTest {
         server.use {
             val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
 
-            assertTrue(repository.search("x".repeat(257)).isEmpty())
+            assertTrue(runCatching { repository.search("x".repeat(161)) }.exceptionOrNull() is IllegalArgumentException)
             assertTrue(server.requests.isEmpty())
         }
     }

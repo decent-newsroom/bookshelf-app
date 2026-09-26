@@ -15,13 +15,19 @@ import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationRepository
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationResult
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationStatus
+import eu.decentnewsroom.bookshelf.data.mercury.SearchScope
+import eu.decentnewsroom.bookshelf.ui.reader.ReaderOpenTarget
+import eu.decentnewsroom.bookshelf.ui.reader.resolveChapterIndex
+import eu.decentnewsroom.bookshelf.ui.search.searchOutcomeMessage
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchQuery
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
-import eu.decentnewsroom.bookshelf.data.mercury.BookSearchStatus
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
@@ -77,6 +83,7 @@ class BookshelfViewModel(
     private val relaySync: BookshelfRelaySync = AppGraph.relaySync,
     private val nostrProfiles: NostrProfileSource = AppGraph.nostrProfiles,
     private val curatedShelfRepository: CuratedShelfRepository = AppGraph.curatedShelves,
+    private val recommendations: BookRecommendationRepository = AppGraph.bookRecommendations,
     private val bookRatings: BookRatingsRepository = AppGraph.bookRatings,
     private val reviewOutboxDispatcher: ReviewOutboxDispatcher = AppGraph.reviewOutboxDispatcher,
     private val connectivity: ValidatedInternetConnectivity = AppGraph.connectivity,
@@ -91,6 +98,9 @@ class BookshelfViewModel(
     )
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
     private var searchJob: Job? = null
+    private var searchGeneration = 0L
+    private var recommendationJob: Job? = null
+    private var recommendationGeneration = 0L
     private var bookOpenJob: Job? = null
     private var bookDetailsJob: Job? = null
     private var ratingsJob: Job? = null
@@ -175,6 +185,25 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             connectivity.online.collect { online ->
+                if (!online) {
+                    cancelSearchWork()
+                    cancelRecommendationWork()
+                    _uiState.update { state ->
+                        state.copy(
+                            isSearching = false,
+                            searchMessage = if (state.isSearchOpen) "Offline. Search needs internet; available results are from this session." else state.searchMessage,
+                            recommendationPage = state.recommendationPage?.copy(
+                                isLoading = false,
+                                result = state.recommendationPage.result.copy(status = BookRecommendationStatus.OFFLINE),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        // Discovery cancellation must not wait behind a potentially slow outbox sync.
+        viewModelScope.launch {
+            connectivity.online.collect { online ->
                 if (online) runCatching { reviewOutboxDispatcher.syncPending() }
                 retryPendingHighlights()
             }
@@ -195,9 +224,13 @@ class BookshelfViewModel(
     }
 
     fun selectTab(tab: BookshelfTab) {
-        searchJob?.cancel()
+        cancelSearchWork()
+        bookOpenJob?.cancel()
+        dismissRecommendations()
+        dismissBookDetails()
+        dismissBookActions()
         _uiState.update {
-            it.copy(tab = tab, selectedBook = null, error = null, isSearchOpen = false, isSearching = false)
+            it.copy(tab = tab, selectedBook = null, readerInitialChapterIndex = null, isLoadingBook = false, error = null, isSearchOpen = false, isSearching = false)
         }
     }
 
@@ -206,17 +239,21 @@ class BookshelfViewModel(
     }
 
     fun closeSearch() {
-        searchJob?.cancel()
+        cancelSearchWork()
         _uiState.update { it.copy(isSearchOpen = false, isSearching = false) }
     }
 
     fun returnHome() {
-        searchJob?.cancel()
+        cancelSearchWork()
+        dismissRecommendations()
+        dismissBookDetails()
+        dismissBookActions()
         bookOpenJob?.cancel()
         _uiState.update {
             it.copy(
                 tab = BookshelfTab.Home,
                 selectedBook = null,
+                readerInitialChapterIndex = null,
                 isLoadingBook = false,
                 isSearchOpen = false,
                 isSearching = false,
@@ -232,61 +269,74 @@ class BookshelfViewModel(
         refreshCuratedShelves()
     }
 
+    private fun cancelSearchWork() {
+        searchGeneration++
+        searchJob?.cancel()
+    }
+
     fun updateQuery(query: String) {
-        _uiState.update { it.copy(query = query) }
+        cancelSearchWork()
+        _uiState.update { it.copy(query = query, isSearching = false, searchMessage = null) }
+    }
+
+    fun updateSearchScope(scope: SearchScope) {
+        cancelSearchWork()
+        _uiState.update { it.copy(searchScope = scope, isSearching = false, searchResults = emptyList(), searchMessage = null) }
     }
 
     fun submitSearch() {
-        val query = _uiState.value.query.trim()
-        searchJob?.cancel()
-        if (query.length < 2) {
-            _uiState.update {
-                it.copy(
-                    isSearching = false,
-                    searchMessage = "Enter at least two characters to search.",
-                    searchResults = emptyList(),
-                )
-            }
+        cancelSearchWork()
+        val generation = searchGeneration
+        val query = BookSearchQuery.from(_uiState.value.query, _uiState.value.searchScope)
+        val validation = query.validationMessage()
+            ?: if (query.eventId == null && query.coordinate == null && query.language == null && query.normalizedText.length < 2)
+                "Enter at least two characters to search." else null
+        if (validation != null) {
+            _uiState.update { it.copy(isSearching = false, searchMessage = validation, searchResults = emptyList(), error = null) }
             return
         }
-
         searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isSearching = true, searchMessage = null, error = null) }
             try {
-                val outcome = repository.searchOutcome(BookSearchQuery.from(query))
-                val message = when (outcome.status) {
-                    BookSearchStatus.COMPLETE ->
-                        if (outcome.results.isEmpty()) "No matching books." else null
-                    BookSearchStatus.PARTIAL ->
-                        if (outcome.results.isEmpty()) {
-                            "Mercury returned an incomplete response. Try again."
-                        } else {
-                            null
-                        }
-                    BookSearchStatus.UNAVAILABLE -> "Mercury is temporarily busy. Try again shortly."
+                if (!connectivity.isOnline) {
+                    val cached = repository.cachedSearchOutcome(query)
+                    currentCoroutineContext().ensureActive()
+                    if (generation == searchGeneration) _uiState.update {
+                        it.copy(
+                            isSearching = false,
+                            searchResults = cached?.results.orEmpty(),
+                            searchMessage = "Offline. Search needs internet; available results are from this session.",
+                        )
+                    }
+                    return@launch
                 }
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        searchResults = outcome.results,
-                        searchMessage = message,
-                    )
+                val outcome = repository.searchOutcome(query)
+                currentCoroutineContext().ensureActive()
+                if (generation == searchGeneration) _uiState.update {
+                    it.copy(isSearching = false, searchResults = outcome.results, searchMessage = searchOutcomeMessage(outcome))
                 }
             } catch (exception: CancellationException) {
                 throw exception
-            } catch (exception: MercuryApiException) {
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        searchMessage = "Mercury is unavailable.",
-                        error = exception.message,
-                    )
+            } catch (_: Exception) {
+                if (generation == searchGeneration) _uiState.update {
+                    it.copy(isSearching = false, searchMessage = "Search is unavailable. Try again.")
                 }
             }
         }
     }
 
-    fun openBook(book: BookSummary) {
+    fun openMatchingChapter(result: BookSearchResult) {
+        openBook(result.book, result.matchedChapterCoordinate?.let(::ReaderOpenTarget))
+    }
+
+    fun openBook(book: BookSummary) = openBook(book, null)
+
+    private fun openBook(book: BookSummary, target: ReaderOpenTarget?) {
+        cancelSearchWork()
+        dismissRecommendations()
+        dismissBookDetails()
+        dismissBookActions()
+        _uiState.update { it.copy(isSearching = false, readerInitialChapterIndex = null) }
         if (book.chapterRefs.isEmpty()) {
             bookOpenJob?.cancel()
             _uiState.update {
@@ -314,13 +364,18 @@ class BookshelfViewModel(
                     isSaved = localBookshelf.isSaved(book.coordinate),
                 )
                 currentCoroutineContext().ensureActive()
-                if (localBookshelf.isSaved(detail.summary.coordinate)) {
+                val targetIndex = target?.resolveChapterIndex(detail.chapters)
+                // An explicit jump records progress only once the reader has positioned successfully.
+                if (targetIndex == null && localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
                 }
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false,
                         selectedBook = detail,
+                        readerInitialChapterIndex = targetIndex,
+                        readerOpenRequestId = UUID.randomUUID().toString(),
+                        syncMessage = if (target != null && targetIndex == null) "The matching chapter is no longer available. Resuming this book." else it.syncMessage,
                         error = null,
                     )
                 }
@@ -369,6 +424,7 @@ class BookshelfViewModel(
     }
 
     fun showBookDetails(book: BookSummary) {
+        dismissRecommendations()
         dismissBookActions()
         bookDetailsJob?.cancel()
         _uiState.update { it.copy(bookDetails = BookDetailsState(book)) }
@@ -436,6 +492,44 @@ class BookshelfViewModel(
     fun dismissBookDetails() {
         bookDetailsJob?.cancel()
         _uiState.update { it.copy(bookDetails = null) }
+    }
+
+    private fun cancelRecommendationWork() {
+        recommendationGeneration++
+        recommendationJob?.cancel()
+    }
+
+    fun dismissRecommendations() {
+        cancelRecommendationWork()
+        _uiState.update { it.copy(recommendationPage = null) }
+    }
+
+    fun showRecommendations(seed: BookSummary) {
+        val previous = _uiState.value.recommendationPage?.takeIf { it.seed.id == seed.id }
+        cancelRecommendationWork()
+        val generation = recommendationGeneration
+        dismissBookDetails()
+        dismissBookActions()
+        _uiState.update { it.copy(recommendationPage = BookRecommendationsState(seed, previous?.result ?: BookRecommendationResult(), isLoading = true)) }
+        recommendationJob = viewModelScope.launch {
+            val result = try {
+                recommendations.recommendations(seed)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                BookRecommendationResult(status = BookRecommendationStatus.UNAVAILABLE)
+            }
+            currentCoroutineContext().ensureActive()
+            if (generation == recommendationGeneration) _uiState.update { state ->
+                state.copy(recommendationPage = state.recommendationPage?.takeIf { it.seed.id == seed.id }?.let { page ->
+                    page.copy(isLoading = false, result = result.retainingVisibleBooks(page.result))
+                })
+            }
+        }
+    }
+
+    fun retryRecommendations() {
+        _uiState.value.recommendationPage?.seed?.let(::showRecommendations)
     }
 
     /** Opens the full, per-book community-rating view from the metadata sheet. */
@@ -1232,6 +1326,11 @@ class BookshelfViewModel(
         }
     }
 
+    fun readerInitiallyPositioned(book: BookDetail, chapterIndex: Int, scrollOffsetPx: Int) {
+        readerSettings.recordProgress(book, chapterIndex, scrollOffsetPx)
+        if (localBookshelf.isSaved(book.summary.coordinate)) readerSettings.recordBookOpened(book)
+    }
+
     fun recordReaderProgress(book: BookDetail, chapterIndex: Int, scrollOffsetPx: Int) {
         readerSettings.recordProgress(book, chapterIndex, scrollOffsetPx)
     }
@@ -1426,12 +1525,16 @@ data class BookshelfUiState(
     val shelfMessage: String? = null,
     val isSearchOpen: Boolean = false,
     val query: String = "",
+    val searchScope: SearchScope = SearchScope.ALL,
     val isSearching: Boolean = false,
     val searchResults: List<BookSearchResult> = emptyList(),
     val searchMessage: String? = null,
     val savedBooks: List<BookSummary> = emptyList(),
     val savedCoordinates: Set<String> = emptySet(),
     val selectedBook: BookDetail? = null,
+    val readerInitialChapterIndex: Int? = null,
+    val readerOpenRequestId: String = "",
+    val recommendationPage: BookRecommendationsState? = null,
     val bookActions: BookSummary? = null,
     val bookDetails: BookDetailsState? = null,
     val ratingsPage: RatingDetailsState? = null,

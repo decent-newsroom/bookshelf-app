@@ -7,6 +7,11 @@ import eu.decentnewsroom.bookshelf.data.nostr.NostrEventVerifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -48,6 +53,7 @@ class MercuryApiClient(
             val original = chain.request()
             var lastFailure: Throwable? = null
             for ((index, endpoint) in apiBaseUrls.withIndex()) {
+                if (chain.call().isCanceled()) throw IOException("Canceled")
                 val request = if (index == 0) original else original.withApiBaseUrl(endpoint)
                 try {
                     val response = chain.proceed(request)
@@ -58,6 +64,7 @@ class MercuryApiClient(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
+                    if (chain.call().isCanceled()) throw exception
                     lastFailure = exception
                     if (index == apiBaseUrls.lastIndex) throw exception
                 }
@@ -88,9 +95,11 @@ class MercuryApiClient(
     }
 
     suspend fun searchPublicationSections(query: String, limit: Int = 60): List<NostrEvent> {
-        val normalized = query.trim().takeIf {
-            it.length <= MAX_SEARCH_LENGTH && it.searchTermLength() >= 4
-        } ?: return emptyList()
+        val normalized = query.trim()
+        require(normalized.length in BookSearchLimits.SECTION_MIN..BookSearchLimits.TEXT) {
+            "Inside books searches must contain 4 to 160 characters."
+        }
+        require(limit in 1..100) { "Search limit must be between 1 and 100." }
 
         return requestEventList(
             Request
@@ -104,6 +113,33 @@ class MercuryApiClient(
                 .header("Accept", "application/json")
                 .build(),
             expectedKind = BookKinds.PUBLICATION_CONTENT,
+        )
+    }
+
+    /** Similarity discovery is supported only by the configured primary Books API. */
+    suspend fun recommendPublications(
+        seedEventId: String,
+        excludeIds: List<String> = emptyList(),
+        limit: Int = 10,
+    ): List<NostrEvent> {
+        require(excludeIds.size <= 100) { "At most 100 exclusions are supported." }
+        require(limit in 1..50) { "Recommendation limit must be between 1 and 50." }
+        fun normalizeId(value: String): String = value.trim().lowercase().also {
+            require(HEX_64.matches(it)) { "A valid 64-character hexadecimal event ID is required." }
+        }
+        val body = MercuryRecommendationRequest(
+            seedEventId = normalizeId(seedEventId),
+            excludeIds = excludeIds.map(::normalizeId).distinct(),
+            limit = limit,
+        )
+        return requestEventList(
+            Request.Builder()
+                .url(url("/api/publications/recommendations"))
+                .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
+                .header("Accept", "application/json")
+                .build(),
+            expectedKind = BookKinds.PUBLICATION_INDEX,
+            primaryOnly = true,
         )
     }
 
@@ -137,9 +173,9 @@ class MercuryApiClient(
                     .build()
 
             try {
-                endpointHttpClient.newCall(request).execute().use { response ->
+                executeRequest(request) { response ->
                     if (response.code == 404) {
-                        return@withContext null
+                        return@executeRequest null
                     }
                     if (!response.isSuccessful) {
                         throw response.toMercuryApiException()
@@ -147,6 +183,8 @@ class MercuryApiClient(
 
                     decodeEvent(response.body.readLimitedUtf8(), eventId, expectedKind)
                 }
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: MercuryApiException) {
                 throw exception
             } catch (exception: Throwable) {
@@ -298,15 +336,16 @@ class MercuryApiClient(
         expectedAuthors: List<String> = emptyList(),
         expectedKind: Int? = null,
         expectedDTags: List<String> = emptyList(),
+        primaryOnly: Boolean = false,
     ): List<NostrEvent> =
         withContext(Dispatchers.IO) {
             try {
-                endpointHttpClient.newCall(request).execute().use { response ->
+                executeRequest(request, primaryOnly) { response ->
                     if (!response.isSuccessful) {
                         throw response.toMercuryApiException()
                     }
 
-                    decodeEventList(response.body.readLimitedUtf8(), expectedKind).filter { event ->
+                    decodeEventList(response.body.readLimitedUtf8(), expectedKind, requireArray = primaryOnly).filter { event ->
                         (expectedIds.isEmpty() || event.id in expectedIds) &&
                             (expectedAuthors.isEmpty() || event.pubkey in expectedAuthors) &&
                             (expectedKind == null || event.kind == expectedKind) &&
@@ -316,6 +355,8 @@ class MercuryApiClient(
                                 })
                     }
                 }
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: MercuryApiException) {
                 throw exception
             } catch (exception: Throwable) {
@@ -343,8 +384,11 @@ class MercuryApiClient(
         }
     }
 
-    private fun decodeEventList(body: String, expectedKind: Int? = null): List<NostrEvent> {
+    private fun decodeEventList(body: String, expectedKind: Int? = null, requireArray: Boolean = false): List<NostrEvent> {
         val element = json.parseToJsonElement(body)
+        if (requireArray && element !is JsonArray) {
+            throw MercuryApiException("Mercury returned an invalid event response.")
+        }
         val listElement =
             if (element is JsonObject && "data" in element) {
                 element["data"]
@@ -430,35 +474,50 @@ class MercuryApiClient(
         }.distinct()
 
     private fun MercuryPublicationSearch.normalized(limit: Int): MercuryPublicationSearch? {
-        val normalized =
-            copy(
-                q = q.cleaned(),
-                title = title.cleaned(),
-                author = author.cleaned(),
-                language = language.cleaned()?.lowercase(),
-                subject = subject.cleaned(),
-                d = d.cleaned(),
-                identifier = identifier.cleaned(),
-                limit = limit.coerceToMercuryLimit(),
-            )
-
+        require(limit in 1..100) { "Search limit must be between 1 and 100." }
+        val normalized = copy(
+            q = q.cleaned("Query"), title = title.cleaned("Title"),
+            author = author.cleaned("Author"), subject = subject.cleaned("Subject"),
+            d = d.cleaned("Publication identifier"),
+            language = language.cleaned("Language", BookSearchLimits.LANGUAGE)?.lowercase(),
+            identifier = identifier.cleaned("Identifier", BookSearchLimits.IDENTIFIER),
+            limit = limit,
+        )
         return normalized.takeIf {
-            listOf(
-                it.q,
-                it.title,
-                it.author,
-                it.language,
-                it.subject,
-                it.d,
-                it.identifier,
-            ).any { value -> value != null }
+            listOf(it.q, it.title, it.author, it.language, it.subject, it.d, it.identifier).any { value -> value != null }
         }
     }
 
-    private fun String?.cleaned(): String? =
-        this?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_SEARCH_LENGTH }
+    private fun String?.cleaned(field: String, maxLength: Int = BookSearchLimits.TEXT): String? {
+        val value = this?.trim() ?: return null
+        require(value.length <= maxLength) { "$field must be at most $maxLength characters." }
+        return value.takeIf(String::isNotEmpty)
+    }
 
-    private fun String.searchTermLength(): Int = trim('"', '\'').trim().length
+    /** Cancellation remains attached through the bounded body read and event verification. */
+    private suspend fun <T> executeRequest(
+        request: Request,
+        primaryOnly: Boolean = false,
+        decode: (Response) -> T,
+    ): T = suspendCancellableCoroutine { continuation ->
+        val call = (if (primaryOnly) httpClient else endpointHttpClient).newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, exception: IOException) {
+                if (continuation.isActive) continuation.resumeWith(Result.failure(exception))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = runCatching {
+                    response.use {
+                        if (!continuation.isActive) throw CancellationException("Mercury request cancelled.")
+                        decode(it)
+                    }
+                }
+                if (continuation.isActive) continuation.resumeWith(result)
+            }
+        })
+    }
 
     private fun Int.coerceToMercuryLimit(): Int = coerceIn(1, 100)
 
@@ -475,6 +534,13 @@ class MercuryApiClient(
     )
 
     @Serializable
+    private data class MercuryRecommendationRequest(
+        @SerialName("seed_event_id") val seedEventId: String,
+        @SerialName("exclude_ids") val excludeIds: List<String>,
+        val limit: Int,
+    )
+
+    @Serializable
     private data class MercurySectionSearchRequest(
         val q: String,
         val limit: Int,
@@ -482,7 +548,6 @@ class MercuryApiClient(
 
     private companion object {
         const val FILTER_BATCH_SIZE = 100
-        const val MAX_SEARCH_LENGTH = 256
         const val MAX_HTTP_RESPONSE_BYTES = 8L * 1024 * 1024
         const val HTTP_SERVICE_UNAVAILABLE = 503
         const val MILLIS_PER_SECOND = 1_000L

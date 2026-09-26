@@ -8,6 +8,19 @@ import org.junit.Test
 
 class BookSearchModelsTest {
     @Test
+    fun validatesTextSectionAndStructuredFieldBoundaries() {
+        assertNull(BookSearchQuery("x".repeat(160)).validationMessage())
+        assertNotNull(BookSearchQuery("x".repeat(161)).validationMessage())
+        assertNotNull(BookSearchQuery("abc", SearchScope.CHAPTER_CONTENT).validationMessage())
+        assertNull(BookSearchQuery("abcd", SearchScope.CHAPTER_CONTENT).validationMessage())
+        assertNull(BookSearchQuery("x".repeat(512), SearchScope.IDENTIFIER).validationMessage())
+        assertNotNull(BookSearchQuery("x".repeat(513), SearchScope.IDENTIFIER).validationMessage())
+        assertNull(BookSearchQuery(language = "x".repeat(32)).validationMessage())
+        assertNotNull(BookSearchQuery(language = "x".repeat(33)).validationMessage())
+        assertNull(BookSearchQuery.from("30040:${"a".repeat(64)}:${"x".repeat(200)}").validationMessage())
+    }
+
+    @Test
     fun parsesStructuredScopesWithoutChangingTheSearchText() {
         assertEquals(SearchScope.TITLE, BookSearchQuery.from("title: Pride").scope)
         assertEquals("Pride", BookSearchQuery.from("title: Pride").text)
