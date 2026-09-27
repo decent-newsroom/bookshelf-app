@@ -4,7 +4,7 @@ import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationResult
 import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationStatus
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 
-/** Holds only in-session discovery metadata; saved books never contain this state. */
+/** Presentation state for the details carousel; persistence belongs to the recommendation cache. */
 data class BookRecommendationsState(
     val seed: BookSummary,
     val result: BookRecommendationResult = BookRecommendationResult(),

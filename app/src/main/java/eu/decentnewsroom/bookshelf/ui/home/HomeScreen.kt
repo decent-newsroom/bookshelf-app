@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +34,7 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.ContinueReadingBook
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
+import eu.decentnewsroom.bookshelf.ui.books.BookCarousel
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -67,9 +66,7 @@ fun HomeScreen(
             item(key = shelf.id) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(shelf.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(shelf.books, key = BookSummary::coordinate) { book -> ShelfBookCard(book, onOpen = { onOpen(book) }, onLongPress = { onLongPress(book) }) }
-                    }
+                    BookCarousel(shelf.books, onOpen = onOpen, onLongPress = onLongPress, contentPadding = PaddingValues(horizontal = 20.dp))
                 }
             }
         }
@@ -92,15 +89,5 @@ fun ContinueReadingCard(continueReading: ContinueReadingBook, onOpen: () -> Unit
                 Text("Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
         }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ShelfBookCard(book: BookSummary, onOpen: () -> Unit, onLongPress: () -> Unit) {
-    Column(Modifier.width(124.dp).combinedClickable(onClick = onOpen, onLongClick = onLongPress), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        BookCover(book, Modifier.fillMaxWidth().height(174.dp))
-        Text(book.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(book.authors.joinToString(", ").ifBlank { "Unknown author" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

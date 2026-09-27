@@ -1,6 +1,7 @@
 # ADR 0039: Full-text navigation and seeded discovery
 
 - Status: Accepted
+- Recommendation presentation and cache policy superseded by [ADR 0042](0042-inline-book-details-recommendations.md); other decisions remain in force.
 - Date: 2026-09-26
 - Extends: ADRs 0009 and 0010; recommendation traffic has a separate resilience controller.
 

@@ -9,6 +9,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.26
 
+- Add Rate and review directly after See details in the book menu, opening the review form with the active reader's cached review ready to edit.
+- Add a publication type, chapter count, and Read card above community ratings in book details, while retaining type and chapter count in the metadata.
+- Embed More like this below community ratings as a carousel shared with Home, with cached results shown immediately and independent loading, offline, and retry feedback.
+- Persist recommendations in a separate bounded 24-hour cache, retain stale results offline or on refresh failure, and expose independent storage statistics and clearing in Settings.
 - Simplify Search to all publication metadata by default, with an optional Include book contents toggle instead of scope buttons. Keep the toggle for the current app session and support `content:` for chapter-only searches.
 - Give full-text chapter searches a two-minute read timeout instead of 20 seconds so expensive queries have more time to return results.
 - Make the stalled-response cancellation regression test observe body-source reads directly instead of relying on HTTP event-listener timing.

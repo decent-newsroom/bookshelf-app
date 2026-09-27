@@ -113,7 +113,6 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
 import eu.decentnewsroom.bookshelf.ui.books.BookActionsSheet
 import eu.decentnewsroom.bookshelf.ui.books.BookDetailsSheet
-import eu.decentnewsroom.bookshelf.ui.books.BookRecommendationsSheet
 import eu.decentnewsroom.bookshelf.ui.components.LoadingScreen
 import eu.decentnewsroom.bookshelf.ui.home.HomeScreen
 import eu.decentnewsroom.bookshelf.ui.library.MyBooksScreen
@@ -275,6 +274,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     removeLocalRelay = settingsViewModel::removeLocalRelay,
                                     clearChapterCache = settingsViewModel::clearChapterCache,
                                     clearRatingCache = settingsViewModel::clearRatingCache,
+                                    clearRecommendationCache = settingsViewModel::clearRecommendationCache,
                                     clearOfflineBookCache = settingsViewModel::clearOfflineBookCache,
                                     refreshStorage = settingsViewModel::refreshStats,
                                 ),
@@ -318,6 +318,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                     viewModel.toggleSaved(book)
                 },
                 onDetails = { viewModel.showBookDetails(book) },
+                onRateReview = { viewModel.showRatingComposer(book) },
                 onBroadcast = { viewModel.broadcastBookToLocalRelay(book) },
             )
         }
@@ -326,21 +327,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 details = details,
                 onDismiss = viewModel::dismissBookDetails,
                 onShowRatings = { viewModel.showRatings(details.book) },
-                onMoreLikeThis = { viewModel.showRecommendations(details.book) },
-            )
-        }
-        state.recommendationPage?.let { page ->
-            BookRecommendationsSheet(
-                seed = page.seed,
-                books = page.result.visibleBooks(page.seed.coordinate, state.savedCoordinates),
+                onRead = { viewModel.openBook(details.book) },
+                recommendations = state.recommendationPage?.takeIf { it.seed.id == details.book.id },
                 savedCoordinates = state.savedCoordinates,
-                isLoading = page.isLoading,
-                message = page.message,
-                onRetry = viewModel::retryRecommendations,
-                onDismiss = viewModel::dismissRecommendations,
-                onOpen = viewModel::openBook,
-                onDetails = viewModel::showBookDetails,
-                onToggleSaved = viewModel::toggleSaved,
+                onRetryRecommendations = viewModel::retryRecommendations,
+                onOpenRecommendation = { book ->
+                    if (book.chapterRefs.isEmpty()) viewModel.showBookDetails(book) else viewModel.openBook(book)
+                },
+                onRecommendationActions = viewModel::showBookActions,
             )
         }
         state.ratingsPage?.let { page ->

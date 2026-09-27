@@ -21,6 +21,9 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,13 +31,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.BookDetailsState
-import eu.decentnewsroom.bookshelf.ui.RatingSummaryUi
+import eu.decentnewsroom.bookshelf.ui.BookRecommendationsState
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
 import eu.decentnewsroom.bookshelf.ui.ratings.RatingSummaryCard
 
@@ -47,6 +51,7 @@ fun BookActionsSheet(
     onDismiss: () -> Unit,
     onToggleSaved: () -> Unit,
     onDetails: () -> Unit,
+    onRateReview: () -> Unit,
     onBroadcast: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -57,6 +62,7 @@ fun BookActionsSheet(
             Text(book.title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
             BookActionRow(Icons.Outlined.Info, "See details", onDetails)
+            BookActionRow(Icons.Outlined.Star, "Rate and review", onRateReview)
             if (localRelayConfigured) {
                 BookActionRow(Icons.AutoMirrored.Outlined.Send, if (isBroadcasting) "Broadcasting…" else "Broadcast to local relay", onBroadcast, enabled = !isBroadcasting)
             }
@@ -75,7 +81,17 @@ fun BookActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: 
 }
 
 @Composable
-fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRatings: () -> Unit, onMoreLikeThis: () -> Unit) {
+fun BookDetailsSheet(
+    details: BookDetailsState,
+    onDismiss: () -> Unit,
+    onShowRatings: () -> Unit,
+    onRead: () -> Unit,
+    recommendations: BookRecommendationsState?,
+    savedCoordinates: Set<String>,
+    onRetryRecommendations: () -> Unit,
+    onOpenRecommendation: (BookSummary) -> Unit,
+    onRecommendationActions: (BookSummary) -> Unit,
+) {
     val book = details.book
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -91,8 +107,17 @@ fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRat
                 }
             }
             book.summary?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            PublicationReadingCard(book, onRead)
             RatingSummaryCard(summary = details.ratings, onClick = onShowRatings)
-            TextButton(onClick = onMoreLikeThis, modifier = Modifier.heightIn(min = 48.dp)) { Text("More like this") }
+            key(book.id) {
+                BookRecommendationsSection(
+                    recommendations = recommendations?.takeIf { it.seed.id == book.id },
+                    savedCoordinates = savedCoordinates,
+                    onRetry = onRetryRecommendations,
+                    onOpen = onOpenRecommendation,
+                    onLongPress = onRecommendationActions,
+                )
+            }
             Text("Publisher", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             when {
                 details.publisher != null -> { DetailRow("Profile", details.publisher.preferredName ?: "Unnamed profile"); DetailRow("Public key", book.pubkey) }
@@ -114,6 +139,54 @@ fun BookDetailsSheet(details: BookDetailsState, onDismiss: () -> Unit, onShowRat
             DetailRow("Coordinate", book.coordinate)
             DetailRow("Event ID", book.id)
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun PublicationReadingCard(book: BookSummary, onRead: () -> Unit) {
+    val canRead = book.chapterRefs.isNotEmpty()
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column(Modifier.weight(1f)) { DetailRow("Publication type", book.type) }
+                Column(Modifier.weight(1f)) { DetailRow("Chapters", book.chapterCount.toString()) }
+            }
+            Button(onClick = onRead, enabled = canRead, modifier = Modifier.fillMaxWidth()) { Text("Read") }
+            if (!canRead) {
+                Text("This publication has no readable chapters.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookRecommendationsSection(
+    recommendations: BookRecommendationsState?,
+    savedCoordinates: Set<String>,
+    onRetry: () -> Unit,
+    onOpen: (BookSummary) -> Unit,
+    onLongPress: (BookSummary) -> Unit,
+) {
+    val books = recommendations?.result?.books.orEmpty().filter {
+        it.coordinate != recommendations?.seed?.coordinate && it.coordinate !in savedCoordinates
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("More like this", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        if (recommendations == null || recommendations.isLoading) {
+            LoadingInline(if (books.isEmpty()) "Finding similar books…" else "Refreshing similar books…")
+        }
+        recommendations?.message?.let { message ->
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!recommendations.isLoading) {
+                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
+            }
+        }
+        if (recommendations != null && !recommendations.isLoading && recommendations.message == null && books.isEmpty()) {
+            Text("No similar books to show right now.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (books.isNotEmpty()) {
+            BookCarousel(books = books, onOpen = onOpen, onLongPress = onLongPress)
         }
     }
 }

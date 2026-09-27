@@ -13,9 +13,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.util.concurrent.atomic.AtomicInteger
 
 class BookRecommendationRepositoryTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
     @Test fun rankAndNewestRevisionSurviveLiveSavedFiltering() = runBlocking {
         val seed = book(1)
         val old = book(2)
@@ -42,7 +45,7 @@ class BookRecommendationRepositoryTest {
         assertEquals(2, calls)
     }
 
-    @Test fun offlineUsesOnlyFreshSessionCacheAndExpiryPreventsReuse() = runBlocking {
+    @Test fun offlineRetainsStaleResultsWithoutRemoteWork() = runBlocking {
         var online = true
         var now = 0L
         var calls = 0
@@ -51,9 +54,9 @@ class BookRecommendationRepositoryTest {
         online = false
         assertEquals(listOf(book(2)), repository.recommendations(book(1)).books)
         assertEquals(BookRecommendationStatus.OFFLINE, repository.recommendations(book(1)).status)
-        now = 300_000L
-        assertNull(repository.cachedRecommendations(book(1)))
-        assertTrue(repository.recommendations(book(1)).books.isEmpty())
+        now = 86_400_000L
+        assertTrue(repository.cachedRecommendations(book(1))!!.isStale)
+        assertEquals(listOf(book(2)), repository.recommendations(book(1)).books)
         assertEquals(1, calls)
     }
 
@@ -142,6 +145,96 @@ class BookRecommendationRepositoryTest {
         repository.recommendations(book(2))
         assertEquals(3, calls)
     }
+    @Test fun persistedResultsSurviveRestartAndStaleFailuresKeepRank() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        var now = 1L
+        var calls = 0
+        fun repository(online: Boolean) = BookRecommendationRepository(
+            "primary", { _, _, _ ->
+                calls++
+                if (calls > 1) throw MercuryApiException("unavailable", statusCode = 500)
+                listOf(book(3), book(2))
+            }, { online }, { now }, persistentCache = BookRecommendationCache(root),
+        )
+        repository(true).recommendations(book(1))
+        val restarted = repository(false)
+        assertEquals(listOf(book(3), book(2)), restarted.recommendations(book(1)).books)
+        assertEquals(1, calls)
+        now += 86_400_000L
+        val stale = repository(true).recommendations(book(1))
+        assertEquals(BookRecommendationStatus.UNAVAILABLE, stale.status)
+        assertTrue(stale.isStale)
+        assertTrue(stale.servedFromCache)
+        assertEquals(listOf(book(3), book(2)), stale.books)
+        assertEquals(2, calls)
+    }
+
+    @Test fun freshPersistedEmptyResultAvoidsFetchButExpiresAfterADay() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        var now = 10L
+        var calls = 0
+        fun repository() = BookRecommendationRepository(
+            "primary", { _, _, _ -> calls++; emptyList() }, { true }, { now },
+            persistentCache = BookRecommendationCache(root),
+        )
+        repository().recommendations(book(1))
+        assertTrue(repository().recommendations(book(1)).servedFromCache)
+        assertEquals(1, calls)
+        now += 86_400_000L
+        assertFalse(repository().recommendations(book(1)).servedFromCache)
+        assertEquals(2, calls)
+    }
+
+    @Test fun clearDuringRefreshCannotRepopulateDiskOrMemory() = runBlocking {
+        withTimeout(5_000) {
+            val root = temporaryFolder.newFolder()
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val repository = BookRecommendationRepository(
+                "primary", { _, _, _ -> started.complete(Unit); release.await(); listOf(book(2)) },
+                { true }, persistentCache = BookRecommendationCache(root),
+            )
+            val request = async { repository.recommendations(book(1)) }
+            started.await()
+            assertEquals(0, repository.clearCache().entryCount)
+            release.complete(Unit)
+            assertTrue(request.await().books.isEmpty())
+            assertNull(repository.cachedRecommendations(book(1)))
+            assertEquals(0, repository.cacheStats().entryCount)
+        }
+    }
+
+    @Test fun diskCapacityAndClearStayIndependentOfOtherCaches() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        val unrelated = java.io.File(root, "ratings.json").apply { writeText("preserved") }
+        var now = 0L
+        val disk = BookRecommendationCache(root, maxEntries = 2)
+        val repository = BookRecommendationRepository(
+            "primary", { _, _, _ -> emptyList() }, { true }, { now++ }, persistentCache = disk,
+        )
+        (1..3).forEach { repository.recommendations(book(it)) }
+        assertEquals(2, repository.cacheStats().entryCount)
+        val restarted = BookRecommendationRepository("primary", { _, _, _ -> error("offline") }, { false }, persistentCache = disk)
+        assertNull(restarted.cachedRecommendations(book(1)))
+        assertNotNull(restarted.cachedRecommendations(book(3)))
+        repository.clearCache()
+        assertEquals(0L, repository.cacheStats().sizeBytes)
+        assertEquals("preserved", unrelated.readText())
+    }
+
+    @Test fun corruptedDiskEntryIsIgnoredAndDifferentEndpointsStaySeparate() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        val disk = BookRecommendationCache(root)
+        val original = BookRecommendationRepository("primary", { _, _, _ -> listOf(book(2)) }, { true }, persistentCache = disk)
+        original.recommendations(book(1))
+        val otherEndpoint = BookRecommendationRepository("other", { _, _, _ -> error("offline") }, { false }, persistentCache = disk)
+        assertNull(otherEndpoint.cachedRecommendations(book(1)))
+        java.io.File(root, "book-recommendations/v1").listFiles()!!.single().writeText("{broken")
+        val restarted = BookRecommendationRepository("primary", { _, _, _ -> error("offline") }, { false }, persistentCache = disk)
+        assertNull(restarted.cachedRecommendations(book(1)))
+        assertEquals(BookRecommendationStatus.OFFLINE, restarted.recommendations(book(1)).status)
+    }
+
     private fun repository(fetch: suspend (String, List<String>, Int) -> List<BookSummary>) =
         BookRecommendationRepository("primary", fetch, { true })
 

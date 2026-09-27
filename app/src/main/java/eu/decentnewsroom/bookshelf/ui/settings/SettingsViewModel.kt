@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationRepository
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterSourceSettingsStore
@@ -40,6 +41,7 @@ class SettingsViewModel(
     private val bookshelf: LocalBookshelfStore = AppGraph.localBookshelf,
     private val chapterCache: ChapterHtmlCache = AppGraph.chapterHtmlCache,
     private val offlineBookCache: OfflineBookCache = AppGraph.offlineBookCache,
+    private val recommendations: BookRecommendationRepository = AppGraph.bookRecommendations,
     private val ratings: BookRatingsRepository = AppGraph.bookRatings,
     private val highlights: HighlightOutbox = AppGraph.highlightOutbox,
     private val highlightDispatcher: HighlightOutboxDispatcher = AppGraph.highlightDispatcher,
@@ -133,6 +135,7 @@ class SettingsViewModel(
         try {
             coroutineScope {
                 val chapter = async { chapterCache.stats() }
+                val recommendation = async { recommendations.cacheStats() }
                 val rating = async { ratings.cacheStats() }
                 val offlineBooks = async { offlineBookCache.stats() }
                 val pendingHighlights = async { highlights.pending().size }
@@ -140,6 +143,7 @@ class SettingsViewModel(
                 _uiState.update {
                     it.copy(
                         chapterCacheStats = chapter.await(),
+                        recommendationCacheStats = recommendation.await(),
                         ratingCacheStats = rating.await(),
                         offlineBookCacheStats = offlineBooks.await(),
                         pendingHighlightCount = pendingHighlights.await(),
@@ -171,6 +175,16 @@ class SettingsViewModel(
             try { offlineBookCache.clear(); refreshStatsNow() }
             catch (failure: CancellationException) { throw failure }
             catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear offline books.") } }
+            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
+        }
+    }
+
+    fun clearRecommendationCache() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
+            try { recommendations.clearCache(); refreshStatsNow() }
+            catch (failure: CancellationException) { throw failure }
+            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear recommendation cache.") } }
             finally { _uiState.update { it.copy(isRefreshingStats = false) } }
         }
     }

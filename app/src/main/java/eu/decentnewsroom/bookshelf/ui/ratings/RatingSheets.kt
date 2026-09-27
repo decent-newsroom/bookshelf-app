@@ -104,7 +104,8 @@ fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, on
     ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) { Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("${if (composer.editingEventId == null) "Rate" else "Edit your review of"} ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Choose a star rating", style = MaterialTheme.typography.titleMedium)
-        Row { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, enabled = !composer.isPublishing) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
+        if (composer.isLoadingReview) LoadingInline("Loading your saved review…")
+        Row { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, enabled = !composer.isPublishing && !composer.isLoadingReview) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
         val originalDisplayStars = composer.originalDisplayStars
         if (originalDisplayStars != null && (originalDisplayStars == 0.0 || originalDisplayStars % 1.0 != 0.0) && !composer.hasChangedStars) {
             val currentStars = composer.originalNormalizedRating?.let {
@@ -117,10 +118,10 @@ fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, on
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing, label = { Text("Your opinion (optional)") }, minLines = 4)
+        OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing && !composer.isLoadingReview, label = { Text("Your opinion (optional)") }, minLines = 4)
         if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
         composer.error?.let { Notice(it) }
-        Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
+        Button(onClick = onSubmit, enabled = !composer.isPublishing && !composer.isLoadingReview, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
         Spacer(Modifier.height(16.dp))
     } }
 }

@@ -7,6 +7,7 @@ import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutbox
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightOutboxDispatcher
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationCache
 import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationRepository
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.discovery.ShelfMetadataCache
@@ -211,6 +212,7 @@ object AppGraph {
                 api = checkNotNull(mercuryApiStore),
                 books = mercuryBooks,
                 endpoint = "$DECENT_NEWSROOM_BOOKS_API_BASE_URL/api",
+                cache = BookRecommendationCache(appContext),
                 isInternetAvailable = { connectivity.isOnline },
             )
         }

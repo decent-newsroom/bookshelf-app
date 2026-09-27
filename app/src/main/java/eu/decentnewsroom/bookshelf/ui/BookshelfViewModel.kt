@@ -22,6 +22,7 @@ import eu.decentnewsroom.bookshelf.data.mercury.SearchScope
 import eu.decentnewsroom.bookshelf.ui.reader.ReaderOpenTarget
 import eu.decentnewsroom.bookshelf.ui.reader.resolveChapterIndex
 import eu.decentnewsroom.bookshelf.ui.search.searchOutcomeMessage
+import eu.decentnewsroom.bookshelf.ui.ratings.ratingComposerForBook
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
 import eu.decentnewsroom.bookshelf.data.bookshelf.LocalBookshelfStore
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
@@ -104,6 +105,7 @@ class BookshelfViewModel(
     private var bookOpenJob: Job? = null
     private var bookDetailsJob: Job? = null
     private var ratingsJob: Job? = null
+    private var ratingComposerJob: Job? = null
     private var latestSavedReviewId: String? = null
 
     init {
@@ -150,6 +152,7 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             relaySync.activeSession.collect { session ->
+                if (_uiState.value.signerSession != session) ratingComposerJob?.cancel()
                 _uiState.update {
                     it.copy(
                         signerSession = session,
@@ -157,6 +160,7 @@ class BookshelfViewModel(
                         pendingRatingSignRequest = it.pendingRatingSignRequest?.takeIf { request -> request.session == session },
                         ratingComposer = it.ratingComposer?.let { composer ->
                             when {
+                                composer.isLoadingReview && it.signerSession != session -> null
                                 composer.editingEventId != null && it.signerSession != session -> null
                                 composer.isPublishing && it.signerSession != session ->
                                     composer.copy(isPublishing = false, requiresSignIn = session == null, error = "Account changed. Publish again with the selected account.")
@@ -199,6 +203,8 @@ class BookshelfViewModel(
                         )
                     }
                 }
+                // Reload from disk after cancellation, or refresh stale/offline results on reconnect.
+                _uiState.value.bookDetails?.book?.let(::showRecommendations)
             }
         }
         // Discovery cancellation must not wait behind a potentially slow outbox sync.
@@ -224,6 +230,7 @@ class BookshelfViewModel(
     }
 
     fun selectTab(tab: BookshelfTab) {
+        dismissRatingComposer()
         cancelSearchWork()
         bookOpenJob?.cancel()
         dismissRecommendations()
@@ -244,6 +251,7 @@ class BookshelfViewModel(
     }
 
     fun returnHome() {
+        dismissRatingComposer()
         cancelSearchWork()
         dismissRecommendations()
         dismissBookDetails()
@@ -336,6 +344,7 @@ class BookshelfViewModel(
     fun openBook(book: BookSummary) = openBook(book, null)
 
     private fun openBook(book: BookSummary, target: ReaderOpenTarget?) {
+        dismissRatingComposer()
         cancelSearchWork()
         dismissRecommendations()
         dismissBookDetails()
@@ -432,6 +441,7 @@ class BookshelfViewModel(
         dismissBookActions()
         bookDetailsJob?.cancel()
         _uiState.update { it.copy(bookDetails = BookDetailsState(book)) }
+        showRecommendations(book)
         bookDetailsJob = viewModelScope.launch {
             launch {
                 val cached = try {
@@ -495,6 +505,7 @@ class BookshelfViewModel(
 
     fun dismissBookDetails() {
         bookDetailsJob?.cancel()
+        dismissRecommendations()
         _uiState.update { it.copy(bookDetails = null) }
     }
 
@@ -512,10 +523,19 @@ class BookshelfViewModel(
         val previous = _uiState.value.recommendationPage?.takeIf { it.seed.id == seed.id }
         cancelRecommendationWork()
         val generation = recommendationGeneration
-        dismissBookDetails()
-        dismissBookActions()
         _uiState.update { it.copy(recommendationPage = BookRecommendationsState(seed, previous?.result ?: BookRecommendationResult(), isLoading = true)) }
         recommendationJob = viewModelScope.launch {
+            val cached = try {
+                recommendations.cachedRecommendations(seed)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (generation == recommendationGeneration && cached != null) _uiState.update { state ->
+                state.copy(recommendationPage = state.recommendationPage?.takeIf { it.seed.id == seed.id }
+                    ?.copy(result = cached))
+            }
             val result = try {
                 recommendations.recommendations(seed)
             } catch (exception: CancellationException) {
@@ -538,6 +558,7 @@ class BookshelfViewModel(
 
     /** Opens the full, per-book community-rating view from the metadata sheet. */
     fun showRatings(book: BookSummary) {
+        dismissRecommendations()
         bookDetailsJob?.cancel()
         ratingsJob?.cancel()
         _uiState.update { it.copy(bookDetails = null, ratingsPage = RatingDetailsState(book, RatingSummaryUi())) }
@@ -650,6 +671,7 @@ class BookshelfViewModel(
     }
 
     fun dismissRatings() {
+        ratingComposerJob?.cancel()
         ratingsJob?.cancel()
         ratingsJob = null
         _uiState.update { it.copy(ratingsPage = null, ratingComposer = null) }
@@ -679,7 +701,34 @@ class BookshelfViewModel(
         }
     }
 
+    /** Direct menu entry: local prefill never waits for relay or profile requests. */
+    fun showRatingComposer(book: BookSummary) {
+        ratingComposerJob?.cancel()
+        dismissBookActions()
+        dismissBookDetails()
+        dismissRatings()
+        val session = _uiState.value.signerSession
+        _uiState.update { it.copy(ratingComposer = RatingComposerState(
+            book = book, requiresSignIn = session == null, isLoadingReview = true,
+        )) }
+        ratingComposerJob = viewModelScope.launch {
+            val cached = try {
+                bookRatings.cachedRatingsFor(book)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            currentCoroutineContext().ensureActive()
+            _uiState.update { state ->
+                if (state.ratingComposer?.book?.id != book.id || state.signerSession != session) state
+                else state.copy(ratingComposer = ratingComposerForBook(book, session?.pubkey, cached))
+            }
+        }
+    }
+
     fun dismissRatingComposer() {
+        ratingComposerJob?.cancel()
         _uiState.update { it.copy(ratingComposer = null) }
     }
 
@@ -900,7 +949,7 @@ class BookshelfViewModel(
     fun submitRatingReview() {
         val state = _uiState.value
         val composer = state.ratingComposer ?: return
-        if (composer.isPublishing || state.pendingRatingSignRequest != null) return
+        if (composer.isLoadingReview || composer.isPublishing || state.pendingRatingSignRequest != null) return
         val session = state.signerSession
         val stars = composer.selectedStars
         if (session == null || stars == null) {
@@ -1622,6 +1671,7 @@ data class RatingComposerState(
     val editingDTag: String? = null,
     val previousCreatedAt: Long? = null,
     val requiresSignIn: Boolean = false,
+    val isLoadingReview: Boolean = false,
     val isPublishing: Boolean = false,
     val error: String? = null,
 )

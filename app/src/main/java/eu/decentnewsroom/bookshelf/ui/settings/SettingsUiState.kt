@@ -1,5 +1,6 @@
 package eu.decentnewsroom.bookshelf.ui.settings
 
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationCacheStats
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrSignerSession
 import eu.decentnewsroom.bookshelf.data.nostr.RelayConfiguration
@@ -19,6 +20,7 @@ data class SettingsUiState(
     val pendingHighlightCount: Int = 0,
     val pendingReviewCount: Int = 0,
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
+    val recommendationCacheStats: BookRecommendationCacheStats = BookRecommendationCacheStats(),
     val ratingCacheStats: BookRatingCacheStats = BookRatingCacheStats(),
     val offlineBookCacheStats: OfflineBookCacheStats = OfflineBookCacheStats(),
     val isRefreshingStats: Boolean = false,
