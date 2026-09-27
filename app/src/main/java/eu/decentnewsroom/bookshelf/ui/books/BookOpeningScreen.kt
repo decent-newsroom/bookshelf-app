@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,13 +34,14 @@ fun BookOpeningScreen(book: BookSummary?) {
     ) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (book != null) {
-                val coverWidth = minOf(maxWidth, maxHeight * 0.68f, 560.dp)
                 val coverUrl = TrustedCoverImagePolicy.sanitize(book.coverImageUrl)
                 var artworkLoaded by remember(book.id, coverUrl) { mutableStateOf(false) }
+                var coverAspectRatio by remember(book.id, coverUrl) { mutableStateOf(0.68f) }
+                val coverWidth = minOf(maxWidth, maxHeight * coverAspectRatio, 560.dp)
                 Surface(
-                    modifier = Modifier.width(coverWidth).height(coverWidth / 0.68f),
+                    modifier = Modifier.width(coverWidth).height(coverWidth / coverAspectRatio),
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = if (artworkLoaded) Color.Transparent else MaterialTheme.colorScheme.primaryContainer,
                     shadowElevation = 8.dp,
                 ) {
                     Box(Modifier.fillMaxSize()) {
@@ -68,9 +70,14 @@ fun BookOpeningScreen(book: BookSummary?) {
                                 model = coverUrl,
                                 contentDescription = "Cover of ${book.title} by ${book.authors.joinToString(", ").ifBlank { "Unknown author" }}",
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                                onSuccess = { artworkLoaded = true },
-                                onError = { artworkLoaded = false },
+                                contentScale = ContentScale.Crop,
+                                onSuccess = { state ->
+                                    val size = state.painter.intrinsicSize
+                                    val ratio = size.width / size.height
+                                    if (ratio.isFinite() && ratio > 0f) coverAspectRatio = ratio
+                                    artworkLoaded = true
+                                },
+                                onError = { artworkLoaded = false; coverAspectRatio = 0.68f },
                             )
                         }
                     }

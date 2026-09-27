@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.domain.BookSummary
+import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationStatus
 import eu.decentnewsroom.bookshelf.ui.BookDetailsState
 import eu.decentnewsroom.bookshelf.ui.BookRecommendationsState
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
@@ -192,7 +193,7 @@ private fun BookRecommendationsSection(
             }
             recommendations?.message?.takeIf { isOnline }?.let { message ->
                 Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!recommendations.isLoading) {
+                if (!recommendations.isLoading && recommendations.result.status != BookRecommendationStatus.SEED_UNAVAILABLE) {
                     TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry") }
                 }
             }
