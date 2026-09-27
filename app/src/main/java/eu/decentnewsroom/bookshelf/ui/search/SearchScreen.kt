@@ -17,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +35,7 @@ import eu.decentnewsroom.bookshelf.ui.books.BookCard
 fun SearchScreen(
     state: BookshelfUiState,
     onQueryChanged: (String) -> Unit,
-    onIncludeBookContentsChanged: (Boolean) -> Unit,
+    onSearchBookContentsChanged: (Boolean) -> Unit,
     onSearch: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onOpenMatch: (BookSearchResult) -> Unit,
@@ -45,13 +44,15 @@ fun SearchScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Search all titles, authors, subjects, and other book details.")
+                Text(
+                    if (state.searchBookContents) "Search within book chapters."
+                    else "Search all titles, authors, subjects, and other book details."
+                )
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChanged,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Search books") },
-                    supportingText = { Text("Content searches need 4–160 characters and may take longer.") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSearch() }),
@@ -61,15 +62,22 @@ fun SearchScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .toggleable(
-                            value = state.includeBookContents,
+                            value = state.searchBookContents,
                             role = Role.Switch,
-                            onValueChange = onIncludeBookContentsChanged,
+                            onValueChange = onSearchBookContentsChanged,
                         ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Include book contents", modifier = Modifier.weight(1f))
-                    Switch(checked = state.includeBookContents, onCheckedChange = null)
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Search book contents")
+                        Text(
+                            "Search within chapters. Use 4 to 160 characters; results may take longer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = state.searchBookContents, onCheckedChange = null)
                 }
                 Button(onClick = onSearch, modifier = Modifier.fillMaxWidth()) { Text(if (state.isSearching) "Search again" else "Search") }
             }
@@ -78,21 +86,23 @@ fun SearchScreen(
         state.searchMessage?.let { item { Notice(it) } }
         state.error?.let { item { Notice(it) } }
         items(state.searchResults, key = { it.book.coordinate }) { result ->
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (result.provenance.isContentMatch()) {
+                ContentSearchResultCard(
+                    result = result,
+                    isSaved = state.savedCoordinates.contains(result.book.coordinate),
+                    onOpen = { onOpen(result.book) },
+                    onOpenMatch = { onOpenMatch(result) },
+                    onLongPress = { onLongPress(result.book) },
+                )
+            } else {
                 BookCard(result.book, state.savedCoordinates.contains(result.book.coordinate), { onOpen(result.book) }, { onLongPress(result.book) })
-                Text(result.provenance.searchMatchLabel(), style = MaterialTheme.typography.labelMedium)
-                result.matchedChapterTitle?.let { Text("Chapter: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                result.excerpt?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3) }
-                if (result.matchedChapterCoordinate != null) {
-                    TextButton(onClick = { onOpenMatch(result) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open matching chapter") }
-                }
             }
         }
     }
 }
 
 internal fun Set<MatchProvenance>.searchMatchLabel(): String {
-    val chapter = any { it == MatchProvenance.CHAPTER_TITLE || it == MatchProvenance.CHAPTER_BODY || it == MatchProvenance.CHAPTER_TEXT }
+    val chapter = isContentMatch()
     val metadata = any { it != MatchProvenance.CHAPTER_TITLE && it != MatchProvenance.CHAPTER_BODY && it != MatchProvenance.CHAPTER_TEXT }
     return when {
         chapter && metadata -> "Metadata and text match"
@@ -100,4 +110,8 @@ internal fun Set<MatchProvenance>.searchMatchLabel(): String {
         MatchProvenance.EXACT_EVENT in this || MatchProvenance.EXACT_COORDINATE in this -> "Exact reference"
         else -> "Metadata match"
     }
+}
+
+internal fun Set<MatchProvenance>.isContentMatch(): Boolean = any {
+    it == MatchProvenance.CHAPTER_TITLE || it == MatchProvenance.CHAPTER_BODY || it == MatchProvenance.CHAPTER_TEXT
 }

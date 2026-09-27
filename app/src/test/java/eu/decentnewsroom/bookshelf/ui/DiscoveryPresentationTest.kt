@@ -7,6 +7,7 @@ import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchStatus
 import eu.decentnewsroom.bookshelf.data.mercury.MatchProvenance
 import eu.decentnewsroom.bookshelf.domain.BookSummary
+import eu.decentnewsroom.bookshelf.ui.search.isContentMatch
 import eu.decentnewsroom.bookshelf.ui.search.searchMatchLabel
 import eu.decentnewsroom.bookshelf.ui.search.searchOutcomeMessage
 import org.junit.Assert.*
@@ -18,6 +19,15 @@ class DiscoveryPresentationTest {
         assertNotNull(searchOutcomeMessage(BookSearchOutcome(listOf(result), BookSearchStatus.PARTIAL)))
         assertNull(searchOutcomeMessage(BookSearchOutcome(listOf(result), BookSearchStatus.COMPLETE)))
         assertEquals("Text match", result.provenance.searchMatchLabel())
+    }
+
+    @Test fun resultProvenanceSelectsContentPresentationIndependentlyOfSearchControls() {
+        listOf(MatchProvenance.CHAPTER_TITLE, MatchProvenance.CHAPTER_BODY, MatchProvenance.CHAPTER_TEXT).forEach {
+            assertTrue(setOf(it).isContentMatch())
+            assertTrue(setOf(it, MatchProvenance.METADATA).isContentMatch())
+        }
+        assertFalse(setOf(MatchProvenance.METADATA).isContentMatch())
+        assertFalse(setOf(MatchProvenance.EXACT_EVENT, MatchProvenance.EXACT_COORDINATE).isContentMatch())
     }
 
     @Test fun failedRecommendationRefreshRetainsPreviousBooksButEmptySuccessClearsThem() {

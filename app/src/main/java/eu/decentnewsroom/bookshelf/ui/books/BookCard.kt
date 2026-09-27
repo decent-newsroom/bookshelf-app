@@ -41,31 +41,40 @@ fun BookCard(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BookCover(book)
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(book.type.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-                Text(
-                    text = "by ${book.authors.joinToString(", ").ifBlank { "Unknown author" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                Text(
-                    text = if (book.chapterRefs.isEmpty()) {
-                        "Library card · Full text unavailable" + if (isSaved) " · In My Books" else ""
-                    } else {
-                        "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else ""
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        BookCardHeader(book, isSaved)
+    }
+}
+
+@Composable
+internal fun BookCardHeader(
+    book: BookSummary,
+    isSaved: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BookCover(book)
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(book.type.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+            Text(
+                text = "by ${book.authors.joinToString(", ").ifBlank { "Unknown author" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Text(
+                text = if (book.chapterRefs.isEmpty()) {
+                    "Library card · Full text unavailable" + if (isSaved) " · In My Books" else ""
+                } else {
+                    "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else ""
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.26
 
+- Replace Include book contents with Search book contents: enabled searches chapter text only, validates 4–160 characters, and shows the full-text hint beside the toggle.
+- Keep content search matches together in one result card containing the book header, matching chapter, excerpt, and Open matching chapter action.
 - Replace separate cache-clear buttons in Settings with selection toggles and one Clear selected caches action, including a combined confirmation and per-cache failure reporting.
 - Add Rate and review directly after See details in the book menu, opening the review form with the active reader's cached review ready to edit.
 - Add a publication type, chapter count, and Read card above community ratings in book details, while retaining type and chapter count in the metadata.

@@ -772,7 +772,18 @@ class MercuryBookRepositorySearchTest {
     }
 
     @Test
-    fun includingContentsUsesSeparateCacheAndAddsChapterMatches() = runBlocking {
+    fun chapterModeWithMetadataPrefixCallsOnlyTheSectionSearch() = runBlocking {
+        val server = RecordingHttpServer { "[]" }
+        server.use {
+            val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
+            repository.searchOutcome(BookSearchQuery.from("title: hidden needle", SearchScope.CHAPTER_CONTENT))
+            assertEquals(listOf("/api/publications/sections/search"), server.requests.map { it.path })
+            assertTrue(server.requests.single().body.contains("title: hidden needle"))
+        }
+    }
+
+    @Test
+    fun contentOnlyModeUsesSeparateCacheAndSkipsMetadataMatching() = runBlocking {
         val chapterPubkey = testPubkey(1)
         val chapterCoordinate = "${BookKinds.PUBLICATION_CONTENT}:$chapterPubkey:chapter"
         val metadataBook = publicationEvent(testPubkey(2), "metadata", "Metadata Book", "Writer", emptyList())
@@ -790,7 +801,7 @@ class MercuryBookRepositorySearchTest {
         server.use {
             val repository = MercuryBookRepository(MercuryApiClient(OkHttpClient(), server.baseUrl))
             val metadataQuery = BookSearchQuery.from("hidden needle", SearchScope.METADATA)
-            val contentQuery = BookSearchQuery.from("hidden needle", SearchScope.ALL)
+            val contentQuery = BookSearchQuery.from("hidden needle", SearchScope.CHAPTER_CONTENT)
 
             val metadata = repository.searchOutcome(metadataQuery)
             assertEquals(BookSearchStatus.COMPLETE, metadata.status)
@@ -798,17 +809,17 @@ class MercuryBookRepositorySearchTest {
             assertEquals(listOf("/api/publications/search"), server.requests.map { it.path })
             assertEquals(null, repository.cachedSearchOutcome(contentQuery))
 
-            val withContents = repository.searchOutcome(contentQuery)
-            assertEquals(BookSearchStatus.COMPLETE, withContents.status)
-            assertEquals(setOf("Metadata Book", "Content Book"), withContents.results.map { it.book.title }.toSet())
-            assertEquals(chapterCoordinate, withContents.results.single { it.book.title == "Content Book" }.matchedChapterCoordinate)
-            assertEquals(2, server.requests.count { it.path == "/api/publications/search" })
+            val contents = repository.searchOutcome(contentQuery)
+            assertEquals(BookSearchStatus.COMPLETE, contents.status)
+            assertEquals(setOf("Content Book"), contents.results.map { it.book.title }.toSet())
+            assertEquals(chapterCoordinate, contents.results.single { it.book.title == "Content Book" }.matchedChapterCoordinate)
+            assertEquals(1, server.requests.count { it.path == "/api/publications/search" })
             assertEquals(1, server.requests.count { it.path == "/api/publications/sections/search" })
             assertEquals(1, server.requests.count { it.path == "/api/events/filter" })
 
             val requestCount = server.requests.size
             assertEquals(metadata, repository.searchOutcome(metadataQuery))
-            assertEquals(withContents, repository.searchOutcome(contentQuery))
+            assertEquals(contents, repository.searchOutcome(contentQuery))
             assertEquals(requestCount, server.requests.size)
         }
     }

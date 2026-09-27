@@ -31,16 +31,62 @@ class BookSearchModelsTest {
     }
 
     @Test
-    fun explicitPrefixesOverrideContentToggleScope() {
+    fun metadataModeSupportsExplicitSearchPrefixes() {
         val content = BookSearchQuery.from("CONTENT: hidden needle", SearchScope.METADATA)
         assertEquals(SearchScope.CHAPTER_CONTENT, content.scope)
         assertEquals("hidden needle", content.text)
         assertNull(content.validationMessage())
 
-        val title = BookSearchQuery.from("title: Pride", SearchScope.ALL)
+        val title = BookSearchQuery.from("title: Pride", SearchScope.METADATA)
         assertEquals(SearchScope.TITLE, title.scope)
         assertEquals("Pride", title.text)
         assertNotNull(BookSearchQuery.from("content: abc", SearchScope.METADATA).validationMessage())
+    }
+
+    @Test
+    fun chapterModeKeepsMetadataPrefixesAsLiteralContent() {
+        listOf("title", "author", "subject", "topic", "identifier", "id", "source", "url", "d", "slug", "language", "lang").forEach { prefix ->
+            val raw = "$prefix: hidden needle"
+            val query = BookSearchQuery.from(raw, SearchScope.CHAPTER_CONTENT)
+            assertEquals(SearchScope.CHAPTER_CONTENT, query.scope)
+            assertEquals(raw, query.text)
+            assertNull(query.language)
+            assertNull(query.validationMessage())
+        }
+        val explicit = BookSearchQuery.from("CONTENT: hidden needle", SearchScope.CHAPTER_CONTENT)
+        assertEquals(SearchScope.CHAPTER_CONTENT, explicit.scope)
+        assertEquals("hidden needle", explicit.text)
+    }
+
+    @Test
+    fun chapterModeKeepsNonnumericCoordinateLikeTextLiteral() {
+        val raw = "title:${"a".repeat(64)}:book"
+        val query = BookSearchQuery.from(raw, SearchScope.CHAPTER_CONTENT)
+        assertEquals(SearchScope.CHAPTER_CONTENT, query.scope)
+        assertEquals(raw, query.text)
+        assertNull(query.coordinate)
+        assertNull(query.eventId)
+    }
+
+    @Test
+    fun chapterModeValidatesTextLengthBeforeSearch() {
+        assertNotNull(BookSearchQuery.from("abc", SearchScope.CHAPTER_CONTENT).validationMessage())
+        assertNull(BookSearchQuery.from("abcd", SearchScope.CHAPTER_CONTENT).validationMessage())
+        assertNull(BookSearchQuery.from("x".repeat(160), SearchScope.CHAPTER_CONTENT).validationMessage())
+        assertNotNull(BookSearchQuery.from("x".repeat(161), SearchScope.CHAPTER_CONTENT).validationMessage())
+    }
+
+    @Test
+    fun chapterModePreservesExplicitExactReferences() {
+        val id = "a".repeat(64)
+        assertEquals(id, BookSearchQuery.from(id, SearchScope.CHAPTER_CONTENT).eventId)
+        val coordinate = "30040:$id:book"
+        assertEquals(coordinate, BookSearchQuery.from(coordinate, SearchScope.CHAPTER_CONTENT).coordinate)
+        val naddr = CuratedShelfCatalog.shelves.first().publicationNaddrs.first()
+        val query = BookSearchQuery.from("nostr:$naddr", SearchScope.CHAPTER_CONTENT)
+        assertNotNull(query.coordinate)
+        assertNotNull(query.naddrRelayHints)
+        assertNull(query.validationMessage())
     }
 
     @Test

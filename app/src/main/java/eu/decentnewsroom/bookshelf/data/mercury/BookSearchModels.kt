@@ -50,7 +50,11 @@ data class BookSearchQuery(
     companion object {
         fun from(raw: String, scope: SearchScope = SearchScope.ALL, language: String? = null): BookSearchQuery {
             val trimmed = raw.trim()
-            val match = FIELD_QUERY.matchEntire(trimmed)
+            // An explicitly selected chapter search must never switch to a metadata channel.
+            // Other prefixes remain literal chapter text; content: is optional shorthand.
+            val match = FIELD_QUERY.matchEntire(trimmed)?.takeIf {
+                scope != SearchScope.CHAPTER_CONTENT || it.groupValues[1].equals("content", ignoreCase = true)
+            }
             val parsedScope = match?.groupValues?.getOrNull(1)?.lowercase()?.let {
                 when (it) {
                     "title" -> SearchScope.TITLE
@@ -71,7 +75,7 @@ data class BookSearchQuery(
                 value.takeIf { name == "language" || name == "lang" }
             }
             val coordinate = naddrTarget?.coordinate?.split(":", limit = 3)
-                ?: searchValue.split(":", limit = 3).takeIf { it.size == 3 && it[1].matches(HEX_64) && it[2].isNotBlank() }
+                ?: searchValue.split(":", limit = 3).takeIf { it.size == 3 && it[0].toIntOrNull() != null && it[1].matches(HEX_64) && it[2].isNotBlank() }
             val eventId = searchValue.lowercase().takeIf { it.matches(HEX_64) }
             return BookSearchQuery(
                 text = if (coordinate != null || eventId != null || parsedLanguage != null) "" else searchValue,

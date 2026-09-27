@@ -1,6 +1,7 @@
 # ADR 0041: Opt-in book content search
 
 - Status: Accepted
+- Toggle semantics and result presentation superseded by [ADR 0043](0043-content-only-search-and-result-cards.md).
 - Date: 2026-09-27
 - Supersedes: ADR 0039's visible search scope controls only.
 - Preserves: ADR 0040's full-text read timeout.

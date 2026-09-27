@@ -20,9 +20,15 @@ The main source boundaries are:
 
 Search discovery uses the typed `BookSearchQuery` and returns transient
 `BookSearchResult` values. The default query searches all publication metadata
-with one `q` request. Opting into book contents selects the internal `ALL`
-scope and adds one chapter section request when the term is at least four
+with one `q` request. Enabling Search book contents selects the internal
+`CHAPTER_CONTENT` scope and sends only the chapter section search, followed
+by the existing parent-book resolution. Content terms must contain 4–160
 characters; the default internal `METADATA` scope makes no section request.
+In content mode, metadata prefixes are literal query text rather than scope
+overrides; an optional `content:` prefix is stripped. Raw exact event IDs,
+coordinates, and naddr references retain their dedicated lookup paths.
+The toggle remains session-only and applies on explicit submission. Its
+helper text carries the length requirement and longer-search notice.
 Structured scopes select one corresponding metadata field;
 chapter-content scope selects only the section request. Exact publication and
 chapter coordinates use author-plus-`#d` filters, never a broad author
@@ -40,8 +46,12 @@ valid relay hints from the loaded publication index added for that fetch.
 Mercury search responses are accepted only for kinds 30040 (publication
 indexes) and 30041 (chapter sections). A valid publication index without kind `30041` `a` tags is a library card: it remains discoverable and can be saved, viewed, and rated, but cannot open the reader. Results retain provenance, an optional
 matched chapter coordinate/title, and a maximum 320-character excerpt derived
-only from the verified section event returned by the search. Metadata and
-section channels are merged by bounded rank fusion while preserving the
+only from the verified section event returned by the search. Content hits
+use a single card containing the shared book header, an inset chapter/excerpt
+area, and Open matching chapter. The result's provenance determines this
+layout, so changing the toggle cannot relabel an already displayed result.
+The internal `ALL` scope still merges metadata and
+section channels by bounded rank fusion while preserving the
 ordering supplied by Mercury. Reciprocal-rank fusion uses k=60, so a result
 present in both channels gains score without allowing absolute endpoint
 weights to override channel rank. Duplicate publication coordinates combine
@@ -65,9 +75,9 @@ server capacity.
 
 ## Extended Books API discovery
 
-Full-text section searches use a dedicated derived OkHttp client with a 120-second read timeout, including fallback endpoints, instead of the shared 20-second read timeout. This applies to the section channel when Include book contents is enabled or an explicit `content:` query requests chapter-only search. Metadata searches, parent lookups, recommendations, and book loading retain their existing timeouts. Connection timeouts and coroutine cancellation are unchanged; the longer read timeout is per read, not a deadline for the entire multi-request search. See [ADR 0040](decisions/0040-full-text-search-timeout.md).
+Full-text section searches use a dedicated derived OkHttp client with a 120-second read timeout, including fallback endpoints, instead of the shared 20-second read timeout. This applies to the section channel when Search book contents is enabled or an explicit `content:` query requests chapter-only search. Metadata searches, parent lookups, recommendations, and book loading retain their existing timeouts. Connection timeouts and coroutine cancellation are unchanged; the longer read timeout is per read, not a deadline for the entire multi-request search. See [ADR 0040](decisions/0040-full-text-search-timeout.md).
 
-Search exposes one field covering all metadata and an Include book contents toggle, off by default. Scope buttons are removed. The toggle is retained across navigation for the lifetime of `BookshelfViewModel`, without a persisted preference. Changing it only affects the next explicit Search/IME submission; it does not start a request or replace current results. Recognized prefixes override the toggle for that query, including `content:` for chapter-only search. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work. See [ADR 0041](decisions/0041-opt-in-book-content-search.md).
+Search exposes one field and a Search book contents toggle, off by default. Off selects metadata; on selects chapter-only search. Scope buttons are removed. The toggle is retained across navigation for the lifetime of `BookshelfViewModel`, without a persisted preference. Changing it only affects the next explicit Search/IME submission; it does not start a request or replace current results. Recognized prefixes remain available with the toggle off, including `content:` for chapter-only search. With it on, metadata prefixes are literal content text, not routing overrides. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work. See [ADR 0043](decisions/0043-content-only-search-and-result-cards.md).
 
 Section results resolve through bounded reverse-parent `#a` queries. A parent must actually reference a returned section, and the final newest index revision must still reference the chosen matched chapter. A failed parent lookup does not count as a successful section channel. Partial warnings remain visible alongside useful results. Chapter title/excerpts remain transient; analyzed hits without a literal local match are labeled generically as text matches. The UI does not promise pagination, exact phrase semantics, or complete totals.
 
