@@ -9,6 +9,13 @@ import eu.decentnewsroom.bookshelf.data.reader.OfflineBookCacheStats
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 
+enum class CacheSelection(val label: String) {
+    Chapters("Chapter HTML"),
+    Ratings("Community ratings"),
+    Recommendations("Book recommendations"),
+    OfflineBooks("Offline reading"),
+}
+
 data class SettingsUiState(
     val readerPreferences: ReaderPreferences,
     val chapterSources: List<String> = emptyList(),
@@ -24,6 +31,7 @@ data class SettingsUiState(
     val ratingCacheStats: BookRatingCacheStats = BookRatingCacheStats(),
     val offlineBookCacheStats: OfflineBookCacheStats = OfflineBookCacheStats(),
     val isRefreshingStats: Boolean = false,
+    val isClearingCaches: Boolean = false,
     val isRetrying: Boolean = false,
     val message: String? = null,
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),

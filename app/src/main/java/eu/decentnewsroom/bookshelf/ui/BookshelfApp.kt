@@ -272,10 +272,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     restoreSources = settingsViewModel::restoreChapterSources,
                                     setLocalRelay = settingsViewModel::setLocalRelay,
                                     removeLocalRelay = settingsViewModel::removeLocalRelay,
-                                    clearChapterCache = settingsViewModel::clearChapterCache,
-                                    clearRatingCache = settingsViewModel::clearRatingCache,
-                                    clearRecommendationCache = settingsViewModel::clearRecommendationCache,
-                                    clearOfflineBookCache = settingsViewModel::clearOfflineBookCache,
+                                    clearSelectedCaches = settingsViewModel::clearSelectedCaches,
                                     refreshStorage = settingsViewModel::refreshStats,
                                 ),
                                 account = AccountSettingsState(

@@ -126,6 +126,7 @@ class SettingsViewModel(
     }
 
     fun refreshStats() {
+        if (_uiState.value.isClearingCaches) return
         statsJob?.cancel()
         statsJob = viewModelScope.launch { refreshStatsNow() }
     }
@@ -159,43 +160,39 @@ class SettingsViewModel(
             _uiState.update { it.copy(isRefreshingStats = false) }
         }
     }
-    fun clearChapterCache() {
+    fun clearSelectedCaches(selected: Set<CacheSelection>) {
+        if (selected.isEmpty() || _uiState.value.isClearingCaches || _uiState.value.isRefreshingStats) return
+        val targets = selected.toSet()
+        _uiState.update { it.copy(isClearingCaches = true, message = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
-            try { chapterCache.clear(); refreshStatsNow() }
-            catch (failure: CancellationException) { throw failure }
-            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear chapter cache.") } }
-            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
-        }
-    }
-
-    fun clearOfflineBookCache() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
-            try { offlineBookCache.clear(); refreshStatsNow() }
-            catch (failure: CancellationException) { throw failure }
-            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear offline books.") } }
-            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
-        }
-    }
-
-    fun clearRecommendationCache() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
-            try { recommendations.clearCache(); refreshStatsNow() }
-            catch (failure: CancellationException) { throw failure }
-            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear recommendation cache.") } }
-            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
-        }
-    }
-
-    fun clearRatingCache() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshingStats = true, message = null) }
-            try { ratings.clearCache(); refreshStatsNow() }
-            catch (failure: CancellationException) { throw failure }
-            catch (failure: Exception) { _uiState.update { it.copy(message = failure.message ?: "Could not clear rating cache.") } }
-            finally { _uiState.update { it.copy(isRefreshingStats = false) } }
+            val failures = mutableListOf<String>()
+            try {
+                targets.forEach { cache ->
+                    try {
+                        when (cache) {
+                            CacheSelection.Chapters -> chapterCache.clear()
+                            CacheSelection.Ratings -> ratings.clearCache()
+                            CacheSelection.Recommendations -> recommendations.clearCache()
+                            CacheSelection.OfflineBooks -> offlineBookCache.clear()
+                        }
+                    } catch (failure: CancellationException) {
+                        throw failure
+                    } catch (_: Exception) {
+                        failures += cache.label
+                    }
+                }
+                refreshStatsNow()
+                _uiState.update { state ->
+                    val result = when {
+                        failures.isEmpty() -> "Selected caches cleared."
+                        failures.size == targets.size -> "Could not clear: ${failures.joinToString()}. Please try again."
+                        else -> "Could not clear: ${failures.joinToString()}. Other selected caches were cleared."
+                    }
+                    state.copy(message = listOfNotNull(result, state.message).joinToString(" "))
+                }
+            } finally {
+                _uiState.update { it.copy(isClearingCaches = false) }
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ package eu.decentnewsroom.bookshelf.ui.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +33,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import androidx.compose.runtime.Composable
@@ -42,6 +44,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -93,10 +97,7 @@ data class SettingsActions(
     val restoreSources: () -> Unit = {},
     val setLocalRelay: (String) -> Unit = {},
     val removeLocalRelay: () -> Unit = {},
-    val clearChapterCache: () -> Unit = {},
-    val clearRecommendationCache: () -> Unit = {},
-    val clearRatingCache: () -> Unit = {},
-    val clearOfflineBookCache: () -> Unit = {},
+    val clearSelectedCaches: (Set<CacheSelection>) -> Unit = {},
     val refreshStorage: () -> Unit = {},
 )
 
@@ -285,51 +286,71 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = 
     detail("Pending highlights", state.pendingHighlightCount.toString())
     detail("Pending reviews", state.pendingReviewCount.toString())
     sectionTitle("Disposable caches")
-    detail("Chapter HTML", "${state.chapterCacheStats.entryCount} files · ${state.chapterCacheStats.sizeBytes.formatBytes()}")
-    detail("Community ratings", "${state.ratingCacheStats.entryCount} events · ${state.ratingCacheStats.sizeBytes.formatBytes()}")
-    detail("Book recommendations", "${state.recommendationCacheStats.entryCount} lists · ${state.recommendationCacheStats.sizeBytes.formatBytes()}")
-    detail("Offline reading", "${state.offlineBookCacheStats.entryCount} books · ${state.offlineBookCacheStats.sizeBytes.formatBytes()}")
-    item { if (state.isRefreshingStats) LinearProgressIndicator(Modifier.fillMaxWidth()) }
+    item { if (state.isRefreshingStats || state.isClearingCaches) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }
     item { Text("Clearing these caches keeps saved books, reading progress, highlights, and unpublished items. Ratings and recommendations may need to load again.", style = MaterialTheme.typography.bodySmall) }
-    item { SecondaryButton(onClick = actions.refreshStorage) { Text("Refresh statistics") } }
-    item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
+    item { SecondaryButton(onClick = actions.refreshStorage, enabled = !state.isRefreshingStats && !state.isClearingCaches) { Text("Refresh statistics") } }
+    item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 
 @Composable
 private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) {
-    var target by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedMask by rememberSaveable { mutableStateOf(0) }
+    var confirmationMask by rememberSaveable { mutableStateOf(0) }
+    val busy = state.isRefreshingStats || state.isClearingCaches
+    val selected = CacheSelection.entries.filter { selectedMask and (1 shl it.ordinal) != 0 }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryButton(onClick = { target = "chapter" }, enabled = state.chapterCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear chapters") }
-        SecondaryButton(onClick = { target = "rating" }, enabled = state.ratingCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear ratings") }
-        SecondaryButton(onClick = { target = "recommendation" }, enabled = state.recommendationCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear recommendations") }
-        SecondaryButton(onClick = { target = "offline" }, enabled = state.offlineBookCacheStats.entryCount > 0 && !state.isRefreshingStats) { Text("Clear offline books") }
-    }
-    target?.let { cache ->
-        AlertDialog(
-            onDismissRequest = { target = null },
-            title = { Text(when (cache) {
-                "chapter" -> "Clear chapter cache?"
-                "rating" -> "Clear rating cache?"
-                "recommendation" -> "Clear recommendation cache?"
-                else -> "Clear offline books?"
-            }) },
-            text = { Text(when (cache) {
-                "chapter" -> "Rendered chapters will be regenerated. Books and reading progress stay saved."
-                "rating" -> "Cached community ratings will need to reload. Pending signed reviews stay queued."
-                "recommendation" -> "Cached recommendation lists will need to reload when online. Other caches, saved books, and pending publications stay saved."
-                else -> "Downloaded reader content will be removed. Books, progress, highlights, and unpublished items stay saved."
-            }) },
-            confirmButton = { SecondaryButton(onClick = {
-                when (cache) {
-                    "chapter" -> actions.clearChapterCache()
-                    "rating" -> actions.clearRatingCache()
-                    "recommendation" -> actions.clearRecommendationCache()
-                    else -> actions.clearOfflineBookCache()
+        Text("Select the caches you want to clear.", style = MaterialTheme.typography.bodyMedium)
+        CacheSelection.entries.forEach { cache ->
+            val bit = 1 shl cache.ordinal
+            val checked = selectedMask and bit != 0
+            val stats = when (cache) {
+                CacheSelection.Chapters -> "${state.chapterCacheStats.entryCount} files · ${state.chapterCacheStats.sizeBytes.formatBytes()}"
+                CacheSelection.Ratings -> "${state.ratingCacheStats.entryCount} events · ${state.ratingCacheStats.sizeBytes.formatBytes()}"
+                CacheSelection.Recommendations -> "${state.recommendationCacheStats.entryCount} lists · ${state.recommendationCacheStats.sizeBytes.formatBytes()}"
+                CacheSelection.OfflineBooks -> "${state.offlineBookCacheStats.entryCount} books · ${state.offlineBookCacheStats.sizeBytes.formatBytes()}"
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().toggleable(
+                    value = checked, enabled = !busy, role = Role.Switch,
+                    onValueChange = { selectedMask = if (it) selectedMask or bit else selectedMask and bit.inv() },
+                ).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(cache.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(stats, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                target = null
-            }) { Text("Clear cache") } },
-            dismissButton = { SecondaryButton(onClick = { target = null }) { Text("Cancel") } },
+                Switch(checked = checked, onCheckedChange = null, enabled = !busy)
+            }
+        }
+        Button(
+            onClick = { confirmationMask = selectedMask },
+            enabled = selected.isNotEmpty() && !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (state.isClearingCaches) "Clearing caches…" else "Clear selected caches") }
+    }
+    if (confirmationMask != 0) {
+        val confirmed = CacheSelection.entries.filter { confirmationMask and (1 shl it.ordinal) != 0 }.toSet()
+        AlertDialog(
+            onDismissRequest = { confirmationMask = 0 },
+            title = { Text("Clear selected caches?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(confirmed.joinToString("\n") { "• ${it.label}" })
+                    Text("Cached content will need to load or be generated again. Saved books, reading progress, highlights, and pending signed publications stay saved.")
+                    if (CacheSelection.OfflineBooks in confirmed) Text("Downloaded books will need to be downloaded again before offline reading.")
+                }
+            },
+            confirmButton = {
+                SecondaryButton(onClick = {
+                    actions.clearSelectedCaches(confirmed)
+                    selectedMask = 0
+                    confirmationMask = 0
+                }, enabled = !busy) { Text("Clear selected") }
+            },
+            dismissButton = { SecondaryButton(onClick = { confirmationMask = 0 }) { Text("Cancel") } },
         )
     }
 }

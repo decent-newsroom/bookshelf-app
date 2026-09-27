@@ -9,6 +9,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.26
 
+- Replace separate cache-clear buttons in Settings with selection toggles and one Clear selected caches action, including a combined confirmation and per-cache failure reporting.
 - Add Rate and review directly after See details in the book menu, opening the review form with the active reader's cached review ready to edit.
 - Add a publication type, chapter count, and Read card above community ratings in book details, while retaining type and chapter count in the metadata.
 - Embed More like this below community ratings as a carousel shared with Home, with cached results shown immediately and independent loading, offline, and retry feedback.
