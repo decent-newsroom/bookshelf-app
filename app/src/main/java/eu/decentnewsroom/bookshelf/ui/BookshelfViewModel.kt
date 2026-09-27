@@ -95,6 +95,7 @@ class BookshelfViewModel(
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
             readerPreferences = readerSettings.readerPreferences.value,
+            isOnline = connectivity.isOnline,
         ),
     )
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
@@ -189,6 +190,7 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             connectivity.online.collect { online ->
+                _uiState.update { it.copy(isOnline = online) }
                 if (!online) {
                     cancelSearchWork()
                     cancelRecommendationWork()
@@ -1572,6 +1574,7 @@ data class HighlightComposerState(
 )
 
 data class BookshelfUiState(
+    val isOnline: Boolean = false,
     val tab: BookshelfTab = BookshelfTab.Home,
     val curatedShelves: List<CuratedShelf> = emptyList(),
     val isLoadingShelves: Boolean = false,

@@ -326,6 +326,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 onShowRatings = { viewModel.showRatings(details.book) },
                 onRead = { viewModel.openBook(details.book) },
                 recommendations = state.recommendationPage?.takeIf { it.seed.id == details.book.id },
+                isOnline = state.isOnline,
                 savedCoordinates = state.savedCoordinates,
                 onRetryRecommendations = viewModel::retryRecommendations,
                 onOpenRecommendation = { book ->
