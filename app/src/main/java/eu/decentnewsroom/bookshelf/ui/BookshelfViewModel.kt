@@ -239,7 +239,7 @@ class BookshelfViewModel(
         dismissBookDetails()
         dismissBookActions()
         _uiState.update {
-            it.copy(tab = tab, selectedBook = null, readerInitialChapterIndex = null, isLoadingBook = false, error = null, isSearchOpen = false, isSearching = false)
+            it.copy(tab = tab, selectedBook = null, readerInitialChapterIndex = null, isLoadingBook = false, loadingBook = null, error = null, isSearchOpen = false, isSearching = false)
         }
     }
 
@@ -264,7 +264,7 @@ class BookshelfViewModel(
                 tab = BookshelfTab.Home,
                 selectedBook = null,
                 readerInitialChapterIndex = null,
-                isLoadingBook = false,
+                isLoadingBook = false, loadingBook = null,
                 isSearchOpen = false,
                 isSearching = false,
                 ratingsPage = null,
@@ -356,7 +356,7 @@ class BookshelfViewModel(
             bookOpenJob?.cancel()
             _uiState.update {
                 it.copy(
-                    isLoadingBook = false,
+                    isLoadingBook = false, loadingBook = null,
                     selectedBook = null,
                     error = "This is a library card. Its full text is not available to read yet.",
                 )
@@ -367,7 +367,8 @@ class BookshelfViewModel(
         bookOpenJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
-                    isLoadingBook = true,
+                        isLoadingBook = true,
+                        loadingBook = book,
                     selectedBook = null,
                     error = null,
                 )
@@ -386,7 +387,7 @@ class BookshelfViewModel(
                 }
                 _uiState.update {
                     it.copy(
-                        isLoadingBook = false,
+                        isLoadingBook = false, loadingBook = null,
                         selectedBook = detail,
                         readerInitialChapterIndex = targetIndex,
                         readerOpenRequestId = UUID.randomUUID().toString(),
@@ -397,7 +398,7 @@ class BookshelfViewModel(
             } catch (exception: OfflineBookUnavailableException) {
                 _uiState.update {
                     it.copy(
-                        isLoadingBook = false,
+                        isLoadingBook = false, loadingBook = null,
                         error = if (localBookshelf.isSaved(book.coordinate)) {
                             "This book has not been downloaded for offline reading."
                         } else {
@@ -408,7 +409,7 @@ class BookshelfViewModel(
             } catch (exception: MercuryApiException) {
                 _uiState.update {
                     it.copy(
-                        isLoadingBook = false,
+                        isLoadingBook = false, loadingBook = null,
                         error = "Could not load this book right now. Try again when you have an internet connection.",
                     )
                 }
@@ -417,7 +418,7 @@ class BookshelfViewModel(
             } catch (exception: Throwable) {
                 _uiState.update {
                     it.copy(
-                        isLoadingBook = false,
+                        isLoadingBook = false, loadingBook = null,
                         error = "Could not open this book.",
                     )
                 }
@@ -1601,6 +1602,7 @@ data class BookshelfUiState(
     val highlightDelivery: Map<String, String> = emptyMap(),
     val pendingHighlightCount: Int = 0,
     val isLoadingBook: Boolean = false,
+    val loadingBook: BookSummary? = null,
     val error: String? = null,
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,
     val signerSession: NostrSignerSession? = null,

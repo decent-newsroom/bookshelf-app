@@ -95,6 +95,8 @@ See [ADR 0042](decisions/0042-inline-book-details-recommendations.md), which sup
 
 ## Book and Chapter Loading
 
+While opening a book, transient `loadingBook` state supplies its summary to a padded cover screen. Trusted cover artwork is fitted without cropping; a styled full-title-and-author cover remains visible until artwork succeeds and when it is unavailable. This presentation does not delay chapter loading or rendering. Completion, failure, and navigation clear the summary; no new cache or persisted reading state is introduced.
+
 Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.
 
 Book-card details use the existing parsed `BookSummary` fields and resolve the index publisher's verified kind `0` profile from its `pubkey`. An explicit local-relay action re-fetches the original verified kind `30040` index and available verified kind `30041` chapters, queues them in index order, and publishes each signed event only to the configured local relay; missing events are reported and never synthesized.

@@ -12,7 +12,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,7 +65,7 @@ internal fun ContentSearchResultCard(
                 )
             }
             if (!result.matchedChapterCoordinate.isNullOrBlank()) {
-                TextButton(onClick = onOpenMatch, modifier = Modifier.heightIn(min = 48.dp)) {
+                FilledTonalButton(onClick = onOpenMatch, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Open matching chapter")
                 }
             }

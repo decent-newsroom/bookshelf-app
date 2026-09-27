@@ -113,7 +113,7 @@ import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.theme.BookshelfTheme
 import eu.decentnewsroom.bookshelf.ui.books.BookActionsSheet
 import eu.decentnewsroom.bookshelf.ui.books.BookDetailsSheet
-import eu.decentnewsroom.bookshelf.ui.components.LoadingScreen
+import eu.decentnewsroom.bookshelf.ui.books.BookOpeningScreen
 import eu.decentnewsroom.bookshelf.ui.home.HomeScreen
 import eu.decentnewsroom.bookshelf.ui.library.MyBooksScreen
 import eu.decentnewsroom.bookshelf.ui.ratings.RatingComposerSheet
@@ -218,7 +218,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                         )
                     }
 
-                    state.isLoadingBook -> LoadingScreen("Opening book...")
+                    state.isLoadingBook -> BookOpeningScreen(state.loadingBook)
 
                     else -> when {
                         state.isSearchOpen -> SearchScreen(

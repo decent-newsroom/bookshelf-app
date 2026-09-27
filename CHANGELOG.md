@@ -9,6 +9,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.26
 
+- Show a large, generously padded cover while opening a book, with a full-title-and-author fallback when artwork is missing, loading, or unavailable.
 - Jump directly to the selected chapter from the table of contents instead of animating through intervening chapters.
 - Replace Include book contents with Search book contents: enabled searches chapter text only, validates 4–160 characters, and shows the full-text hint beside the toggle.
 - Keep content search matches together in one result card containing the book header, matching chapter, excerpt, and Open matching chapter action.
