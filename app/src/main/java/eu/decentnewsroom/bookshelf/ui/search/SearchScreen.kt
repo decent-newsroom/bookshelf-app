@@ -3,27 +3,29 @@ package eu.decentnewsroom.bookshelf.ui.search
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
 import eu.decentnewsroom.bookshelf.data.mercury.MatchProvenance
-import eu.decentnewsroom.bookshelf.data.mercury.SearchScope
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.BookshelfUiState
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
@@ -34,7 +36,7 @@ import eu.decentnewsroom.bookshelf.ui.books.BookCard
 fun SearchScreen(
     state: BookshelfUiState,
     onQueryChanged: (String) -> Unit,
-    onScopeChanged: (SearchScope) -> Unit,
+    onIncludeBookContentsChanged: (Boolean) -> Unit,
     onSearch: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onOpenMatch: (BookSearchResult) -> Unit,
@@ -43,26 +45,31 @@ fun SearchScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Find books by metadata or text inside chapters.")
+                Text("Search all titles, authors, subjects, and other book details.")
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChanged,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Search books") },
-                    supportingText = { Text(if (state.searchScope == SearchScope.CHAPTER_CONTENT) "Enter 4–160 characters." else "Choose a scope, then search. Results are limited.") },
+                    supportingText = { Text("Content searches need 4–160 characters and may take longer.") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSearch() }),
                 )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(searchScopes, key = { it.first }) { (scope, label) ->
-                        FilterChip(
-                            selected = state.searchScope == scope,
-                            onClick = { onScopeChanged(scope) },
-                            label = { Text(label) },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        )
-                    }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .toggleable(
+                            value = state.includeBookContents,
+                            role = Role.Switch,
+                            onValueChange = onIncludeBookContentsChanged,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Include book contents", modifier = Modifier.weight(1f))
+                    Switch(checked = state.includeBookContents, onCheckedChange = null)
                 }
                 Button(onClick = onSearch, modifier = Modifier.fillMaxWidth()) { Text(if (state.isSearching) "Search again" else "Search") }
             }
@@ -83,14 +90,6 @@ fun SearchScreen(
         }
     }
 }
-
-private val searchScopes = listOf(
-    SearchScope.ALL to "All",
-    SearchScope.TITLE to "Title",
-    SearchScope.AUTHOR to "Author",
-    SearchScope.SUBJECT to "Subject",
-    SearchScope.CHAPTER_CONTENT to "Inside books",
-)
 
 internal fun Set<MatchProvenance>.searchMatchLabel(): String {
     val chapter = any { it == MatchProvenance.CHAPTER_TITLE || it == MatchProvenance.CHAPTER_BODY || it == MatchProvenance.CHAPTER_TEXT }

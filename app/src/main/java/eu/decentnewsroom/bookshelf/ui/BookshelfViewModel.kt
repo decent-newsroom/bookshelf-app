@@ -279,15 +279,19 @@ class BookshelfViewModel(
         _uiState.update { it.copy(query = query, isSearching = false, searchMessage = null) }
     }
 
-    fun updateSearchScope(scope: SearchScope) {
-        cancelSearchWork()
-        _uiState.update { it.copy(searchScope = scope, isSearching = false, searchResults = emptyList(), searchMessage = null) }
+    fun updateIncludeBookContents(include: Boolean) {
+        // This is a draft option: only the next explicit submission changes the search.
+        _uiState.update { it.copy(includeBookContents = include) }
     }
 
     fun submitSearch() {
         cancelSearchWork()
         val generation = searchGeneration
-        val query = BookSearchQuery.from(_uiState.value.query, _uiState.value.searchScope)
+        val searchState = _uiState.value
+        val query = BookSearchQuery.from(
+            searchState.query,
+            if (searchState.includeBookContents) SearchScope.ALL else SearchScope.METADATA,
+        )
         val validation = query.validationMessage()
             ?: if (query.eventId == null && query.coordinate == null && query.language == null && query.normalizedText.length < 2)
                 "Enter at least two characters to search." else null
@@ -1525,7 +1529,7 @@ data class BookshelfUiState(
     val shelfMessage: String? = null,
     val isSearchOpen: Boolean = false,
     val query: String = "",
-    val searchScope: SearchScope = SearchScope.ALL,
+    val includeBookContents: Boolean = false,
     val isSearching: Boolean = false,
     val searchResults: List<BookSearchResult> = emptyList(),
     val searchMessage: String? = null,

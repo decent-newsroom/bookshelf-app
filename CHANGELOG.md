@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.26
 
+- Simplify Search to all publication metadata by default, with an optional Include book contents toggle instead of scope buttons. Keep the toggle for the current app session and support `content:` for chapter-only searches.
+- Give full-text chapter searches a two-minute read timeout instead of 20 seconds so expensive queries have more time to return results.
 - Make the stalled-response cancellation regression test observe body-source reads directly instead of relying on HTTP event-listener timing.
 - Add All, Title, Author, Subject, and Inside books search controls, visible partial-result notices, and an explicit action to open a matching chapter after normal reader loading.
 - Align search validation with the extended Books API, reject unrelated parent-book matches, reconcile chapter hits with current publication revisions, and stop discovery requests while offline.

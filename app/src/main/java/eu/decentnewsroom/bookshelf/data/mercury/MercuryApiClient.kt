@@ -27,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 
 class MercuryApiException(
     message: String,
@@ -71,6 +72,11 @@ class MercuryApiClient(
             }
             throw checkNotNull(lastFailure)
         }.build()
+    // Section search scans chapter text; retain the endpoint chain and shared pool,
+    // but allow substantially more server processing time than ordinary lookups.
+    private val sectionSearchHttpClient = endpointHttpClient.newBuilder()
+        .readTimeout(120, TimeUnit.SECONDS)
+        .build()
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -113,6 +119,7 @@ class MercuryApiClient(
                 .header("Accept", "application/json")
                 .build(),
             expectedKind = BookKinds.PUBLICATION_CONTENT,
+            sectionSearch = true,
         )
     }
 
@@ -337,10 +344,11 @@ class MercuryApiClient(
         expectedKind: Int? = null,
         expectedDTags: List<String> = emptyList(),
         primaryOnly: Boolean = false,
+        sectionSearch: Boolean = false,
     ): List<NostrEvent> =
         withContext(Dispatchers.IO) {
             try {
-                executeRequest(request, primaryOnly) { response ->
+                executeRequest(request, primaryOnly, sectionSearch) { response ->
                     if (!response.isSuccessful) {
                         throw response.toMercuryApiException()
                     }
@@ -498,9 +506,15 @@ class MercuryApiClient(
     private suspend fun <T> executeRequest(
         request: Request,
         primaryOnly: Boolean = false,
+        sectionSearch: Boolean = false,
         decode: (Response) -> T,
     ): T = suspendCancellableCoroutine { continuation ->
-        val call = (if (primaryOnly) httpClient else endpointHttpClient).newCall(request)
+        val client = when {
+            primaryOnly -> httpClient
+            sectionSearch -> sectionSearchHttpClient
+            else -> endpointHttpClient
+        }
+        val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, exception: IOException) {

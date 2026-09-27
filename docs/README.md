@@ -22,6 +22,8 @@ This directory records architectural context and implementation decisions that s
 - ADR 0037 records the dedicated profile lookup relay added to current read routes for kind-0 metadata only.
 - ADR 0038 records active-user NIP-65 read-relay routing for community rating lookups and recent-rating discovery.
 - ADR 0039 records full-text chapter navigation, primary-only seeded recommendations, and independent discovery lifecycle/cache policies.
+- ADR 0040 records the longer read timeout scoped to full-text section searches.
+- [ADR 0041](decisions/0041-opt-in-book-content-search.md) records metadata-first search and the session-only Include book contents toggle.
 - ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching; ADRs 0017 and 0018 record the Quartz relay transport boundaries; ADR 0019 records NIP-65 user relay routing; ADR 0020 records Settings relay configuration; ADR 0021 records persistent contextual onboarding; ADR 0027 records reviewer-profile resolution without mutating active-user routing; ADR 0028 records offline review delivery; ADR 0029 supersedes ADR 0020 with the dedicated settings boundary; ADR 0031 caps and makes reader onboarding dismissible; ADR 0032 proposes durable in-chapter reader positions.
 
 ## Keeping These Notes Current

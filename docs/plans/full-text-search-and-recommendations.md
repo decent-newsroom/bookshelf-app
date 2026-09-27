@@ -13,7 +13,9 @@ Two subagent reviews covered search/navigation and recommendations/ratings. The 
 
 ## Implementation record
 
-All five delivery slices below are implemented. The publication mapper is reused by exposing the existing repository mapping function internally, rather than creating a duplicate mapper. Validation, verified parent reconciliation, scope controls, explicit chapter navigation, memory-only recommendations, and lifecycle cancellation are wired into the app. See ADR 0039 for the accepted boundaries.
+All five delivery slices below are implemented. The publication mapper is reused by exposing the existing repository mapping function internally, rather than creating a duplicate mapper. Validation, verified parent reconciliation, explicit chapter navigation, memory-only recommendations, and lifecycle cancellation are wired into the app. See ADR 0039 for the accepted boundaries.
+
+The original scope-button UI below was superseded on 2026-09-27 by [ADR 0041](../decisions/0041-opt-in-book-content-search.md): Search now defaults to all publication metadata, with an off-by-default Include book contents toggle retained only for the ViewModel session. Toggling takes effect on the next explicit submission. Recognized prefixes still override the choice, and `content:` requests chapter-only search. The four-character section minimum and [ADR 0040](../decisions/0040-full-text-search-timeout.md)'s 120-second section read timeout remain.
 
 Added API, repository, cache/coalescing, reader-target, and presentation regression tests. Static cross-review was completed by the delegated agents; Gradle tests/builds and device checks remain owner-run. The delivery-slice text below preserves the original design and acceptance checklist; it is not a claim that device acceptance checks have been executed.
 

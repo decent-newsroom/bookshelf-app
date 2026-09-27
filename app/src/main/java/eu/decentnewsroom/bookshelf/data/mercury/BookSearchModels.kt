@@ -10,7 +10,7 @@ object BookSearchLimits {
     const val SECTION_MIN = 4
 }
 
-/** The user-visible part of the Mercury search surface. */
+/** Search channels selected by the content toggle or an explicit query prefix. */
 enum class SearchScope {
     ALL,
     METADATA,
@@ -56,6 +56,7 @@ data class BookSearchQuery(
                     "title" -> SearchScope.TITLE
                     "author" -> SearchScope.AUTHOR
                     "subject", "topic" -> SearchScope.SUBJECT
+                    "content" -> SearchScope.CHAPTER_CONTENT
                     "identifier", "id", "source", "url" -> SearchScope.IDENTIFIER
                     "d", "slug" -> SearchScope.SLUG
                     "language", "lang" -> SearchScope.METADATA
@@ -82,7 +83,7 @@ data class BookSearchQuery(
             )
         }
 
-        private val FIELD_QUERY = Regex("^\\s*(title|author|subject|topic|language|lang|identifier|id|source|url|d|slug)\\s*:\\s*(.+?)\\s*$", RegexOption.IGNORE_CASE)
+        private val FIELD_QUERY = Regex("^\\s*(title|author|subject|topic|content|language|lang|identifier|id|source|url|d|slug)\\s*:\\s*(.+?)\\s*$", RegexOption.IGNORE_CASE)
         private val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
 
         private fun String.removeNostrPrefix(): String =

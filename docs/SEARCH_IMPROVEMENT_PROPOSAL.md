@@ -1,6 +1,6 @@
 # Mercury Search Improvement Proposal
 
-- Status: Query/result, reliability, scope controls, and matched-chapter navigation implemented; global language selection and advanced analyzer guarantees deferred
+- Status: Query/result, reliability, metadata-first search with an optional contents toggle, and matched-chapter navigation implemented; global language selection and advanced analyzer guarantees deferred
 - Date: 2026-08-28
 - API reference: [Mercury/swagger.json](Mercury/swagger.json), Mercury Index-Relay 0.2.30
 
@@ -8,7 +8,7 @@
 
 Improve search relevance and explainability while reducing avoidable Mercury API load and making searches useful during transient 503 Service Unavailable responses.
 
-The typed query/result, 503-resilience, scope-control, and matched-chapter navigation slices are implemented. ARCHITECTURE.md remains the source of truth; see ADRs 0009, 0010, and 0039. The extended Decent Newsroom API integration is recorded in [the implementation plan](plans/full-text-search-and-recommendations.md). Language selection across all channels and analyzer-specific promises remain deferred.
+The typed query/result, 503-resilience, search controls, and matched-chapter navigation slices are implemented. ARCHITECTURE.md remains the source of truth; see ADRs 0009, 0010, 0039, and 0041. ADR 0041 supersedes this proposal's filter-chip design with metadata-first search and an optional Include book contents toggle. The extended Decent Newsroom API integration is recorded in [the implementation plan](plans/full-text-search-and-recommendations.md). Language selection across all channels and analyzer-specific promises remain deferred.
 
 ## Current Behavior
 
@@ -90,7 +90,7 @@ Retries must be cancellation-aware and must not outlive the active query. These 
 
 ### 5. Search UI and Navigation
 
-Implemented: All, Title, Author, Subject, and Inside books scopes. Exact Nostr references retain existing routing. A global language selector and quoted-phrase guidance are deferred until compatible backend semantics are confirmed.
+Implemented: all metadata by default and an off-by-default Include book contents toggle, retained only for the ViewModel session and applied on explicit submission. Advanced prefixes retain field-specific searches; `content:` requests chapter-only search. Exact Nostr references retain existing routing. This replaces the original scope buttons under ADR 0041. A global language selector and quoted-phrase guidance are deferred until compatible backend semantics are confirmed.
 
 Content hits should show the matching chapter title and bounded excerpt. Opening one should use the normal verified book-open path and then select or scroll to the matching chapter coordinate. Never derive a navigation target from untrusted HTML or a remote URL.
 
@@ -108,7 +108,7 @@ Distinguish complete results, partial results, Mercury busy/retrying, total unav
 ### Slice 2: Explainable Results and Filters (Core Implemented)
 
 - BookSearchResult, provenance, bounded excerpts, and deterministic rank fusion.
-- Implemented: search scope chips and partial-result messages. Deferred: a global language selector and exact-phrase help until supported semantics are confirmed.
+- Implemented: metadata-first search with an optional contents toggle and partial-result messages. Deferred: a global language selector and exact-phrase help until supported semantics are confirmed.
 
 ### Slice 3: Matched-Chapter Navigation (Implemented)
 

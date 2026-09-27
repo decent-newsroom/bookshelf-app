@@ -31,6 +31,19 @@ class BookSearchModelsTest {
     }
 
     @Test
+    fun explicitPrefixesOverrideContentToggleScope() {
+        val content = BookSearchQuery.from("CONTENT: hidden needle", SearchScope.METADATA)
+        assertEquals(SearchScope.CHAPTER_CONTENT, content.scope)
+        assertEquals("hidden needle", content.text)
+        assertNull(content.validationMessage())
+
+        val title = BookSearchQuery.from("title: Pride", SearchScope.ALL)
+        assertEquals(SearchScope.TITLE, title.scope)
+        assertEquals("Pride", title.text)
+        assertNotNull(BookSearchQuery.from("content: abc", SearchScope.METADATA).validationMessage())
+    }
+
+    @Test
     fun parsesLanguageAndExactReferencesAsTypedFields() {
         val language = BookSearchQuery.from("language: en")
         assertEquals(SearchScope.METADATA, language.scope)

@@ -19,9 +19,11 @@ The main source boundaries are:
 ## Mercury Search
 
 Search discovery uses the typed `BookSearchQuery` and returns transient
-`BookSearchResult` values. A normal all-scope query makes one metadata
-`q` request and, when the term is at least four characters, one chapter
-section request. Structured scopes select one corresponding metadata field;
+`BookSearchResult` values. The default query searches all publication metadata
+with one `q` request. Opting into book contents selects the internal `ALL`
+scope and adds one chapter section request when the term is at least four
+characters; the default internal `METADATA` scope makes no section request.
+Structured scopes select one corresponding metadata field;
 chapter-content scope selects only the section request. Exact publication and
 chapter coordinates use author-plus-`#d` filters, never a broad author
 window.
@@ -63,7 +65,9 @@ server capacity.
 
 ## Extended Books API discovery
 
-Search exposes All, Title, Author, Subject, and Inside books scopes with explicit submission. Recognized prefixes override the selected scope for that query. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work.
+Full-text section searches use a dedicated derived OkHttp client with a 120-second read timeout, including fallback endpoints, instead of the shared 20-second read timeout. This applies to the section channel when Include book contents is enabled or an explicit `content:` query requests chapter-only search. Metadata searches, parent lookups, recommendations, and book loading retain their existing timeouts. Connection timeouts and coroutine cancellation are unchanged; the longer read timeout is per read, not a deadline for the entire multi-request search. See [ADR 0040](decisions/0040-full-text-search-timeout.md).
+
+Search exposes one field covering all metadata and an Include book contents toggle, off by default. Scope buttons are removed. The toggle is retained across navigation for the lifetime of `BookshelfViewModel`, without a persisted preference. Changing it only affects the next explicit Search/IME submission; it does not start a request or replace current results. Recognized prefixes override the toggle for that query, including `content:` for chapter-only search. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work. See [ADR 0041](decisions/0041-opt-in-book-content-search.md).
 
 Section results resolve through bounded reverse-parent `#a` queries. A parent must actually reference a returned section, and the final newest index revision must still reference the chosen matched chapter. A failed parent lookup does not count as a successful section channel. Partial warnings remain visible alongside useful results. Chapter title/excerpts remain transient; analyzed hits without a literal local match are labeled generically as text matches. The UI does not promise pagination, exact phrase semantics, or complete totals.
 
