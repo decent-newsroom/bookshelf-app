@@ -99,7 +99,15 @@ internal fun ReaderScreen(
     if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) { ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged) }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
-    if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) { ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { i -> showContents = false; showNavigationMenus = false; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }
+    if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) {
+        ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { chapterIndex ->
+            showContents = false
+            showNavigationMenus = false
+            coroutineScope.launch {
+                listState.scrollToItem(readerListItemIndexForChapter(chapterIndex, detail.chapters.size))
+            }
+        }
+    }
     pendingChapterLinkUrl?.let { url -> ChapterLinkPolicy.parse(url)?.let { link -> AlertDialog(onDismissRequest = { pendingChapterLinkUrl = null }, title = { Text("Open external link?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("This chapter links outside Bookshelf."); Text(link.host, fontWeight = FontWeight.SemiBold) } }, confirmButton = { SecondaryButton({ pendingChapterLinkUrl = null; runCatching { uriHandler.openUri(link.url) } }) { Text("Open") } }, dismissButton = { SecondaryButton({ pendingChapterLinkUrl = null }) { Text("Cancel") } }) } ?: run { pendingChapterLinkUrl = null } }
     Box(Modifier.fillMaxSize().background(colors.background)) {
         OnboardingTooltip(showReaderMenusTip, "Tap anywhere while reading to show menus for navigation and reader settings.", { showReaderMenusTip = false }) {
