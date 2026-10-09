@@ -11,6 +11,7 @@ Home's tracked-book carousel repeated detailed section progress and delivery sta
 ## Decision
 
 - Show Reading now as compact cards with a cover, title, and accessible three-dot action button in one row. Remove the detailed furthest-section label, progress bar, and delivery-status text from these Home cards. Retain the existing cover progress badge and reader tracking feedback.
+- Show Continue reading only when the active user's tracked list is empty and an eligible saved book exists. Reading now takes precedence even when tracked metadata is unresolved; removing the last tracked entry makes Continue reading eligible again without changing stored resume progress.
 - A single tap on the action button opens the same shared book actions sheet as long press. Tapping the card opens the book. Preserve metadata-resolution fallback for unresolved entries.
 - For a book tracked in the active account partition, place Stop tracking before the other actions in the shared sheet, regardless of which surface opened it. Untracked books retain the existing menu.
 - Stop the explicitly chosen coordinate through the existing coordinated reading action boundary, including pending-advance invalidation, serialization, and signer/account checks. Dismiss the sheet on selection. Reader Stop tracking uses the same path.

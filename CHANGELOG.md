@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Show Continue reading on Home only when the Reading now shelf is empty, avoiding competing reading sections.
 - Register Bookshelf for incoming Android `nostr:naddr` book links. Open verified kind-30040 publications through the normal reader and resume flow, show library-card details, and report malformed, unsupported, unavailable, or offline links without automatically saving the book.
 - Add Discard changes as a secondary button with a visible background in the end-of-book editor and review sheet, keeping the original rating and review intact; new drafts can also be discarded.
 - Populate Tutorials with eight friendly lessons covering reading comfort, book and chapter search, saving and resuming, offline reading, highlights, reviews, tracking, and account connection. Each works offline with two or three steps; the existing tracking-help link opens Track a book.

@@ -79,7 +79,9 @@ fun HomeScreen(
                     SecondaryButton(onClick = onSearch) { Text("Search") }
                 }
             }
-            continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }, onLongPress = { onLongPress(it.book) }) } }
+            if (readingNow.isEmpty()) {
+                continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }, onLongPress = { onLongPress(it.book) }) } }
+            }
             if (readingNow.isNotEmpty()) item(key = "reading-now") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Reading now", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
