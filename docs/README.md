@@ -31,6 +31,7 @@ This directory records architectural context and implementation decisions that s
 - [ADR 0044](decisions/0044-reading-lists-and-finished-history.md) records guest/account reading-state separation, explicit public sharing, replaceable snapshots, and ordered completion delivery.
 - [ADR 0045](decisions/0045-observable-highlight-delivery-status.md) records live pending-highlight counts, per-event relay failure details, and completion when a resolved remote route becomes local.
 - [ADR 0046](decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) records coordinated local chapter/scroll progress, independent section tracking, and ring/filled cover indicators.
+- [ADR 0047](decisions/0047-book-link-sharing.md) records local NIP-19 book-link creation, public-only relay hints, and OS share/clipboard effects.
 - ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching; ADRs 0017 and 0018 record the Quartz relay transport boundaries; ADR 0019 records NIP-65 user relay routing; ADR 0020 records Settings relay configuration; ADR 0021 records persistent contextual onboarding; ADR 0027 records reviewer-profile resolution without mutating active-user routing; ADR 0028 records offline review delivery; ADR 0029 supersedes ADR 0020 with the dedicated settings boundary; ADR 0031 caps and makes reader onboarding dismissible; ADR 0032 proposes durable in-chapter reader positions.
 
 ## Keeping These Notes Current

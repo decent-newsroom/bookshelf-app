@@ -9,13 +9,15 @@ The system Back gesture returns any reader, loading, search, My Books, or Settin
 The main source boundaries are:
 
 - `domain`: Nostr events and book/chapter models.
-- `data/discovery`: checked-in curated shelf definitions, NIP-19 publication-reference decoding, and shelf metadata caching.
+- `data/discovery`: checked-in curated shelf definitions, NIP-19 publication-reference encoding/decoding, and shelf metadata caching.
 - `data/mercury`: Mercury REST access, publication mapping, chapter-source settings, and relay-backed chapter retrieval.
 - `data/rendering`: AsciiDoc rendering and rendered-HTML caching.
 - `data/bookshelf`: local saved-book state and kind `30045` directory rules.
 - `data/reading`: account-scoped explicit reading lists, finished history, privacy preferences, and durable reading-event delivery.
 - `data/nostr`: Android signer integration and directory relay synchronization.
-- `ui`: Compose composition shell and feature presentation. `ui/home`, `ui/search`, `ui/library`, `ui/books`, `ui/ratings`, and `ui/reader` own bounded feature screens and components; `ui/shell` owns Android Activity Result signer effects; `ui/components` owns shared feedback primitives; and `ui/onboarding` owns tooltip presentation.
+- `ui`: Compose composition shell and feature presentation. `ui/home`, `ui/search`, `ui/library`, `ui/books`, `ui/ratings`, and `ui/reader` own bounded feature screens and components; `ui/shell` owns Android Activity Result signer and book-sharing effects; `ui/components` owns shared feedback primitives; and `ui/onboarding` owns tooltip presentation.
+
+The shared book actions sheet exposes Share book and Copy book link for a publication. Both actions encode the same locally generated NIP-19 `naddr` for kind `30040`, using the exact publication author and `d` coordinate. The coordinate remains stable across index revisions. The URI may include only a validated public `wss://` source relay; local, private, and HTTP hints are excluded. Link creation is local and performs no fetch, signing, or persistence. Sharing launches Android `ACTION_SEND` with `text/plain`, places only the URI in `EXTRA_TEXT`, and uses the title as `EXTRA_TITLE` metadata. Copy writes that same URI directly to the clipboard; Android 13 and later provide the system copy notification, while older versions receive app feedback. UI launch and clipboard effects belong to `ui/shell`; `BookshelfViewModel` only dismisses the menu. Invalid publication identity and launch or clipboard failures are shown to the user. Canceling the share flow does not change book or reading data. See [ADR 0047](decisions/0047-book-link-sharing.md).
 
 ## Mercury Search
 

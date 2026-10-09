@@ -23,6 +23,8 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -55,17 +57,21 @@ fun BookActionsSheet(
     onToggleSaved: () -> Unit,
     onDetails: () -> Unit,
     onRateReview: () -> Unit,
+    onShare: () -> Unit,
+    onCopyLink: () -> Unit,
     onBroadcast: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(book.title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
             BookActionRow(Icons.Outlined.Info, "See details", onDetails)
             BookActionRow(Icons.Outlined.Star, "Rate and review", onRateReview)
+            BookActionRow(Icons.Outlined.Share, "Share book", onShare)
+            BookActionRow(Icons.Outlined.ContentCopy, "Copy book link", onCopyLink)
             if (localRelayConfigured) {
                 BookActionRow(Icons.AutoMirrored.Outlined.Send, if (isBroadcasting) "Broadcasting…" else "Broadcast to local relay", onBroadcast, enabled = !isBroadcasting)
             }

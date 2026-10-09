@@ -127,6 +127,7 @@ import eu.decentnewsroom.bookshelf.ui.ratings.RatingsSheet
 import eu.decentnewsroom.bookshelf.ui.reader.ReaderScreen
 import eu.decentnewsroom.bookshelf.ui.search.SearchScreen
 import eu.decentnewsroom.bookshelf.ui.shell.rememberExternalSignerActions
+import eu.decentnewsroom.bookshelf.ui.shell.rememberBookShareActions
 import eu.decentnewsroom.bookshelf.ui.settings.AccountSettingsActions
 import eu.decentnewsroom.bookshelf.ui.settings.AccountSettingsState
 import eu.decentnewsroom.bookshelf.ui.settings.SettingsActions
@@ -153,6 +154,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
             listOfNotNull(state.loadingBook, state.bookActions, state.bookDetails?.book, state.selectedBook?.summary),
     )
     val snackbarHostState = remember { SnackbarHostState() }
+    val bookShareActions = rememberBookShareActions(snackbarHostState)
     val homeListState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, viewModel) {
@@ -368,6 +370,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 },
                 onDetails = { viewModel.showBookDetails(book) },
                 onRateReview = { viewModel.showRatingComposer(book) },
+                onShare = {
+                    viewModel.dismissBookActions()
+                    bookShareActions.share(book)
+                },
+                onCopyLink = {
+                    viewModel.dismissBookActions()
+                    bookShareActions.copyLink(book)
+                },
                 onBroadcast = { viewModel.broadcastBookToLocalRelay(book) },
             )
         }
