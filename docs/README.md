@@ -35,8 +35,9 @@ This directory records architectural context and implementation decisions that s
 - [ADR 0048](decisions/0048-progress-visibility-and-tracking-entry-points.md) records accessible cover badges, the three cover exceptions, and reader/Settings tracking entry points.
 - [ADR 0049](decisions/0049-topic-tutorials.md) records the offline topic-tutorial catalog, reusable step viewer, contextual tracking explanations, and separation from persistent onboarding tips.
 - [ADR 0050](decisions/0050-unified-reader-progress-controls.md) records compact tracking controls integrated into the reader position indicator and supersedes the separate reader tracking sheet and its tutorial return flow.
+- [ADR 0051](decisions/0051-home-reading-history-and-saved-library.md) records saved-only My Books and Home's centered, newest-first finished-cover grid.
 - [Tutorial authoring guide](tutorials.md) explains how to add localized resources and catalog entries after tutorial content is supplied and reviewed.
-- [Getting started tutorial draft](tutorials/getting-started.md) contains the proposed lesson copy and integration plan for content review.
+- [Short tutorial plan and drafts](tutorials/README.md) splits first-book reading, book and chapter search, reading comfort, saved books, offline reading, tracking, and account connection into focused lessons for content review.
 - ADR 0009 records the accepted typed, explainable Mercury search boundary; ADR 0010 records search-only 503 resilience, partial outcomes, cancellation, and caching; ADRs 0017 and 0018 record the Quartz relay transport boundaries; ADR 0019 records NIP-65 user relay routing; ADR 0020 records Settings relay configuration; ADR 0021 records persistent contextual onboarding; ADR 0027 records reviewer-profile resolution without mutating active-user routing; ADR 0028 records offline review delivery; ADR 0029 supersedes ADR 0020 with the dedicated settings boundary; ADR 0031 caps and makes reader onboarding dismissible; ADR 0032 proposes durable in-chapter reader positions.
 
 ## Keeping These Notes Current

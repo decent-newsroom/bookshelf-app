@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-08
 - Preserves: ADR 0015's device-local resume location and the independent saved-book directory.
+- Presentation superseded by [ADR 0051](0051-home-reading-history-and-saved-library.md): My Books is saved-only; Reading now and Finished are on Home. Reading-state and synchronization decisions remain accepted.
 
 ## Context
 

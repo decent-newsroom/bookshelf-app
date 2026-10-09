@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Simplify My Books to saved books without sub-tabs. Keep Reading now on Home and show Finished at the bottom as a centered grid of compact covers, with up to seven per row and the most recent completions first.
 - Merge reader tracking controls with the position indicator in the book header and tap-to-show menu, with one progress bar, concise tracking and sync status, and theme-aware filled actions. Remove the separate tracking sheet and Aa shortcut while preserving reading-position, reset/stop, and completion behavior.
 - Keep reader menu actions reachable with scrolling at large text sizes, wrap the Aa theme/alignment controls, and give those controls and the inline Write/Edit review action visible backgrounds. Preserve a visible background for disabled secondary actions, including Sync during synchronization.
 - Document a Getting started tutorial draft and its integration plan for review, covering discovery, reader controls, saved books, resume, offline reading, and optional account connection.

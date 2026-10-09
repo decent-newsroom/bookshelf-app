@@ -9,7 +9,7 @@ The implemented [thumbnail progress record](book-thumbnail-reading-progress.md#c
 - Track reading under reader metadata; show zero-based position over the complete section total, Reset tracking, Stop tracking, and delivery status. Opening a book only saves its existing resume position.
 - Advance immediately on visible section transitions, without reducing position during backward scrolling. Use a fixed three-second publication window after the first advance. Last-section arrival never finishes automatically.
 - Show Finish and a signed-in inline review form after the actual final section. Finishing provides inline confirmation and removes active tracking while retaining completion history. Review submission uses the shared cached-review/editing/signing/outbox path independently.
-- Home's Reading now includes all tracked books, regardless of saved membership. My Books switches between Saved, Reading, and Finished, with latest completions first. An explicit reread restores Continue reading eligibility without erasing finished history.
+- Home's Reading now includes all tracked books, regardless of saved membership. Finished appears at the bottom of Home as centered rows of compact covers, with up to seven columns and latest completions first. My Books shows saved books directly without sub-tabs. An explicit reread restores Continue reading eligibility without erasing finished history. See [ADR 0051](../decisions/0051-home-reading-history-and-saved-library.md).
 - Existing device-local chapter/offset resume takes precedence; a synchronized tracked section is the fallback when this device has no resume location.
 
 ## State and interoperability

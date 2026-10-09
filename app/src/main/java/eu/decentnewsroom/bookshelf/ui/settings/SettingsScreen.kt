@@ -256,7 +256,7 @@ private fun ReadingProgressSettings(
             Text("Your reading position is saved automatically on this device so you can continue where you left off.")
         }
         item {
-            Text("Open the reader menu and choose Track progress to add a book to Reading now on Home and the Reading list in My Books. You can reset or stop tracking from the same controls.")
+            Text("Open the reader menu and choose Track progress to add a book to Reading now on Home. You can reset or stop tracking from the same controls. Finished books appear at the bottom of Home.")
         }
     }
     item { TextButton(onClick = onOpenTrackingTutorial) { Text(stringResource(R.string.tutorial_tracking_help)) } }

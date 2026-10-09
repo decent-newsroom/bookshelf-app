@@ -293,6 +293,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onOpen = viewModel::openBook,
                             onLongPress = viewModel::showBookActions,
                             readingNow = activeReading.tracked,
+                            finishedBooks = activeReading.finished,
                             onResolveReading = viewModel::openReadingCoordinate,
                         )
 
@@ -302,9 +303,6 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onOpen = viewModel::openBook,
                             error = state.error,
                             onLongPress = viewModel::showBookActions,
-                            readingNow = activeReading.tracked,
-                            finishedBooks = activeReading.finished,
-                            onResolveReading = viewModel::openReadingCoordinate,
                         )
 
                         state.tab == BookshelfTab.Settings -> {
