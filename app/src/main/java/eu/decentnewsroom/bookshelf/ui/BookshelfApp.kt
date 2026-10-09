@@ -73,6 +73,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,6 +120,7 @@ import eu.decentnewsroom.bookshelf.ui.books.BookActionsSheet
 import eu.decentnewsroom.bookshelf.ui.books.BookDetailsSheet
 import eu.decentnewsroom.bookshelf.ui.books.BookOpeningScreen
 import eu.decentnewsroom.bookshelf.ui.home.HomeScreen
+import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
 import eu.decentnewsroom.bookshelf.ui.library.MyBooksScreen
 import eu.decentnewsroom.bookshelf.ui.ratings.RatingComposerSheet
 import eu.decentnewsroom.bookshelf.ui.ratings.RatingsSheet
@@ -142,6 +144,14 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val activeReading = activeReadingState(state.readingState, state.readingStateAccountPubkey, state.signerSession?.pubkey)
+    val presentations = bookReadingPresentations(
+        state.readingProgress, activeReading,
+        state.savedBooks + state.curatedShelves.flatMap { it.books } + state.searchResults.map { it.book } +
+            activeReading.tracked.mapNotNull { it.book } + activeReading.finished.mapNotNull { it.book } +
+            (state.recommendationPage?.result?.books ?: emptyList()) +
+            listOfNotNull(state.loadingBook, state.bookActions, state.bookDetails?.book, state.selectedBook?.summary),
+    )
     val snackbarHostState = remember { SnackbarHostState() }
     val homeListState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -179,6 +189,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
         viewModel.dismissSyncMessage(message)
     }
 
+    CompositionLocalProvider(LocalBookReadingPresentations provides presentations) {
     BookshelfTheme(theme = state.readerPreferences.theme) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
@@ -214,7 +225,9 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onBack = viewModel::returnHome,
                             onTabSelected = viewModel::selectTab,
                             onToggleSaved = { viewModel.toggleSaved(selectedBook.summary) },
-                            onChapterProgressChanged = viewModel::recordReaderProgress,
+                            onReaderObservation = { book, observation, persist ->
+                                viewModel.observeReaderProgress(state.readerOpenRequestId, book, observation, persist)
+                            },
                             onFontSizeChanged = viewModel::setReaderFontSize,
                             onLineHeightChanged = viewModel::setReaderLineHeight,
                             onThemeChanged = viewModel::setReaderTheme,
@@ -232,7 +245,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onTipSeen = viewModel::markOnboardingTipSeen,
                             initialChapterIndex = state.readerInitialChapterIndex,
                             onInitialPositioned = viewModel::readerInitiallyPositioned,
-                            readingState = state.readingState,
+                            readingState = activeReading,
                             isSignedIn = state.signerSession != null,
                             inlineReviewComposer = state.ratingComposer?.takeIf { state.inlineRatingComposer && it.book.coordinate == selectedBook.summary.coordinate },
                             inlineReviewStatus = state.latestReviewDelivery?.takeIf { state.inlineReviewCoordinate == selectedBook.summary.coordinate },
@@ -241,7 +254,6 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onStopTracking = viewModel::stopReading,
                             onFinishBook = viewModel::finishReading,
                             onSyncReading = viewModel::syncReading,
-                            onTrackedSectionChanged = viewModel::advanceReading,
                             onPrepareInlineReview = viewModel::prepareInlineReview,
                             onReviewStarsChanged = viewModel::updateRatingStars,
                             onReviewOpinionChanged = viewModel::updateRatingOpinion,
@@ -268,8 +280,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             continueReading = mostRecentlyOpenedSavedBook(
                                 savedBooks = state.savedBooks,
                                 readingProgress = state.readingProgress,
-                                finishedCoordinates = state.readingState.finished.map { it.bookCoordinate }.toSet(),
-                                rereadingCoordinates = state.readingState.tracked.map { it.bookCoordinate }.toSet(),
+                                finishedCoordinates = activeReading.finished.map { it.bookCoordinate }.toSet(),
+                                rereadingCoordinates = presentations.filterValues { it.hasStarted && !it.isMarkedFinished }.keys,
                             ),
                             message = state.shelfMessage,
                             profileName = state.nostrProfile?.preferredName,
@@ -278,7 +290,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onRetry = viewModel::retryShelves,
                             onOpen = viewModel::openBook,
                             onLongPress = viewModel::showBookActions,
-                            readingNow = state.readingState.tracked,
+                            readingNow = activeReading.tracked,
                             onResolveReading = viewModel::openReadingCoordinate,
                         )
 
@@ -288,8 +300,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onOpen = viewModel::openBook,
                             error = state.error,
                             onLongPress = viewModel::showBookActions,
-                            readingNow = state.readingState.tracked,
-                            finishedBooks = state.readingState.finished,
+                            readingNow = activeReading.tracked,
+                            finishedBooks = activeReading.finished,
                             onResolveReading = viewModel::openReadingCoordinate,
                         )
 
@@ -392,6 +404,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 onSubmit = viewModel::submitRatingReview,
             )
         }
+    }
     }
 }
 

@@ -8,7 +8,7 @@ Replace chapter-step reader progress with a durable location that can resume a p
 
 Before Phase 1, `ReaderScreen` observed only `firstVisibleItemIndex`; `ReaderSettingsStore` persisted that chapter index, the chapter count, and a timestamp. Restore therefore started at that chapter's top.
 
-Scrolling through a long chapter therefore writes no new position. The current fraction is `(currentChapterIndex + 1) / chapterCount`, so entering chapter one is non-zero and entering the final chapter is 100% even when its content is unread. It also assumes every chapter has equal reading length.
+Before Phase 1, scrolling through a long chapter wrote no new position and the fraction was `(currentChapterIndex + 1) / chapterCount`, counting chapter entry as completion. Phase 1 switched to a zero-based chapter fraction, which could not reach 100% with a valid chapter index. [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) now adds verified endpoint detection, chapter-coordinate recovery, and consistent derived display across the reader and thumbnails. Intermediate fractions remain approximate by chapter position.
 
 ## Scope and non-goals
 
@@ -40,9 +40,9 @@ On restore, clamp the stored chapter index against the loaded `BookDetail` and s
 
 A pixel offset is an immediate fidelity improvement, not a semantic bookmark. It is exact only for the same rendered content and layout geometry; typography, width, orientation, font availability, and renderer changes can reflow text. Phase 1 must not claim an exact whole-book percentage.
 
-### Phase 2: coordinate and semantic anchors (planned)
+### Phase 2: semantic anchors (planned; chapter coordinates implemented)
 
-Add a stable chapter coordinate and optional semantic anchor after Phase 1: UTF-16 offset in the displayed `AnnotatedString`, and short contextual text or a content fingerprint. Highlights already use UTF-16 offsets plus contextual anchors and provide the recovery precedent.
+Stable chapter-coordinate recovery and publication/content fingerprints are implemented by ADR 0046. Add an optional semantic anchor after Phase 1: UTF-16 offset in the displayed `AnnotatedString`, and short contextual text or a content fingerprint. Highlights already use UTF-16 offsets plus contextual anchors and provide the recovery precedent.
 
 Capture the leading visible text line as the semantic offset. On restore, resolve it against newly rendered displayed text, wait for text layout, and convert its line to an item-relative scroll offset. If resolution fails, use the Phase 1 pixel offset, then the chapter top. Persist neither raw chapter text nor rendered HTML in progress preferences.
 
@@ -60,7 +60,7 @@ Continue reading still selects the most recently opened saved book by `updatedAt
 * New serializable fields have defaults, so old JSON restores to a chapter-top location; unknown future fields remain ignored.
 * Progress remains independent of saved-book membership and all cache-clearing actions.
 * It stores metadata and anchors only—never bodies, HTML, signed events, or account data.
-* Deleted, changed, or unavailable chapters fall back safely and never produce an out-of-range scroll. Coordinate-aware reordering is planned for Phase 2.
+* Deleted, changed, or unavailable chapters fall back safely and never produce an out-of-range scroll. Coordinate-aware recovery is implemented by ADR 0046; semantic recovery remains planned.
 
 ## Implementation slices
 

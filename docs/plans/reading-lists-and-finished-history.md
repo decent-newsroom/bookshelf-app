@@ -2,7 +2,7 @@
 
 This implementation record accompanies [ADR 0044](../decisions/0044-reading-lists-and-finished-history.md). The approved feature keeps device-local resume, explicit section tracking, and explicit finished history separate.
 
-The proposed [thumbnail progress plan](book-thumbnail-reading-progress.md#cooperation-between-the-three-progress-tracks) defines follow-up coordination between local chapter presentation, Nostr section tracking, and physical scroll resume, including endpoint display, action sequencing, and shared presentation rules. Those coordination changes remain planned.
+The implemented [thumbnail progress record](book-thumbnail-reading-progress.md#cooperation-between-the-three-progress-tracks) and [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) define cooperation between local chapter presentation, Nostr section tracking, and physical scroll resume, including endpoint display, action sequencing, and shared presentation rules.
 
 ## User behavior
 

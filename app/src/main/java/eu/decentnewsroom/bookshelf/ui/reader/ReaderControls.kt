@@ -22,6 +22,9 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.ui.BookshelfTab
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
+import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
+import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
+import eu.decentnewsroom.bookshelf.ui.books.resolveUiReadingPresentation
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.components.ReaderNotice
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
@@ -35,6 +38,9 @@ internal fun ReaderControlsMenu(
     onShowContents: () -> Unit, onShowSettings: () -> Unit, onShowHighlights: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val presentation = resolveUiReadingPresentation(progress, sharedPresentation = LocalBookReadingPresentations.current[progress.bookCoordinate])
+    val displayedFraction = presentation.fraction
+    val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Surface(modifier.fillMaxWidth().padding(12.dp), RoundedCornerShape(8.dp), colors.controls, shadowElevation = 8.dp) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -45,8 +51,8 @@ internal fun ReaderControlsMenu(
                 Spacer(Modifier.width(6.dp)); Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { SecondaryButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) } }
-            LinearProgressIndicator(progress = { progress.progressFraction.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track)
-            Text("Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = colors.muted)
+            displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
+            Text(progressLabel, style = MaterialTheme.typography.labelMedium, color = colors.muted)
         }
     }
 }
@@ -67,6 +73,9 @@ internal fun ReaderHeader(
     onBack: () -> Unit, onToggleSaved: () -> Unit, onShowContents: () -> Unit, onShowSettings: () -> Unit,
     showBookListTip: Boolean, onBookListTipDismissed: () -> Unit,
 ) {
+    val presentation = resolveUiReadingPresentation(progress, detail.summary, LocalBookReadingPresentations.current[detail.summary.coordinate])
+    val displayedFraction = presentation.fraction
+    val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }; Spacer(Modifier.weight(1f))
@@ -74,10 +83,18 @@ internal fun ReaderHeader(
             SecondaryButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
             OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") } }
         }
-        LinearProgressIndicator(progress = { progress.progressFraction.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track)
-        Text("Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%", style = MaterialTheme.typography.labelMedium, color = colors.muted)
+        displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
+        Text(progressLabel, style = MaterialTheme.typography.labelMedium, color = colors.muted)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            BookCover(detail.summary, Modifier.size(width = 88.dp, height = 124.dp), colors.track, colors.accent)
+            BookCover(
+                detail.summary,
+                Modifier.size(width = 88.dp, height = 124.dp),
+                colors.track,
+                colors.accent,
+                badgeBackgroundColor = colors.controls,
+                badgeProgressColor = colors.accent,
+                badgeCheckColor = colors.controls,
+            )
             Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(text = detail.summary.title, style = MaterialTheme.typography.headlineMedium, color = colors.text, fontWeight = FontWeight.Bold)
                 Text("by ${detail.summary.authors.joinToString(", ").ifBlank { "Unknown author" }}", style = MaterialTheme.typography.bodyLarge, color = colors.muted)

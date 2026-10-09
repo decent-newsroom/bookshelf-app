@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Show reading progress in the corner of book covers throughout the app, including unsaved books: a highlighted ring for partial progress and a filled circle at 100% read.
+- Report 100% at the bottom of a complete book, preserve chapter offsets through Finish/review cards, and keep incomplete publications from appearing fully read.
+- Coordinate local chapter display, scroll resume, and explicit Nostr section tracking; preserve bookmarks through Reset/Stop, prevent stale advances after tracking actions or account changes, and keep rereading independent from finished history.
 - Fix the My Books tab-row compilation error by using the Material 3 secondary tab indicator API.
 - Refresh pending-highlight counts when background delivery changes, show outstanding relay/chapter acknowledgements and their errors in Settings, and add Retry now to Storage & Offline.
 - Complete highlight delivery when a resolved remote destination moves to the configured local relay, and preserve per-event relay failures so successful chapter delivery cannot hide a failed highlight.

@@ -34,6 +34,15 @@ class ReaderModelsTest {
             """{"bookCoordinate":"book","currentChapterIndex":2,"chapterCount":5,"updatedAtMillis":9}""",
         )
         assertEquals(0, progress.chapterScrollOffsetPx)
+        assertEquals(false, progress.hasStarted)
+        assertEquals(false, progress.reachedEnd)
+        assertEquals(0, progress.fullChapterCount)
+        assertEquals(false, progress.completeContent)
+        assertEquals(null, progress.chapterCoordinate)
+        assertEquals(null, progress.contentFingerprint)
+        assertEquals(null, progress.publicationFingerprint)
+        assertEquals(0L, progress.lastReadingActivityMillis)
+        assertEquals(0L, progress.readingCycleStartedAtMillis)
     }
 
     @Test

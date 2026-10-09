@@ -37,7 +37,9 @@ import eu.decentnewsroom.bookshelf.ui.ContinueReadingBook
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
 import eu.decentnewsroom.bookshelf.ui.books.BookCarousel
-import kotlin.math.roundToInt
+import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
+import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
+import eu.decentnewsroom.bookshelf.ui.books.resolveUiReadingPresentation
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -88,6 +90,9 @@ fun HomeScreen(
 fun ContinueReadingCard(continueReading: ContinueReadingBook, onOpen: () -> Unit, onLongPress: () -> Unit) {
     val book = continueReading.book
     val progress = continueReading.progress
+    val presentation = resolveUiReadingPresentation(progress, book, LocalBookReadingPresentations.current[book.coordinate])
+    val fraction = presentation.fraction
+    val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp).combinedClickable(onClick = onOpen, onLongClick = onLongPress), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             BookCover(book, Modifier.size(width = 64.dp, height = 92.dp))
@@ -95,8 +100,8 @@ fun ContinueReadingCard(continueReading: ContinueReadingBook, onOpen: () -> Unit
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Continue reading", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text(book.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                LinearProgressIndicator({ progress.progressFraction.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)))
-                Text("Chapter ${progress.currentChapterNumber} of ${progress.chapterCount} | ${(progress.progressFraction * 100f).roundToInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                fraction?.let { value -> LinearProgressIndicator({ value }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp))) }
+                Text(progressLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
         }
     }

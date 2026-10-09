@@ -21,6 +21,11 @@ import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationStatus
 import eu.decentnewsroom.bookshelf.data.mercury.SearchScope
 import eu.decentnewsroom.bookshelf.ui.reader.ReaderOpenTarget
 import eu.decentnewsroom.bookshelf.ui.reader.resolveChapterIndex
+import eu.decentnewsroom.bookshelf.ui.reader.readerNeedsTrackedFallback
+import eu.decentnewsroom.bookshelf.ui.reader.resolveTrackedReaderChapterIndex
+import eu.decentnewsroom.bookshelf.ui.reader.ReaderObservation
+import eu.decentnewsroom.bookshelf.ui.reader.ReaderTrackingGate
+import eu.decentnewsroom.bookshelf.ui.reader.localReadingCycleTime
 import eu.decentnewsroom.bookshelf.ui.search.searchOutcomeMessage
 import eu.decentnewsroom.bookshelf.ui.ratings.ratingComposerForBook
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelfRepository
@@ -69,6 +74,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.collections.emptyList
 import kotlin.collections.sortedWith
@@ -112,10 +119,14 @@ class BookshelfViewModel(
     private var ratingsJob: Job? = null
     private var ratingComposerJob: Job? = null
     private var latestSavedReviewId: String? = null
+    private val readerTrackingGate = ReaderTrackingGate()
+    private val readerTrackingActions = Mutex()
 
     init {
         viewModelScope.launch {
-            readingState.state.collect { reading -> _uiState.update { it.copy(readingState = reading) } }
+            readingState.state.collect { reading ->
+                _uiState.update { it.copy(readingState = reading, readingStateAccountPubkey = readingState.activeAccountPubkey) }
+            }
         }
         viewModelScope.launch {
             readingState.signRequest.collect { request -> _uiState.update { it.copy(pendingReadingSignRequest = request) } }
@@ -163,6 +174,7 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             relaySync.activeSession.collect { session ->
+                if (_uiState.value.signerSession != session) readerTrackingGate.invalidatePendingAdvances()
                 if (_uiState.value.signerSession != session && _uiState.value.inlineRatingComposer) {
                     dismissRatingComposer()
                 }
@@ -393,10 +405,12 @@ class BookshelfViewModel(
                     isSaved = localBookshelf.isSaved(book.coordinate),
                 )
                 currentCoroutineContext().ensureActive()
+                val localResume = readerSettings.normalizeBookProgress(detail)
                 val targetIndex = target?.resolveChapterIndex(detail.chapters)
-                val trackedIndex = if (target == null && readerSettings.progress.value[book.coordinate] == null)
-                    readingState.state.value.tracked.firstOrNull { it.bookCoordinate == book.coordinate }?.position
-                        ?.coerceIn(0, (detail.chapters.size - 1).coerceAtLeast(0)) else null
+                val trackedIndex = if (readerNeedsTrackedFallback(targetIndex, localResume)) {
+                    resolveTrackedReaderChapterIndex(detail,
+                        readingState.state.value.tracked.firstOrNull { it.bookCoordinate == book.coordinate })
+                } else null
                 val initialIndex = targetIndex ?: trackedIndex
                 // An explicit jump records progress only once the reader has positioned successfully.
                 if (initialIndex == null && localBookshelf.isSaved(detail.summary.coordinate)) {
@@ -777,13 +791,56 @@ class BookshelfViewModel(
 
     fun trackReading(chapterIndex: Int) {
         val book = _uiState.value.selectedBook ?: return
-        readingAction { readingState.track(book, chapterIndex) }
+        readerTrackingGate.invalidatePendingAdvances()
+        coordinatedReadingAction {
+            readingState.track(book, chapterIndex)
+            readerSettings.markReadingCycle(book, readingCycleStartMillis(book.summary.coordinate))
+        }
     }
 
-    fun advanceReading(book: BookDetail, chapterIndex: Int) = readingAction { readingState.advance(book, chapterIndex) }
-    fun resetReading() { _uiState.value.selectedBook?.summary?.coordinate?.let { readingAction { readingState.reset(it) } } }
-    fun stopReading() { _uiState.value.selectedBook?.summary?.coordinate?.let { readingAction { readingState.stop(it) } } }
-    fun finishReading() { _uiState.value.selectedBook?.summary?.let { readingAction { readingState.finish(it) } } }
+    private fun coordinatedReadingAction(advanceTicket: Long? = null, action: suspend () -> Unit) {
+        val signer = _uiState.value.signerSession
+        viewModelScope.launch {
+            readerTrackingActions.withLock {
+                if (advanceTicket != null && !readerTrackingGate.accepts(advanceTicket)) return@withLock
+                try {
+                    check(_uiState.value.signerSession == signer) { "Account changed. Try again." }
+                    check(readingState.activeAccountPubkey == signer?.pubkey) { "Reading account is changing. Try again." }
+                    action()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { _uiState.update { it.copy(syncMessage = failure.message ?: "Could not save reading changes.") } }
+            }
+        }
+    }
+
+    fun resetReading() {
+        val book = _uiState.value.selectedBook ?: return
+        readerTrackingGate.invalidatePendingAdvances()
+        coordinatedReadingAction {
+            readingState.reset(book.summary.coordinate)
+            readerSettings.markReadingCycle(book, readingCycleStartMillis(book.summary.coordinate))
+        }
+    }
+
+    fun stopReading() {
+        val coordinate = _uiState.value.selectedBook?.summary?.coordinate ?: return
+        readerTrackingGate.invalidatePendingAdvances()
+        coordinatedReadingAction { readingState.stop(coordinate) }
+    }
+
+    private fun readingCycleStartMillis(coordinate: String): Long {
+        val finishedAt = readingState.state.value.finished.firstOrNull { it.bookCoordinate == coordinate }?.finishedAt ?: 0L
+        return localReadingCycleTime(System.currentTimeMillis(), finishedAt)
+    }
+
+    fun finishReading() {
+        val book = _uiState.value.selectedBook ?: return
+        readerTrackingGate.invalidatePendingAdvances()
+        coordinatedReadingAction {
+            readingState.finish(book.summary)
+            readerSettings.completeReadingCycle(book)
+        }
+    }
     fun syncReading() = readingAction { readingState.sync(manual = true) }
     fun completeReadingSignature(id: String?, eventJson: String) = readingAction { readingState.completeSignature(id, eventJson) }
     fun failReadingSignature(id: String?, message: String) = readingAction { readingState.failSignature(id, message) }
@@ -1442,12 +1499,38 @@ class BookshelfViewModel(
     }
 
     fun readerInitiallyPositioned(book: BookDetail, chapterIndex: Int, scrollOffsetPx: Int) {
-        readerSettings.recordProgress(book, chapterIndex, scrollOffsetPx)
-        if (localBookshelf.isSaved(book.summary.coordinate)) readerSettings.recordBookOpened(book)
+        // The coordinated observation records the resolved location after positioning.
+        if (_uiState.value.selectedBook?.summary?.coordinate == book.summary.coordinate) {
+            _uiState.update { it.copy(readerInitialChapterIndex = null) }
+        }
     }
 
-    fun recordReaderProgress(book: BookDetail, chapterIndex: Int, scrollOffsetPx: Int) {
-        readerSettings.recordProgress(book, chapterIndex, scrollOffsetPx)
+    internal fun observeReaderProgress(readerSessionId: String, book: BookDetail, observation: ReaderObservation, persist: Boolean) {
+        // Disposal after leaving the reader can flush while selectedBook is already null.
+        // A different open request must never accept this reader's late callbacks.
+        if (_uiState.value.readerOpenRequestId != readerSessionId) return
+        val existing = readerSettings.progress.value[book.summary.coordinate]
+        val finished = readingState.state.value.finished.firstOrNull { it.bookCoordinate == book.summary.coordinate }
+        // Nostr completion times can be logical seconds slightly ahead of wall time.
+        // Actual movement away from completion still starts a local reread immediately.
+        if (finished != null && observation.readingActivity && !observation.reachedEnd &&
+            (existing?.currentChapterIndex != observation.chapterIndex || existing.chapterScrollOffsetPx != observation.scrollOffsetPx) &&
+            (existing?.readingCycleStartedAtMillis ?: 0L) < localReadingCycleTime(0L, finished.finishedAt)
+        ) {
+            readerSettings.markReadingCycle(book, readingCycleStartMillis(book.summary.coordinate))
+        }
+        readerSettings.recordProgress(
+            book, observation.chapterIndex, observation.scrollOffsetPx,
+            reachedEnd = observation.reachedEnd,
+            readingActivity = observation.readingActivity,
+            persist = persist,
+        )
+        val ticket = readerTrackingGate.sectionChanged(readerSessionId, observation.trackingChapterIndex) ?: return
+        coordinatedReadingAction(ticket) {
+            if (_uiState.value.readerOpenRequestId == readerSessionId) {
+                readingState.advance(book, observation.trackingChapterIndex ?: return@coordinatedReadingAction)
+            }
+        }
     }
 
     fun markOnboardingTipSeen(tip: OnboardingTip) {
@@ -1654,6 +1737,7 @@ data class BookshelfUiState(
     val selectedBook: BookDetail? = null,
     val readerInitialChapterIndex: Int? = null,
     val readerOpenRequestId: String = "",
+    val readingStateAccountPubkey: String? = null,
     val recommendationPage: BookRecommendationsState? = null,
     val bookActions: BookSummary? = null,
     val bookDetails: BookDetailsState? = null,

@@ -40,7 +40,7 @@ fun ReadingTrackingControls(
             }
             if (!streamKnown) Text("Loading section order before tracking…", style = MaterialTheme.typography.bodySmall)
         } else {
-            Text("Tracked sections: ${tracked.position} / ${tracked.total}", style = MaterialTheme.typography.labelLarge)
+            Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.labelLarge)
             LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
             Text(readingDeliveryLabel(tracked.isPublic, tracked.status), style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -103,7 +103,7 @@ fun ReadingNowCarousel(
     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(books, key = TrackedBook::bookCoordinate) { tracked ->
             ReadingBookCard(tracked.bookCoordinate, tracked.book, readingDeliveryLabel(tracked.isPublic, tracked.status), onOpen, onLongPress, onResolve, Modifier.width(180.dp)) {
-                Text("${tracked.position} / ${tracked.total} sections", style = MaterialTheme.typography.bodySmall)
+                Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.bodySmall)
                 LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
             }
         }
@@ -113,7 +113,7 @@ fun ReadingNowCarousel(
 @Composable
 fun TrackedBookCard(tracked: TrackedBook, onOpen: (BookSummary) -> Unit, onLongPress: (BookSummary) -> Unit, onResolve: (String) -> Unit) {
     ReadingBookCard(tracked.bookCoordinate, tracked.book, readingDeliveryLabel(tracked.isPublic, tracked.status), onOpen, onLongPress, onResolve) {
-        Text("${tracked.position} / ${tracked.total} sections", style = MaterialTheme.typography.bodySmall)
+        Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.bodySmall)
         LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
     }
 }
@@ -156,7 +156,11 @@ private fun ReadingBookCard(
 }
 
 private fun trackedFraction(tracked: TrackedBook): Float =
-    if (tracked.total <= 0) 0f else (tracked.position.toFloat() / tracked.total).coerceIn(0f, 1f)
+    if (tracked.total <= 0) 0f else (tracked.position.toFloat() / tracked.total).coerceIn(0f, 0.99f)
+
+private fun furthestSectionLabel(tracked: TrackedBook): String =
+    if (tracked.total <= 0) "Furthest section: unavailable"
+    else "Furthest section: ${tracked.position.coerceIn(0, tracked.total - 1) + 1} of ${tracked.total}"
 
 private fun readingDeliveryLabel(isPublic: Boolean, status: String): String =
     if (!isPublic) "On this device" else status.ifBlank { "Public sync pending" }

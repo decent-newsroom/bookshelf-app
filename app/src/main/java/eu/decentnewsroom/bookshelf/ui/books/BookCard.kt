@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import eu.decentnewsroom.bookshelf.data.mercury.TrustedCoverImagePolicy
 import eu.decentnewsroom.bookshelf.domain.BookSummary
+import eu.decentnewsroom.bookshelf.data.reader.BookReadingPresentation
 
 @Composable
 fun BookCard(
@@ -85,6 +86,10 @@ fun BookCover(
     modifier: Modifier = Modifier.size(width = 56.dp, height = 76.dp),
     containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     monogramColor: Color = MaterialTheme.colorScheme.primary,
+    readingPresentation: BookReadingPresentation? = LocalBookReadingPresentations.current[book.coordinate],
+    badgeBackgroundColor: Color = MaterialTheme.colorScheme.surface,
+    badgeProgressColor: Color = MaterialTheme.colorScheme.primary,
+    badgeCheckColor: Color = MaterialTheme.colorScheme.onPrimary,
 ) {
     androidx.compose.foundation.layout.Box(
         modifier = modifier
@@ -106,5 +111,12 @@ fun BookCover(
                 contentScale = ContentScale.Crop,
             )
         }
+        BookProgressOverlay(
+            presentation = readingPresentation,
+            modifier = Modifier.align(Alignment.BottomEnd),
+            backgroundColor = badgeBackgroundColor,
+            progressColor = badgeProgressColor,
+            checkColor = badgeCheckColor,
+        )
     }
 }

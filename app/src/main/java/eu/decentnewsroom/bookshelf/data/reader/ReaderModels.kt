@@ -40,6 +40,17 @@ data class ReadingProgress(
     val updatedAtMillis: Long,
     /** Pixel offset within the current chapter item; defaults to the chapter top for legacy data. */
     val chapterScrollOffsetPx: Int = 0,
+    val hasStarted: Boolean = false,
+    val reachedEnd: Boolean = false,
+    /** Full ordered section count; [chapterCount] remains the loaded resume count. */
+    val fullChapterCount: Int = 0,
+    val completeContent: Boolean = false,
+    val chapterCoordinate: String? = null,
+    /** Loaded verified chapter identity, supplementing refs that omit event IDs. */
+    val contentFingerprint: String? = null,
+    val publicationFingerprint: String? = null,
+    val lastReadingActivityMillis: Long = 0,
+    val readingCycleStartedAtMillis: Long = 0,
 ) {
     val currentChapterNumber: Int
         get() = if (chapterCount <= 0) 0 else (currentChapterIndex + 1).coerceIn(1, chapterCount)

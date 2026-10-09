@@ -23,23 +23,24 @@ import eu.decentnewsroom.bookshelf.ui.reading.*
 import eu.decentnewsroom.bookshelf.domain.*
 import eu.decentnewsroom.bookshelf.ui.*
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
+import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, FlowPreview::class)
 @Composable
 internal fun ReaderScreen(
     detail: BookDetail, isSaved: Boolean, preferences: ReaderPreferences, progress: ReadingProgress,
     selectedTab: BookshelfTab, onBack: () -> Unit, onTabSelected: (BookshelfTab) -> Unit,
-    onToggleSaved: () -> Unit, onChapterProgressChanged: (BookDetail, Int, Int) -> Unit,
+    onToggleSaved: () -> Unit,
     onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit,
     highlights: List<ReaderHighlight>, highlightDelivery: Map<String, String>, highlightComposer: HighlightComposerState?,
     onSaveHighlight: (BookChapter, String, Int, Int) -> Unit, onShowHighlightComposer: (ReaderHighlight) -> Unit,
@@ -56,36 +57,59 @@ internal fun ReaderScreen(
     onStopTracking: () -> Unit = {},
     onFinishBook: () -> Unit = {},
     onSyncReading: () -> Unit = {},
-    onTrackedSectionChanged: (BookDetail, Int) -> Unit = { _, _ -> },
     onPrepareInlineReview: () -> Unit = {},
     onReviewStarsChanged: (Int) -> Unit = {},
     onReviewOpinionChanged: (String) -> Unit = {},
     onSubmitInlineReview: () -> Unit = {},
+    onReaderObservation: (BookDetail, ReaderObservation, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val tracked = readingState.tracked.firstOrNull { it.bookCoordinate == detail.summary.coordinate }
     val finished = readingState.finished.firstOrNull { it.bookCoordinate == detail.summary.coordinate }
+    val presentation = LocalBookReadingPresentations.current[detail.summary.coordinate]
+        ?: resolveBookReadingPresentation(progress, tracked, finished, detail.summary)
+    val latestProgress by rememberUpdatedState(progress)
+    val latestMarkedFinished by rememberUpdatedState(presentation.isMarkedFinished)
     val streamKnown = detail.summary.sectionStreamKnown && detail.summary.chapterCount > 0
     val showFinishCards = readerHasTerminalActions(detail.summary.sectionStreamKnown, detail.summary.chapterCount, detail.chapters.size, detail.truncated)
-    val latestTrackedSectionChanged by rememberUpdatedState(onTrackedSectionChanged)
+    val latestReaderObservation by rememberUpdatedState(onReaderObservation)
     val latestPrepareReview by rememberUpdatedState(onPrepareInlineReview)
     val latestInlineReviewComposer by rememberUpdatedState(inlineReviewComposer)
     val startPosition = readerStartPosition(progress, initialChapterIndex)
+    val currentPublicationFingerprint = remember(detail.summary) { readingPublicationFingerprint(detail.summary) }
     val initialListItemIndex = readerListItemIndexForChapter(startPosition.chapterIndex, detail.chapters.size)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialListItemIndex,
         initialFirstVisibleItemScrollOffset = startPosition.scrollOffsetPx,
     )
-    val resumePositionTracker = remember(detail.summary.coordinate, detail.chapters.size) {
-        ReaderResumePositionTracker(detail.chapters.size)
+    val resumePositionTracker = remember(detail.summary.coordinate, currentPublicationFingerprint, detail.chapters.size) {
+        ReaderResumePositionTracker(detail.chapters.size, startPosition.chapterIndex to startPosition.scrollOffsetPx)
     }
-    var initialPositionApplied by rememberSaveable { mutableStateOf(initialChapterIndex == null) }
+    val completeContent = readerHasCompleteContent(
+        detail.summary.sectionStreamKnown && detail.summary.chapterRefs.size == detail.summary.chapterCount,
+        detail.summary.chapterCount,
+        detail.chapters.size,
+        detail.chapters.all { it.available },
+        detail.truncated,
+    )
+    val savedEndpoint = initialChapterIndex == null && progress.reachedEnd && progress.completeContent &&
+        progress.fullChapterCount == detail.summary.chapterCount && completeContent &&
+        progress.publicationFingerprint == currentPublicationFingerprint
+    var latestObservation by remember(detail.summary.coordinate, currentPublicationFingerprint) { mutableStateOf<ReaderObservation?>(null) }
+    var explicitNavigationGeneration by remember(detail.summary.coordinate) { mutableStateOf(0) }
+    var consumedNavigationGeneration by remember(detail.summary.coordinate, currentPublicationFingerprint) { mutableStateOf(0) }
+    var initialPositionApplied by rememberSaveable(detail.summary.coordinate, initialChapterIndex) {
+        mutableStateOf(initialChapterIndex == null)
+    }
     LaunchedEffect(listState, initialChapterIndex) {
         if (!initialPositionApplied) {
             snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.isNotEmpty() }.first { it }
+            val position = resumePositionTracker.positionOnExit(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                ?: (startPosition.chapterIndex to startPosition.scrollOffsetPx)
             onInitialPositioned(
                 detail,
-                chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size),
-                readerScrollOffsetForListItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
+                position.first,
+                position.second,
             )
             initialPositionApplied = true
         }
@@ -98,25 +122,85 @@ internal fun ReaderScreen(
     }
     var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
     val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size); val uriHandler = LocalUriHandler.current
-    LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
-        snapshotFlow {
-            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset else null
+    LaunchedEffect(detail.summary.coordinate, currentPublicationFingerprint, detail.chapters.size, listState, initialPositionApplied) {
+        if (initialPositionApplied) {
+            var previous: ReaderObservation? = ReaderObservation(
+                chapterIndex = startPosition.chapterIndex,
+                scrollOffsetPx = startPosition.scrollOffsetPx,
+                reachedEnd = savedEndpoint,
+                readingActivity = false,
+            )
+            consumedNavigationGeneration = explicitNavigationGeneration
+            var publishedPosition: ReaderObservation? = null
+            snapshotFlow {
+                val layout = listState.layoutInfo
+                ReaderLayoutSnapshot(
+                    listItemIndex = listState.firstVisibleItemIndex,
+                    scrollOffsetPx = listState.firstVisibleItemScrollOffset,
+                    canScrollForward = listState.canScrollForward,
+                    hasVisibleItems = layout.visibleItemsInfo.isNotEmpty(),
+                    viewportSizePx = layout.viewportEndOffset - layout.viewportStartOffset,
+                    isScrollInProgress = listState.isScrollInProgress,
+                    explicitNavigationGeneration = explicitNavigationGeneration,
+                )
+            }.distinctUntilChanged()
+                .onEach { snapshot ->
+                    if (snapshot.hasVisibleItems && snapshot.viewportSizePx > 0) {
+                        val resume = resumePositionTracker.observe(snapshot.listItemIndex, snapshot.scrollOffsetPx)
+                            ?: resumePositionTracker.positionOnExit(snapshot.listItemIndex, snapshot.scrollOffsetPx)
+                            ?: (startPosition.chapterIndex to startPosition.scrollOffsetPx)
+                        val reachedEnd = readerIsAtVerifiedEnd(
+                            completeContent = completeContent,
+                            canScrollForward = snapshot.canScrollForward,
+                            hasVisibleItems = snapshot.hasVisibleItems,
+                            viewportSizePx = snapshot.viewportSizePx,
+                        )
+                        val chapterIndex = resume.first
+                        val prior = previous
+                        val explicitNavigation = snapshot.explicitNavigationGeneration != consumedNavigationGeneration
+                        val observation = ReaderObservation(
+                            chapterIndex = chapterIndex,
+                            scrollOffsetPx = resume.second,
+                            reachedEnd = reachedEnd,
+                            readingActivity = prior?.let {
+                                readerObservationHasActivity(
+                                    previous = it,
+                                    chapterIndex = chapterIndex,
+                                    scrollOffsetPx = resume.second,
+                                    reachedEnd = reachedEnd,
+                                    isScrollInProgress = snapshot.isScrollInProgress,
+                                    explicitNavigation = explicitNavigation,
+                                )
+                            } ?: false,
+                            trackingChapterIndex = readerTrackingChapterIndexForListItem(
+                                snapshot.listItemIndex,
+                                detail.chapters.size,
+                                reachedEnd,
+                            ),
+                        )
+                        previous = observation
+                        // Keep navigation intent until the positioned location changes;
+                        // snapshotFlow can see the intent before scrollToItem has applied it.
+                        if (!explicitNavigation || prior?.chapterIndex != chapterIndex || prior.scrollOffsetPx != resume.second) {
+                            consumedNavigationGeneration = snapshot.explicitNavigationGeneration
+                        }
+                        latestObservation = observation
+                        val activityNeedsPublication = observation.readingActivity &&
+                            (latestProgress.readingCycleStartedAtMillis == 0L || latestMarkedFinished)
+                        if (readerShouldPublishPosition(publishedPosition, observation, activityNeedsPublication)) {
+                            publishedPosition = observation
+                            latestReaderObservation(detail, observation, false)
+                        }
+                    }
+                }
+                .debounce(500.milliseconds)
+                .collect { snapshot ->
+                    if (snapshot.hasVisibleItems && snapshot.viewportSizePx > 0) {
+                        latestObservation?.let { latestReaderObservation(detail, it, true) }
+                        consumedNavigationGeneration = snapshot.explicitNavigationGeneration
+                    }
+                }
         }
-            .filterNotNull()
-            .map { (index, offset) -> resumePositionTracker.observe(index, offset) }
-            .filterNotNull()
-            .distinctUntilChanged()
-            .debounce(500)
-            .collect { (chapterIndex, scrollOffsetPx) -> onChapterProgressChanged(detail, chapterIndex, scrollOffsetPx) }
-    }
-    // Tracking observes section crossings immediately, independently from pixel resume debouncing.
-    LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
-        snapshotFlow {
-            val index = listState.firstVisibleItemIndex
-            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0 && index > 0 && detail.chapters.isNotEmpty()) {
-                chapterIndexForReaderListItem(index, detail.chapters.size)
-            } else null
-        }.filterNotNull().distinctUntilChanged().collect { latestTrackedSectionChanged(detail, it) }
     }
     LaunchedEffect(detail.summary.coordinate, isSignedIn, showFinishCards, listState) {
         if (isSignedIn && showFinishCards && inlineReviewComposer == null) {
@@ -124,11 +208,42 @@ internal fun ReaderScreen(
             if (latestInlineReviewComposer == null) latestPrepareReview()
         }
     }
-    DisposableEffect(detail.summary.coordinate, detail.chapters.size, listState) {
+    DisposableEffect(detail.summary.coordinate, currentPublicationFingerprint, detail.chapters.size, listState) {
         onDispose {
             if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) {
                 resumePositionTracker.positionOnExit(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-                    ?.let { (chapterIndex, offset) -> onChapterProgressChanged(detail, chapterIndex, offset) }
+                    ?.let { (chapterIndex, offset) ->
+                        val layout = listState.layoutInfo
+                        val reachedEnd = readerIsAtVerifiedEnd(
+                            completeContent = completeContent,
+                            canScrollForward = listState.canScrollForward,
+                            hasVisibleItems = layout.visibleItemsInfo.isNotEmpty(),
+                            viewportSizePx = layout.viewportEndOffset - layout.viewportStartOffset,
+                        )
+                        val prior = latestObservation
+                        latestReaderObservation(
+                            detail,
+                            ReaderObservation(
+                                chapterIndex = chapterIndex,
+                                scrollOffsetPx = offset,
+                                reachedEnd = reachedEnd,
+                                readingActivity = readerObservationHasActivity(
+                                    previous = prior ?: ReaderObservation(startPosition.chapterIndex, startPosition.scrollOffsetPx, savedEndpoint, false),
+                                    chapterIndex = chapterIndex,
+                                    scrollOffsetPx = offset,
+                                    reachedEnd = reachedEnd,
+                                    isScrollInProgress = listState.isScrollInProgress,
+                                    explicitNavigation = explicitNavigationGeneration != consumedNavigationGeneration,
+                                ),
+                                trackingChapterIndex = readerTrackingChapterIndexForListItem(
+                                    listState.firstVisibleItemIndex,
+                                    detail.chapters.size,
+                                    reachedEnd,
+                                ),
+                            ),
+                            true,
+                        )
+                    }
             }
         }
     }
@@ -138,12 +253,13 @@ internal fun ReaderScreen(
         if (showReaderMenusTip) onTipSeen(OnboardingTip.ReaderMenus)
     }
     if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) { ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged) }
-    if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
+    if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) { explicitNavigationGeneration += 1; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) {
         ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { chapterIndex ->
             showContents = false
             showNavigationMenus = false
+            explicitNavigationGeneration += 1
             coroutineScope.launch {
                 listState.scrollToItem(readerListItemIndexForChapter(chapterIndex, detail.chapters.size))
             }
@@ -174,7 +290,8 @@ internal fun ReaderScreen(
                     }
                 }
                 if (showFinishCards) {
-                    item(key = "reader-finish") { FinishBookCard(finished, readingState.preferences.finishedDeviceOnly, tracked != null, onFinishBook) }
+                    item(key = "reader-finish") { FinishBookCard(finished, readingState.preferences.finishedDeviceOnly,
+                        tracked != null || (finished != null && !presentation.isMarkedFinished), onFinishBook) }
                     if (isSignedIn) item(key = "reader-review") {
                         InlineReviewCard(inlineReviewComposer?.takeIf { it.book.coordinate == detail.summary.coordinate }, inlineReviewStatus, onPrepareInlineReview, onReviewStarsChanged, onReviewOpinionChanged, onSubmitInlineReview)
                     }

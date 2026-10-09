@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — Phase 1 implemented; coordinate/semantic anchoring remains planned
+Accepted — Phase 1 implemented; extended by [ADR 0046](0046-coordinated-reader-progress-and-thumbnail-indicators.md) for chapter-coordinate recovery, endpoint detection, and shared presentation. Semantic anchoring remains planned.
 
 ## Context
 
@@ -14,7 +14,7 @@ The app renders chapters into Compose `AnnotatedString` values and stores highli
 
 Adopt a staged location model keyed by the publication coordinate:
 
-1. Persist a clamped chapter index and a non-negative item scroll offset in pixels. This Phase 1 slice is implemented. A stable chapter coordinate for reorder-resistant recovery remains planned.
+1. Persist a clamped chapter index and a non-negative item scroll offset in pixels. This Phase 1 slice is implemented. ADR 0046 subsequently adds a stable chapter coordinate for reorder-resistant recovery.
 2. Persist new fields with serialization defaults in the existing private reader-preferences JSON. Existing index-only records therefore resume at the chapter top without a data migration or loss.
 3. Coalesce scrolling updates and flush the latest observed location when the reader leaves composition. A progress write remains local reader state and continues to update the last-opened timestamp used by Continue reading. This Phase 1 lifecycle behavior is implemented.
 4. Treat pixel offsets as layout-specific resume data. They improve same-layout resume but do not establish an exact global reading fraction.
