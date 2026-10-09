@@ -638,7 +638,7 @@ class NostrRelayClient(
         val HEX_64 = Regex("^[a-f0-9]{64}$", RegexOption.IGNORE_CASE)
 
         fun parsePublicationCoordinate(raw: String): PublicationCoordinate? {
-            val parts = raw.trim().split(":", limit = 3)
+            val parts = raw.split(":", limit = 3)
             if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_INDEX ||
                 !HEX_64.matches(parts[1]) || parts[2].isBlank()
             ) return null

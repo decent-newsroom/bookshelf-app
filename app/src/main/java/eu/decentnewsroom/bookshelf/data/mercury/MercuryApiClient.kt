@@ -223,7 +223,7 @@ class MercuryApiClient(
     suspend fun getPublicationsByCoordinates(coordinates: List<PublicationCoordinate>): List<NostrEvent> {
         val normalized = coordinates.mapNotNull { coordinate ->
             val pubkey = coordinate.pubkey.trim().lowercase()
-            val identifier = coordinate.identifier.trim()
+            val identifier = coordinate.identifier
             if (!HEX_64.matches(pubkey) || identifier.isBlank()) null
             else coordinate.copy(pubkey = pubkey, identifier = identifier)
         }.distinctBy { it.coordinate }

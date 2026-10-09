@@ -642,7 +642,10 @@ class MercuryBookRepository(
 
     private fun firstTagValue(tags: List<List<String>>, name: String): String? =
         tags.firstNotNullOfOrNull { tag ->
-            tag.getOrNull(1)?.trim()?.takeIf { tag.getOrNull(0) == name }
+            tag.getOrNull(1)?.takeIf { tag.getOrNull(0) == name }?.let { value ->
+                // The d tag is an exact coordinate component, not display text.
+                if (name == "d") value else value.trim()
+            }
         }
 
     private fun sectionProvenance(event: NostrEvent, query: String?): Set<MatchProvenance> {
@@ -869,7 +872,7 @@ class MercuryBookRepository(
         val GUTENBERG_URL_PATH = Regex("/(?:ebooks|files|cache/epub)/(\\d+)(?:/|$)")
 
         fun parseCoordinate(value: String): ParsedCoordinate? {
-            val parts = value.trim().split(":", limit = 3)
+            val parts = value.split(":", limit = 3)
             if (parts.size != 3 || !HEX_64.matches(parts[1]) || parts[2].isBlank()) {
                 return null
             }
@@ -968,5 +971,4 @@ private fun BookSearchQuery.normalizedForCache(): BookSearchQuery =
         text = normalizedText,
         language = language?.trim()?.lowercase(Locale.US),
         eventId = eventId?.lowercase(Locale.US),
-        coordinate = coordinate?.trim(),
     )

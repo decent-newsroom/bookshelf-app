@@ -15,6 +15,7 @@ import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.data.connectivity.ValidatedInternetConnectivity
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.discovery.NostrBookLinkParser
 import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationRepository
 import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationResult
 import eu.decentnewsroom.bookshelf.data.discovery.BookRecommendationStatus
@@ -34,6 +35,7 @@ import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchQuery
 import eu.decentnewsroom.bookshelf.data.mercury.BookSearchResult
+import eu.decentnewsroom.bookshelf.data.mercury.BookSearchStatus
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfRelaySync
 import eu.decentnewsroom.bookshelf.data.nostr.BookshelfSyncState
 import eu.decentnewsroom.bookshelf.data.nostr.NostrProfile
@@ -61,6 +63,7 @@ import eu.decentnewsroom.bookshelf.data.ratings.ReviewDeliveryState
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -115,6 +118,9 @@ class BookshelfViewModel(
     private var recommendationJob: Job? = null
     private var recommendationGeneration = 0L
     private var bookOpenJob: Job? = null
+    private var bookLinkJob: Job? = null
+    private var bookLinkGeneration = 0L
+    private var initialBookLinkHandled = false
     private var bookDetailsJob: Job? = null
     private var ratingsJob: Job? = null
     private var ratingComposerJob: Job? = null
@@ -217,6 +223,13 @@ class BookshelfViewModel(
             connectivity.online.collect { online ->
                 _uiState.update { it.copy(isOnline = online) }
                 if (!online) {
+                    if (bookLinkJob != null) {
+                        cancelBookLinkResolution()
+                        _uiState.update {
+                            it.copy(isLoadingBook = false, loadingBook = null,
+                                syncMessage = "Offline. Connect to the internet and open the book link again.")
+                        }
+                    }
                     cancelSearchWork()
                     cancelRecommendationWork()
                     _uiState.update { state ->
@@ -257,6 +270,7 @@ class BookshelfViewModel(
     }
 
     fun selectTab(tab: BookshelfTab) {
+        cancelBookLinkResolution()
         dismissRatingComposer()
         cancelSearchWork()
         bookOpenJob?.cancel()
@@ -269,7 +283,10 @@ class BookshelfViewModel(
     }
 
     fun openSearch() {
-        _uiState.update { it.copy(isSearchOpen = true, tab = BookshelfTab.Home) }
+        cancelBookLinkResolution()
+        bookOpenJob?.cancel()
+        _uiState.update { it.copy(isSearchOpen = true, tab = BookshelfTab.Home,
+            selectedBook = null, isLoadingBook = false, loadingBook = null) }
     }
 
     fun closeSearch() {
@@ -278,6 +295,7 @@ class BookshelfViewModel(
     }
 
     fun returnHome() {
+        cancelBookLinkResolution()
         dismissRatingComposer()
         cancelSearchWork()
         dismissRecommendations()
@@ -370,7 +388,94 @@ class BookshelfViewModel(
 
     fun openBook(book: BookSummary) = openBook(book, null)
 
-    private fun openBook(book: BookSummary, target: ReaderOpenTarget?) {
+    /** The retained ViewModel consumes the launch URI once; process recreation resolves it afresh. */
+    fun openInitialBookLink(uri: String?) {
+        if (initialBookLinkHandled) return
+        openBookLink(uri)
+    }
+
+    fun openBookLink(uri: String?) {
+        initialBookLinkHandled = true
+        val parsed = NostrBookLinkParser.parse(uri)
+        val known = (parsed as? NostrBookLinkParser.Result.Accepted)?.let { link ->
+            val state = _uiState.value
+            (localBookshelf.savedBooks.value + state.curatedShelves.flatMap { it.books } +
+                state.searchResults.map { it.book } +
+                readingState.state.value.tracked.mapNotNull { it.book } +
+                readingState.state.value.finished.mapNotNull { it.book } +
+                state.recommendationPage?.result?.books.orEmpty() +
+                listOfNotNull(state.selectedBook?.summary, state.bookDetails?.book, state.loadingBook))
+                .filter { it.coordinate == link.target.coordinate }
+                .sortedWith(compareByDescending<BookSummary> { it.createdAt }.thenBy { it.id })
+                .firstOrNull()
+        }
+        returnHome()
+        when (parsed) {
+            NostrBookLinkParser.Result.Invalid -> {
+                _uiState.update { it.copy(syncMessage = "This book link is invalid.") }
+                return
+            }
+            NostrBookLinkParser.Result.Unsupported -> {
+                _uiState.update { it.copy(syncMessage = "Bookshelf opens nostr:naddr links to books (kind 30040).") }
+                return
+            }
+            is NostrBookLinkParser.Result.Accepted -> Unit
+        }
+        val query = BookSearchQuery(
+            coordinate = parsed.target.coordinate,
+            naddrRelayHints = parsed.target.relayHints,
+            scope = SearchScope.METADATA,
+        )
+        val generation = bookLinkGeneration
+        _uiState.update { it.copy(isLoadingBook = true, loadingBook = known) }
+        // Assign the job before it can finish a cache-only lookup without suspending.
+        bookLinkJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val online = connectivity.isOnline
+                val outcome = if (online) repository.searchOutcome(query) else repository.cachedSearchOutcome(query)
+                currentCoroutineContext().ensureActive()
+                if (generation != bookLinkGeneration) return@launch
+                val book = outcome?.results?.firstOrNull { it.book.coordinate == parsed.target.coordinate }?.book
+                    ?: known.takeIf { !online }
+                if (book == null) {
+                    val message = when {
+                        !online -> "Offline. This book is not available here. Connect and open the link again."
+                        outcome?.status != BookSearchStatus.COMPLETE -> "Could not resolve this book right now. Try the link again."
+                        else -> "This book could not be found on the available sources."
+                    }
+                    _uiState.update { it.copy(isLoadingBook = false, loadingBook = null, syncMessage = message) }
+                    bookLinkJob = null
+                    return@launch
+                }
+                bookLinkJob = null
+                if (book.chapterRefs.isEmpty()) {
+                    _uiState.update { it.copy(isLoadingBook = false, loadingBook = null) }
+                    showBookDetails(book)
+                } else openBook(book, null, reportFailure = true)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                currentCoroutineContext().ensureActive()
+                if (generation == bookLinkGeneration) {
+                    bookLinkJob = null
+                    _uiState.update {
+                        it.copy(isLoadingBook = false, loadingBook = null,
+                            syncMessage = "Could not resolve this book right now. Try the link again.")
+                    }
+                }
+            }
+        }
+        bookLinkJob?.start()
+    }
+
+    private fun cancelBookLinkResolution() {
+        bookLinkGeneration++
+        bookLinkJob?.cancel()
+        bookLinkJob = null
+    }
+
+    private fun openBook(book: BookSummary, target: ReaderOpenTarget?, reportFailure: Boolean = false) {
+        cancelBookLinkResolution()
         dismissRatingComposer()
         cancelSearchWork()
         dismissRecommendations()
@@ -416,6 +521,7 @@ class BookshelfViewModel(
                 if (initialIndex == null && localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
                 }
+                currentCoroutineContext().ensureActive()
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false, loadingBook = null,
@@ -427,39 +533,29 @@ class BookshelfViewModel(
                     )
                 }
             } catch (exception: OfflineBookUnavailableException) {
-                _uiState.update {
-                    it.copy(
-                        isLoadingBook = false, loadingBook = null,
-                        error = if (localBookshelf.isSaved(book.coordinate)) {
-                            "This book has not been downloaded for offline reading."
-                        } else {
-                            "Connect to the internet to read this book."
-                        },
-                    )
-                }
+                reportBookOpenFailure(
+                    if (localBookshelf.isSaved(book.coordinate)) "This book has not been downloaded for offline reading."
+                    else "Connect to the internet to read this book.",
+                    reportFailure,
+                )
             } catch (exception: MercuryApiException) {
-                _uiState.update {
-                    it.copy(
-                        isLoadingBook = false, loadingBook = null,
-                        error = "Could not load this book right now. Try again when you have an internet connection.",
-                    )
-                }
+                reportBookOpenFailure("Could not load this book right now. Try again when you have an internet connection.", reportFailure)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
-                _uiState.update {
-                    it.copy(
-                        isLoadingBook = false, loadingBook = null,
-                        error = "Could not open this book.",
-                    )
-                }
-
+                reportBookOpenFailure("Could not open this book.", reportFailure)
             }
         }
     }
 
     fun closeBook() {
         returnHome()
+    }
+
+    private suspend fun reportBookOpenFailure(message: String, showFeedback: Boolean) {
+        currentCoroutineContext().ensureActive()
+        _uiState.update { it.copy(isLoadingBook = false, loadingBook = null, error = message,
+            syncMessage = if (showFeedback) message else it.syncMessage) }
     }
 
     fun showBookActions(book: BookSummary) {
@@ -471,6 +567,9 @@ class BookshelfViewModel(
     }
 
     fun showBookDetails(book: BookSummary) {
+        cancelBookLinkResolution()
+        bookOpenJob?.cancel()
+        _uiState.update { it.copy(isLoadingBook = false, loadingBook = null) }
         dismissRecommendations()
         dismissBookActions()
         bookDetailsJob?.cancel()

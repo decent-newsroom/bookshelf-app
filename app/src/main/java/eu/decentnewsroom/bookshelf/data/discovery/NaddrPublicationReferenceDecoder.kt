@@ -28,7 +28,8 @@ object NaddrPublicationReferenceDecoder {
         val address = route?.entity as? NAddress ?: return null
         if (address.kind != BookKinds.PUBLICATION_INDEX) return null
         val pubkey = address.author.trim().lowercase()
-        val identifier = address.dTag.trim()
+        // The d tag is part of the event identity, including leading/trailing whitespace.
+        val identifier = address.dTag
         if (!HEX_64.matches(pubkey) || identifier.isBlank()) return null
         PublicationTarget(
             coordinate = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$identifier",

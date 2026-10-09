@@ -1,20 +1,22 @@
 package eu.decentnewsroom.bookshelf.data.mercury
 
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.vitorpamplona.quartz.nip19Bech32.entities.NAddress
 import com.vitorpamplona.quartz.utils.Secp256k1InstanceKotlin
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.BookReference
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.BufferedReader
 import java.io.Closeable
-import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -681,6 +683,46 @@ class MercuryBookRepositorySearchTest {
             assertEquals(query.naddrRelayHints, requestedHints)
         }
     }
+
+    @Test
+    fun naddrIdentityRemainsExactAcrossHttpRelayMappingAndCache() = runBlocking {
+        val pubkey = testPubkey(1)
+        val identifier = "  édition:été/第三  "
+        val coordinate = "${BookKinds.PUBLICATION_INDEX}:$pubkey:$identifier"
+        val query = BookSearchQuery.from(NAddress.create(BookKinds.PUBLICATION_INDEX, pubkey, identifier, emptyList()))
+        val httpEvent = publicationEvent(pubkey, identifier, "HTTP exact book", "Writer", emptyList())
+        val otherBook = publicationEvent(pubkey, identifier.trim(), "Different book", "Writer", emptyList(), createdAt = 9)
+        val relayEvent = Json.decodeFromString<NostrEvent>(
+            publicationEvent(pubkey, identifier, "Relay exact book", "Writer", emptyList(), createdAt = 2),
+        )
+        var requestedCoordinate: String? = null
+        val server = RecordingHttpServer { eventListJson(httpEvent, otherBook) }
+
+        server.use {
+            val api = MercuryApiClient(OkHttpClient(), server.baseUrl)
+            // Verify the signed HTTP result independently of the relay result.
+            val httpRepository = MercuryBookRepository(api)
+            assertEquals(coordinate, httpRepository.search(query).single().book.coordinate)
+            assertEquals(identifier, httpRepository.search(query).single().book.identifier)
+
+            val repository = MercuryBookRepository(
+                apiClient = api,
+                naddrPublicationIndexRelaySource = NaddrPublicationIndexRelaySource { target, _ ->
+                    requestedCoordinate = target
+                    listOf(relayEvent)
+                },
+            )
+            val result = repository.search(query).single().book
+            assertEquals(coordinate, requestedCoordinate)
+            assertEquals(coordinate, result.coordinate)
+            assertEquals(identifier, result.identifier)
+            assertEquals("Relay exact book", result.title)
+            assertTrue(server.requests.all { it.body.contains("\"#d\":[\"$identifier\"]") })
+            assertEquals(result, repository.cachedSearchOutcome(query)?.results?.single()?.book)
+            assertNull(repository.cachedSearchOutcome(query.copy(coordinate = coordinate.trim())))
+        }
+    }
+
     @Test
     fun searchInfersGutenbergCoverFromSourceMetadata() = runBlocking {
         val pubkey = testPubkey(4)
@@ -909,11 +951,22 @@ class MercuryBookRepositorySearchTest {
 
         private fun handle(connection: Socket) {
             connection.use { client ->
-                val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
-                val requestLine = reader.readLine() ?: return
+                val input = client.getInputStream().buffered()
+                // HTTP headers are ASCII, and Content-Length counts body bytes, not UTF-8 characters.
+                // Keep one byte stream so a character reader cannot read ahead into the body.
+                fun readHeaderLine(): String? {
+                    val line = StringBuilder()
+                    while (true) {
+                        val byte = input.read()
+                        if (byte == -1) return line.toString().takeIf(String::isNotEmpty)
+                        if (byte == '\n'.code) return line.toString().removeSuffix("\r")
+                        line.append(byte.toChar())
+                    }
+                }
+                val requestLine = readHeaderLine() ?: return
                 var contentLength = 0
                 while (true) {
-                    val header = reader.readLine() ?: break
+                    val header = readHeaderLine() ?: break
                     if (header.isEmpty()) {
                         break
                     }
@@ -922,19 +975,12 @@ class MercuryBookRepositorySearchTest {
                     }
                 }
 
-                val bodyBuffer = CharArray(contentLength)
-                var read = 0
-                while (read < contentLength) {
-                    val count = reader.read(bodyBuffer, read, contentLength - read)
-                    if (count == -1) {
-                        break
-                    }
-                    read += count
-                }
+                val bodyBuffer = input.readNBytes(contentLength)
+                check(bodyBuffer.size == contentLength) { "Incomplete HTTP request body" }
 
                 val request = RecordedHttpRequest(
                     path = requestLine.split(" ").getOrNull(1)?.substringBefore("?").orEmpty(),
-                    body = String(bodyBuffer, 0, read),
+                    body = bodyBuffer.toString(Charsets.UTF_8),
                 )
                 requests += request
 

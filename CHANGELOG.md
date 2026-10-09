@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Register Bookshelf for incoming Android `nostr:naddr` book links. Open verified kind-30040 publications through the normal reader and resume flow, show library-card details, and report malformed, unsupported, unavailable, or offline links without automatically saving the book.
 - Add Discard changes as a secondary button with a visible background in the end-of-book editor and review sheet, keeping the original rating and review intact; new drafts can also be discarded.
 - Populate Tutorials with eight friendly lessons covering reading comfort, book and chapter search, saving and resuming, offline reading, highlights, reviews, tracking, and account connection. Each works offline with two or three steps; the existing tracking-help link opens Track a book.
 - Simplify My Books to saved books without sub-tabs. Keep Reading now on Home and show Finished at the bottom as a centered grid of compact covers, with up to seven per row and the most recent completions first.
