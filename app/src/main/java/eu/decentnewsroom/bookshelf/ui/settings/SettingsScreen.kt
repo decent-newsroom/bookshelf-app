@@ -260,11 +260,6 @@ private fun ReadingProgressSettings(
         }
     }
     item { TextButton(onClick = onOpenTrackingTutorial) { Text(stringResource(R.string.tutorial_tracking_help)) } }
-    sectionTitle("Current sharing mode")
-    val preferences = state.readingState.preferences
-    val signedIn = account.pubkey != null
-    detail("Reading list updates", if (!signedIn || preferences.readingDeviceOnly) "Device only" else "Public on Nostr")
-    detail("Finished book updates", if (!signedIn || preferences.finishedDeviceOnly) "Device only" else "Public on Nostr")
     sectionTitle("Reading lists & finished books")
     item { ReadingPrivacySettings(state, actions, account, onRetryReading) }
 }
