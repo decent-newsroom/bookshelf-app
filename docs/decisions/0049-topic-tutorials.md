@@ -6,6 +6,8 @@ Accepted, 2026-10-09. Extends ADR 0029's dedicated Settings boundary. Once the u
 
 [ADR 0050](0050-unified-reader-progress-controls.md) supersedes the reader tracking-sheet tutorial entry point, return-to-sheet lifecycle, and requirement to retain long reader explanations until tutorial content is supplied. The offline catalog, reusable viewer, Settings entry points, and user-authored content requirement remain accepted; tutorial authoring is separate work.
 
+[ADR 0052](0052-approved-focused-tutorials.md) extends the catalog to eight populated topics with user-approved copy and supersedes the two-topic, empty-content restriction and user-authored-only requirement. The original topic IDs and the offline, explanatory viewer boundary remain accepted.
+
 ## Context
 
 Reading progress and privacy has important explanations, and the reader's tracking controls need the same guidance in context. Duplicating explanatory copy across Settings and the reader risks drift. The existing onboarding system serves brief, dismissible tips with persistent seen state; it is not a suitable content model for a navigable tutorial.
