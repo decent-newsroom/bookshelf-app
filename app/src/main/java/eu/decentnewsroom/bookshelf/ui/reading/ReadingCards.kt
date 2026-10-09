@@ -51,13 +51,14 @@ fun InlineReviewCard(
     onStarsChanged: (Int) -> Unit,
     onOpinionChanged: (String) -> Unit,
     onSubmit: () -> Unit,
+    onDiscard: () -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Leave a review", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text("Your rating and optional review are public.", style = MaterialTheme.typography.bodySmall)
             status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            if (composer != null) RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit)
+            if (composer != null) RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit, onDiscard)
             else SecondaryButton(onClick = onPrepare, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (status == null) "Write your review" else "Edit your review") }
         }
     }

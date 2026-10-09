@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Add Discard changes as a secondary button with a visible background in the end-of-book editor and review sheet, keeping the original rating and review intact; new drafts can also be discarded.
 - Populate Tutorials with eight friendly lessons covering reading comfort, book and chapter search, saving and resuming, offline reading, highlights, reviews, tracking, and account connection. Each works offline with two or three steps; the existing tracking-help link opens Track a book.
 - Simplify My Books to saved books without sub-tabs. Keep Reading now on Home and show Finished at the bottom as a centered grid of compact covers, with up to seven per row and the most recent completions first.
 - Merge reader tracking controls with the position indicator in the book header and tap-to-show menu, with one progress bar, concise tracking and sync status, and theme-aware filled actions. Remove the separate tracking sheet and Aa shortcut while preserving reading-position, reset/stop, and completion behavior.

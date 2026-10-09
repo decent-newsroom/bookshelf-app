@@ -40,6 +40,7 @@ import eu.decentnewsroom.bookshelf.ui.RatingDistributionUi
 import eu.decentnewsroom.bookshelf.ui.RatingReviewUi
 import eu.decentnewsroom.bookshelf.ui.RatingSummaryUi
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.components.Notice
 import kotlin.math.roundToInt
 
@@ -102,7 +103,7 @@ fun RatingReviewCard(review: RatingReviewUi) {
 @Composable
 fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, onStarsChanged: (Int) -> Unit, onOpinionChanged: (String) -> Unit, onSubmit: () -> Unit) {
     ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) {
-        RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit, Modifier.padding(24.dp))
+        RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit, onDismiss, Modifier.padding(24.dp))
     }
 }
 
@@ -113,6 +114,7 @@ fun RatingComposerForm(
     onStarsChanged: (Int) -> Unit,
     onOpinionChanged: (String) -> Unit,
     onSubmit: () -> Unit,
+    onDiscard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -136,6 +138,9 @@ fun RatingComposerForm(
         if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
         composer.error?.let { Notice(it) }
         Button(onClick = onSubmit, enabled = !composer.isPublishing && !composer.isLoadingReview && !composer.requiresSignIn, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
+        SecondaryButton(onClick = onDiscard, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(if (composer.editingEventId == null) "Discard review" else "Discard changes")
+        }
         Spacer(Modifier.height(16.dp))
     }
 }

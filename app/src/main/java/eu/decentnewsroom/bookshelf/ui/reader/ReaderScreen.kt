@@ -61,6 +61,7 @@ internal fun ReaderScreen(
     onReviewStarsChanged: (Int) -> Unit = {},
     onReviewOpinionChanged: (String) -> Unit = {},
     onSubmitInlineReview: () -> Unit = {},
+    onDiscardInlineReview: () -> Unit = {},
     onReaderObservation: (BookDetail, ReaderObservation, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val tracked = readingState.tracked.firstOrNull { it.bookCoordinate == detail.summary.coordinate }
@@ -320,7 +321,7 @@ internal fun ReaderScreen(
                     item(key = "reader-finish") { FinishBookCard(finished, readingState.preferences.finishedDeviceOnly,
                         tracked != null || (finished != null && !presentation.isMarkedFinished), onFinishBook) }
                     if (isSignedIn) item(key = "reader-review") {
-                        InlineReviewCard(inlineReviewComposer?.takeIf { it.book.coordinate == detail.summary.coordinate }, inlineReviewStatus, onPrepareInlineReview, onReviewStarsChanged, onReviewOpinionChanged, onSubmitInlineReview)
+                        InlineReviewCard(inlineReviewComposer?.takeIf { it.book.coordinate == detail.summary.coordinate }, inlineReviewStatus, onPrepareInlineReview, onReviewStarsChanged, onReviewOpinionChanged, onSubmitInlineReview, onDiscardInlineReview)
                     }
                 }
             }

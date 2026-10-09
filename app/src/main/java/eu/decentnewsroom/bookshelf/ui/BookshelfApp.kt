@@ -260,6 +260,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onReviewStarsChanged = viewModel::updateRatingStars,
                             onReviewOpinionChanged = viewModel::updateRatingOpinion,
                             onSubmitInlineReview = viewModel::submitRatingReview,
+                            onDiscardInlineReview = viewModel::dismissRatingComposer,
                         )
                     }
 
