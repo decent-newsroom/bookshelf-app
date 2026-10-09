@@ -41,6 +41,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import eu.decentnewsroom.bookshelf.data.reading.ReadingStateRepository
+import eu.decentnewsroom.bookshelf.data.reading.ReadingStateStore
+import eu.decentnewsroom.bookshelf.data.reading.ReadingTransport
+import eu.decentnewsroom.bookshelf.data.nostr.AndroidExternalSigner
+import eu.decentnewsroom.bookshelf.domain.BookReference
+import eu.decentnewsroom.bookshelf.domain.BookSummary
+import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import java.io.File
 
 object AppGraph {
     private const val DECENT_NEWSROOM_BOOKS_API_BASE_URL = "https://decentnewsroom.com/books"
@@ -89,6 +97,10 @@ object AppGraph {
     private var highlightStore: HighlightStore? = null
     private var highlightOutboxStore: HighlightOutbox? = null
     private var highlightDispatcherStore: HighlightOutboxDispatcher? = null
+    private var readingStateStore: ReadingStateRepository? = null
+
+    val readingState: ReadingStateRepository
+        get() = checkNotNull(readingStateStore) { "AppGraph.initialize(context) must be called before using reading state." }
 
     val highlights: HighlightStore
         get() = checkNotNull(highlightStore) { "AppGraph.initialize(context) must be called before using highlights." }
@@ -289,6 +301,32 @@ object AppGraph {
                 localRelayUrl = { checkNotNull(localRelaySettingsStore).relayUrl.value },
                 isOnline = { checkNotNull(connectivityStore).isOnline },
             )
+        }
+        if (readingStateStore == null) {
+            val readingRepository = ReadingStateRepository(
+                store = ReadingStateStore(File(File(appContext.filesDir, "bookshelf"), "reading-state-v1.json")),
+                transport = object : ReadingTransport {
+                    override suspend fun snapshot(pubkey: String) = directoryRelayClient.fetchReadingSnapshot(pubkey)
+                    override suspend fun finished(pubkey: String) = directoryRelayClient.fetchFinishedLabels(pubkey)
+                    override suspend fun resolve(coordinates: List<String>): List<BookSummary> = mercuryBooks.getMyBooksForReferences(
+                        coordinates.map { BookReference("a", it, null, null, null) },
+                    )
+                    override suspend fun writeRelays(pubkey: String) = directoryRelayClient.readingRelayUrls(pubkey)
+                    override suspend fun publish(event: NostrEvent, relay: String) =
+                        directoryRelayClient.publishReadingEventToRelays(event, listOf(relay))
+                },
+                online = { connectivity.isOnline },
+                localRelay = { localRelaySettings.relayUrl.value },
+                backgroundSign = { session, eventJson -> AndroidExternalSigner.signEventInBackground(appContext, session, eventJson) },
+                initialSession = relaySync.activeSession.value,
+            )
+            readingStateStore = readingRepository
+            ratingCacheMaintenanceScope.launch {
+                relaySync.activeSession.collect { readingRepository.setSession(it) }
+            }
+            ratingCacheMaintenanceScope.launch {
+                connectivity.online.collect { readingRepository.connectivityChanged() }
+            }
         }
     }
 }

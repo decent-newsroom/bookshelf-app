@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
 import eu.decentnewsroom.bookshelf.data.reader.*
+import eu.decentnewsroom.bookshelf.data.reading.ReadingState
+import eu.decentnewsroom.bookshelf.ui.reading.*
 import eu.decentnewsroom.bookshelf.domain.*
 import eu.decentnewsroom.bookshelf.ui.*
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
@@ -45,13 +47,37 @@ internal fun ReaderScreen(
     seenTips: Set<OnboardingTip>, onTipSeen: (OnboardingTip) -> Unit,
     initialChapterIndex: Int? = null,
     onInitialPositioned: (BookDetail, Int, Int) -> Unit,
+    readingState: ReadingState = ReadingState(),
+    isSignedIn: Boolean = false,
+    inlineReviewComposer: RatingComposerState? = null,
+    inlineReviewStatus: String? = null,
+    onTrackReading: (Int) -> Unit = {},
+    onResetTracking: () -> Unit = {},
+    onStopTracking: () -> Unit = {},
+    onFinishBook: () -> Unit = {},
+    onSyncReading: () -> Unit = {},
+    onTrackedSectionChanged: (BookDetail, Int) -> Unit = { _, _ -> },
+    onPrepareInlineReview: () -> Unit = {},
+    onReviewStarsChanged: (Int) -> Unit = {},
+    onReviewOpinionChanged: (String) -> Unit = {},
+    onSubmitInlineReview: () -> Unit = {},
 ) {
+    val tracked = readingState.tracked.firstOrNull { it.bookCoordinate == detail.summary.coordinate }
+    val finished = readingState.finished.firstOrNull { it.bookCoordinate == detail.summary.coordinate }
+    val streamKnown = detail.summary.sectionStreamKnown && detail.summary.chapterCount > 0
+    val showFinishCards = readerHasTerminalActions(detail.summary.sectionStreamKnown, detail.summary.chapterCount, detail.chapters.size, detail.truncated)
+    val latestTrackedSectionChanged by rememberUpdatedState(onTrackedSectionChanged)
+    val latestPrepareReview by rememberUpdatedState(onPrepareInlineReview)
+    val latestInlineReviewComposer by rememberUpdatedState(inlineReviewComposer)
     val startPosition = readerStartPosition(progress, initialChapterIndex)
     val initialListItemIndex = readerListItemIndexForChapter(startPosition.chapterIndex, detail.chapters.size)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialListItemIndex,
         initialFirstVisibleItemScrollOffset = startPosition.scrollOffsetPx,
     )
+    val resumePositionTracker = remember(detail.summary.coordinate, detail.chapters.size) {
+        ReaderResumePositionTracker(detail.chapters.size)
+    }
     var initialPositionApplied by rememberSaveable { mutableStateOf(initialChapterIndex == null) }
     LaunchedEffect(listState, initialChapterIndex) {
         if (!initialPositionApplied) {
@@ -77,18 +103,33 @@ internal fun ReaderScreen(
             if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset else null
         }
             .filterNotNull()
-            .map { (index, offset) -> chapterIndexForReaderListItem(index, detail.chapters.size) to readerScrollOffsetForListItem(index, offset) }
+            .map { (index, offset) -> resumePositionTracker.observe(index, offset) }
+            .filterNotNull()
             .distinctUntilChanged()
             .debounce(500)
             .collect { (chapterIndex, scrollOffsetPx) -> onChapterProgressChanged(detail, chapterIndex, scrollOffsetPx) }
     }
+    // Tracking observes section crossings immediately, independently from pixel resume debouncing.
+    LaunchedEffect(detail.summary.coordinate, detail.chapters.size, listState) {
+        snapshotFlow {
+            val index = listState.firstVisibleItemIndex
+            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0 && index > 0 && detail.chapters.isNotEmpty()) {
+                chapterIndexForReaderListItem(index, detail.chapters.size)
+            } else null
+        }.filterNotNull().distinctUntilChanged().collect { latestTrackedSectionChanged(detail, it) }
+    }
+    LaunchedEffect(detail.summary.coordinate, isSignedIn, showFinishCards, listState) {
+        if (isSignedIn && showFinishCards && inlineReviewComposer == null) {
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.any { it.key == "reader-review" } }.first { it }
+            if (latestInlineReviewComposer == null) latestPrepareReview()
+        }
+    }
     DisposableEffect(detail.summary.coordinate, detail.chapters.size, listState) {
         onDispose {
-            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) onChapterProgressChanged(
-                detail,
-                chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size),
-                readerScrollOffsetForListItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
-            )
+            if (initialPositionApplied && listState.layoutInfo.totalItemsCount > 0) {
+                resumePositionTracker.positionOnExit(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                    ?.let { (chapterIndex, offset) -> onChapterProgressChanged(detail, chapterIndex, offset) }
+            }
         }
     }
     // Consume this one-time impression when it is presented, not only after the
@@ -112,8 +153,32 @@ internal fun ReaderScreen(
     Box(Modifier.fillMaxSize().background(colors.background)) {
         OnboardingTooltip(showReaderMenusTip, "Tap anywhere while reading to show menus for navigation and reader settings.", { showReaderMenusTip = false }) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().pointerInput(detail.summary.coordinate) { detectTapGestures { showNavigationMenus = !showNavigationMenus } }, contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                item(key = "reader-header") { ReaderHeader(detail, isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, !showReaderMenusTip && OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips) { onTipSeen(OnboardingTip.BookListMembership) } }
-                itemsIndexed(detail.chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter -> if (chapter.available) ChapterSection(chapter, preferences, colors, { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } }, highlights, onSaveHighlight, Modifier.padding(top = if (index == 0) 0.dp else 24.dp)) }
+                item(key = "reader-header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        ReaderHeader(detail, isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, !showReaderMenusTip && OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips) { onTipSeen(OnboardingTip.BookListMembership) }
+                        ReadingTrackingControls(tracked, streamKnown, readingState.preferences.readingDeviceOnly,
+                            { onTrackReading(chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size)) },
+                            onResetTracking, onStopTracking, onSyncReading)
+                        if (readingState.isSyncing) Text("Syncing reading lists…", color = colors.muted)
+                        else if (readingState.pendingCount > 0) Text("${readingState.pendingCount} reading changes pending sync", color = colors.muted)
+                        readingState.error?.let { Text(it, color = colors.muted) }
+                        if (detail.truncated) Text("This reader loaded only part of the publication. The end of the book is not available here.", color = colors.muted)
+                        if (detail.missingChapterCount > 0) Text("${detail.missingChapterCount} sections are unavailable. Their positions remain in the reading order.", color = colors.muted)
+                    }
+                }
+                itemsIndexed(detail.chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter ->
+                    if (chapter.available) ChapterSection(chapter, preferences, colors, { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } }, highlights, onSaveHighlight, Modifier.padding(top = if (index == 0) 0.dp else 24.dp))
+                    else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(chapter.title, style = MaterialTheme.typography.titleLarge, color = colors.text)
+                        Text("This section is unavailable. Retry opening the book when its relay is reachable.", color = colors.muted)
+                    }
+                }
+                if (showFinishCards) {
+                    item(key = "reader-finish") { FinishBookCard(finished, readingState.preferences.finishedDeviceOnly, tracked != null, onFinishBook) }
+                    if (isSignedIn) item(key = "reader-review") {
+                        InlineReviewCard(inlineReviewComposer?.takeIf { it.book.coordinate == detail.summary.coordinate }, inlineReviewStatus, onPrepareInlineReview, onReviewStarsChanged, onReviewOpinionChanged, onSubmitInlineReview)
+                    }
+                }
             }
         }
         if (showNavigationMenus) { ReaderControlsMenu(isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, { showHighlights = true }, Modifier.align(Alignment.TopCenter)); ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter)) }

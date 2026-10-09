@@ -7,6 +7,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Fix the My Books tab-row compilation error by using the Material 3 secondary tab indicator API.
+- Refresh pending-highlight counts when background delivery changes, show outstanding relay/chapter acknowledgements and their errors in Settings, and add Retry now to Storage & Offline.
+- Complete highlight delivery when a resolved remote destination moves to the configured local relay, and preserve per-event relay failures so successful chapter delivery cannot hide a failed highlight.
+- Add explicit reading tracking and finished-book history that work locally without an account, with independent privacy preferences and selected-entry public sharing.
+- Show tracked books in Home's Reading now and add Saved, Reading, and Finished views to My Books, independent of saved-library membership.
+- Add Track, Reset, Stop, section progress, and delivery feedback in the reader; show explicit Finish and a signed-in inline review card after the book's final section.
+- Synchronize public reading lists as kind 16374 snapshots and completed-book labels as kind 1985 events, with durable account-scoped pending work, immutable signed retries, and label-before-removal delivery.
+- Keep scrolling publication windows fixed at three seconds, request signer interaction only through explicit actions when background permission is unavailable, and preserve reading state when caches are cleared.
+
+
 ## v0.1.26
 
 - Hide the More like this Retry button when the book edition is not indexed for recommendations.

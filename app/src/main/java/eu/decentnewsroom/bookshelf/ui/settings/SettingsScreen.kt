@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -27,6 +28,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import androidx.compose.runtime.Composable
@@ -99,6 +102,7 @@ data class SettingsActions(
     val removeLocalRelay: () -> Unit = {},
     val clearSelectedCaches: (Set<CacheSelection>) -> Unit = {},
     val refreshStorage: () -> Unit = {},
+    val setReadingPrivacy: (Boolean?, Boolean?, Set<String>) -> Unit = { _, _, _ -> },
 )
 
 private enum class SettingsSection { Index, Reading, Account, Sources, Relays, Storage, About }
@@ -110,17 +114,18 @@ fun SettingsScreen(
     account: AccountSettingsState,
     accountActions: AccountSettingsActions,
     onBackFromSettings: () -> Unit,
+    onRetryReading: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Index) }
     BackHandler { if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index }
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
     when (section) {
         SettingsSection.Index -> SettingsIndex(state, account) { section = it }
-        SettingsSection.Reading -> ReadingSettings(state, actions)
+        SettingsSection.Reading -> ReadingSettings(state, actions, account, onRetryReading)
         SettingsSection.Account -> AccountSettings(state, account, accountActions)
         SettingsSection.Sources -> SourcesSettings(state, actions)
         SettingsSection.Relays -> RelaySettings(state, account, actions)
-        SettingsSection.Storage -> StorageSettings(state, actions)
+        SettingsSection.Storage -> StorageSettings(state, actions, accountActions.retryNow)
         SettingsSection.About -> AboutSettings()
     }
 }
@@ -194,7 +199,9 @@ private fun ReaderPreview(preferences: ReaderPreferences) {
 }
 
 @Composable
-private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Reading & Display") {
+private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions, account: AccountSettingsState, onRetryReading: () -> Unit) = SettingsScaffold("Reading & Display") {
+    sectionTitle("Reading lists & finished books")
+    item { ReadingPrivacySettings(state, actions, account, onRetryReading) }
     val p = state.readerPreferences
     sectionTitle("Appearance")
     item { Text("Theme") }
@@ -212,6 +219,125 @@ private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = 
 }
 
 @Composable
+private fun ReadingPrivacySettings(
+    state: SettingsUiState,
+    actions: SettingsActions,
+    account: AccountSettingsState,
+    onRetryReading: () -> Unit,
+) {
+    // Nullable: true previews tracking, false previews finished history.
+    var previewReading by remember { mutableStateOf<Boolean?>(null) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    var previewOwner by remember { mutableStateOf<String?>(null) }
+    val reading = state.readingState
+    val signedIn = account.pubkey != null
+    LaunchedEffect(account.pubkey) {
+        previewReading = null
+        selected = emptySet()
+        previewOwner = null
+    }
+    fun preview(isReading: Boolean) {
+        previewReading = isReading
+        previewOwner = account.pubkey
+        selected = emptySet()
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ReadingPrivacyToggle(
+            "Keep reading list on this device only",
+            reading.preferences.readingDeviceOnly,
+            signedIn,
+        ) { deviceOnly ->
+            if (deviceOnly) actions.setReadingPrivacy(true, null, emptySet()) else preview(true)
+        }
+        ReadingPrivacyToggle(
+            "Keep finished books on this device only",
+            reading.preferences.finishedDeviceOnly,
+            signedIn,
+        ) { deviceOnly ->
+            if (deviceOnly) actions.setReadingPrivacy(null, true, emptySet()) else preview(false)
+        }
+        Text(
+            if (signedIn) "Public sharing publishes signed events to Nostr for other devices to read. Turning device-only on pauses pending delivery; previously published records remain public."
+            else "Reading lists and finished books work without an account. Connect an account to share publicly and sync between devices.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (signedIn) {
+            if (!reading.preferences.readingDeviceOnly) {
+                TextButton(onClick = { preview(true) }) { Text("Share selected reading entries") }
+            }
+            if (!reading.preferences.finishedDeviceOnly) {
+                TextButton(onClick = { preview(false) }) { Text("Share selected finished entries") }
+            }
+            Text("Pending reading publications: ${reading.pendingCount}", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = onRetryReading, enabled = !reading.isSyncing && !account.isPublishing) {
+                Text(if (reading.isSyncing) "Syncing…" else "Sync reading lists")
+            }
+        }
+        reading.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        state.message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+    }
+    previewReading?.let { isReading ->
+        val entries = if (isReading) {
+            reading.tracked.filter { !it.isPublic }.map { it.bookCoordinate to (it.book?.title ?: it.bookCoordinate) } +
+                reading.privateReadingRemovals.map { it.bookCoordinate to "Remove from public reading list: ${it.book?.title ?: it.bookCoordinate}" }
+        } else {
+            reading.finished.filter { !it.isPublic }.map { it.bookCoordinate to (it.book?.title ?: it.bookCoordinate) }
+        }
+        AlertDialog(
+            onDismissRequest = { previewReading = null },
+            title = { Text(if (isReading) "Share reading list" else "Share finished books") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Choose existing private entries to publish. Unselected entries stay private. Future ${if (isReading) "tracking changes" else "finished marks"} will be public until device-only is turned on.")
+                    if (entries.isEmpty()) Text("There are no private entries to share.")
+                    else LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+                        entries.forEach { (coordinate, title) -> item(key = coordinate) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().toggleable(
+                                    value = coordinate in selected,
+                                    role = Role.Checkbox,
+                                    onValueChange = { checked -> selected = if (checked) selected + coordinate else selected - coordinate },
+                                ).padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Checkbox(checked = coordinate in selected, onCheckedChange = null)
+                                Text(title, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        } }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = signedIn && previewOwner == account.pubkey,
+                    onClick = {
+                        if (signedIn && previewOwner == account.pubkey) {
+                            actions.setReadingPrivacy(if (isReading) false else null, if (isReading) null else false, selected.intersect(entries.map { it.first }.toSet()))
+                            previewReading = null
+                        }
+                    },
+                ) { Text("Enable public sharing") }
+            },
+            dismissButton = { TextButton(onClick = { previewReading = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun ReadingPrivacyToggle(label: String, deviceOnly: Boolean, signedIn: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = deviceOnly, onCheckedChange = onChange, enabled = signedIn)
+    }
+}
+
+@Composable
 private fun AccountSettings(state: SettingsUiState, account: AccountSettingsState, actions: AccountSettingsActions) = SettingsScaffold("Account & Sync") {
     sectionTitle("Account")
     detail("Name", account.profileName ?: "No profile name available")
@@ -225,6 +351,7 @@ private fun AccountSettings(state: SettingsUiState, account: AccountSettingsStat
     sectionTitle("Pending publications")
     detail("Highlights", account.pendingHighlightCount.toString())
     detail("Reviews", account.pendingReviewCount.toString())
+    pendingHighlightDetails(state)
     item { Button(onClick = actions.retryNow, enabled = account.pendingHighlightCount + account.pendingReviewCount > 0 && !state.isRetrying) { Text(if (state.isRetrying) "Retrying…" else "Retry now") } }
     item { if (!state.isOnline) Text("Offline. A configured local relay can still receive pending publications; remote delivery will resume online.", style = MaterialTheme.typography.bodySmall) }
     item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -280,11 +407,15 @@ private fun RelaySettings(state: SettingsUiState, account: AccountSettingsState,
 }
 
 @Composable
-private fun StorageSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Storage & Offline") {
+private fun StorageSettings(state: SettingsUiState, actions: SettingsActions, retryNow: () -> Unit) = SettingsScaffold("Storage & Offline") {
     item { Text(if (state.isOnline) "Network: online" else "Network: offline") }
     detail("Saved books", state.savedBookCount.toString())
     detail("Pending highlights", state.pendingHighlightCount.toString())
     detail("Pending reviews", state.pendingReviewCount.toString())
+    pendingHighlightDetails(state)
+    item { if (state.pendingHighlightCount + state.pendingReviewCount > 0) {
+        Button(onClick = retryNow, enabled = !state.isRetrying) { Text(if (state.isRetrying) "Retrying…" else "Retry now") }
+    } }
     sectionTitle("Disposable caches")
     item { if (state.isRefreshingStats || state.isClearingCaches) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }
@@ -352,6 +483,14 @@ private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) 
             },
             dismissButton = { SecondaryButton(onClick = { confirmationMask = 0 }) { Text("Cancel") } },
         )
+    }
+}
+
+private fun LazyListScope.pendingHighlightDetails(state: SettingsUiState) {
+    if (state.pendingHighlightDetails.isEmpty()) return
+    item { Text("A highlight can already be visible elsewhere while delivery to other relays or its cited chapter is still pending.", style = MaterialTheme.typography.bodySmall) }
+    state.pendingHighlightDetails.forEach { detail ->
+        item { Text(detail, style = MaterialTheme.typography.bodySmall) }
     }
 }
 

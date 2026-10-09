@@ -7,6 +7,7 @@ import com.vitorpamplona.quartz.nip01Core.relay.client.accessories.PublishResult
 import com.vitorpamplona.quartz.nip01Core.relay.client.accessories.fetchAll
 import com.vitorpamplona.quartz.nip01Core.relay.client.accessories.publishAndCollectResults
 import com.vitorpamplona.quartz.nip01Core.relay.client.listeners.RelayConnectionListener
+import com.vitorpamplona.quartz.nip01Core.relay.client.reqs.SubscriptionListener
 import com.vitorpamplona.quartz.nip01Core.relay.client.single.IRelayClient
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toClient.AuthMessage
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toClient.Message
@@ -20,12 +21,16 @@ import com.vitorpamplona.quartz.nip42RelayAuth.RelayAuthEvent
 import eu.decentnewsroom.bookshelf.data.bookshelf.BookshelfDirectoryRules
 import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import eu.decentnewsroom.bookshelf.data.reading.ReadingEvents
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -51,6 +56,7 @@ class NostrRelayClient(
     private val relayListLock = Any()
     private var relayListOwner: String? = null
     private var discoveredRelays = UserRelayList()
+    private var readingRoutesVerifiedOwner: String? = null
     private val publicationAuthorRelayLists = LinkedHashMap<String, UserRelayList>()
     private val client = NostrClient(BasicOkHttpWebSocket.Builder { httpClient }, scope)
     private val lazyAuthenticator = QuartzLazyNip42Authenticator(client, authenticator, nowSeconds)
@@ -77,7 +83,7 @@ class NostrRelayClient(
     fun setConfiguredRelayUrls(relayUrls: List<String>) {
         val normalized = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
         require(normalized.isNotEmpty()) { "At least one bootstrap relay is required." }
-        synchronized(relayListLock) { baseRelays = normalized }
+        synchronized(relayListLock) { baseRelays = normalized; readingRoutesVerifiedOwner = null }
     }
 
     suspend fun fetchLatestDirectory(pubkey: String): NostrEvent? {
@@ -100,6 +106,138 @@ class NostrRelayClient(
                 ),
             )?.event?.takeIf { it.isDirectoryFor(pubkey) }
         }
+    }
+
+    /** Null means an EOSE-confirmed empty list, never an unreachable relay set. */
+    suspend fun fetchReadingSnapshot(pubkey: String): NostrEvent? {
+        ensureUserRelayList(pubkey)
+        val snapshot = ReadingEvents.newestSnapshot(fetchReadingEvents(
+            pubkey, BookKinds.READING_LIST,
+            Filter(kinds = listOf(BookKinds.READING_LIST), authors = listOf(pubkey.lowercase()), limit = 1),
+        ))
+        if (snapshot != null && snapshot.content.isNotEmpty()) {
+            throw NostrRelayException("The public reading snapshot uses an unsupported content format; it has been preserved.")
+        }
+        return snapshot
+    }
+
+    suspend fun fetchFinishedLabels(pubkey: String): List<NostrEvent> {
+        ensureUserRelayList(pubkey)
+        // Page each relay independently: one fast relay's empty response cannot conceal another's history.
+        val results = coroutineScope {
+            readRelays().map { relay -> async {
+                try {
+                    Result.success(fetchFinishedHistoryFromRelay(pubkey, relay))
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: NostrRelayException) {
+                    Result.failure<List<NostrEvent>>(failure)
+                }
+            } }.awaitAll()
+        }
+        val complete = results.mapNotNull { it.getOrNull() }
+        if (complete.isEmpty()) {
+            throw (results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                ?: NostrRelayException("No finished-history read relays are configured."))
+        }
+        return complete.flatten().distinctBy { it.id }.filter { ReadingEvents.parseFinished(it).isNotEmpty() }
+    }
+
+    private suspend fun fetchFinishedHistoryFromRelay(pubkey: String, relay: NormalizedRelayUrl): List<NostrEvent> {
+        val labels = LinkedHashMap<String, NostrEvent>()
+        var until: Long? = null
+        while (true) {
+            val page = fetchReadingEvents(pubkey, BookKinds.FINISHED_LABEL,
+                finishedLabelsFilter(pubkey, until = until), linkedSetOf(relay))
+            if (page.isEmpty()) break
+            page.forEach { labels[it.id] = it }
+            val oldest = page.minOf { it.createdAt }
+            // Include every event at the cut boundary before stepping past that second.
+            val boundary = fetchReadingEvents(pubkey, BookKinds.FINISHED_LABEL,
+                finishedLabelsFilter(pubkey, until = oldest, since = oldest,
+                    limit = FINISHED_LABEL_PAGE_SIZE + 1), linkedSetOf(relay))
+            if (boundary.size > FINISHED_LABEL_PAGE_SIZE) {
+                throw NostrRelayException("Too many finished labels share one timestamp to read the complete history safely.")
+            }
+            boundary.forEach { labels[it.id] = it }
+            if (oldest == 0L) break
+            until = oldest - 1
+        }
+        return labels.values.toList()
+    }
+
+    /** Reading snapshots must distinguish confirmed absence from transport failures. */
+    private suspend fun fetchReadingEvents(
+        pubkey: String,
+        kind: Int,
+        filter: Filter,
+        relays: Set<NormalizedRelayUrl> = readRelays(),
+    ): List<NostrEvent> {
+        if (relays.isEmpty()) throw NostrRelayException("No reading-state read relays are configured.")
+        val requestId = "reading-${java.util.UUID.randomUUID()}"
+        val lock = Any()
+        val terminal = mutableSetOf<NormalizedRelayUrl>()
+        val completed = mutableSetOf<NormalizedRelayUrl>()
+        val events = LinkedHashMap<String, NostrEvent>()
+        val done = CompletableDeferred<Unit>()
+        fun ended(relay: NormalizedRelayUrl, success: Boolean) = synchronized(lock) {
+            if (success) completed.add(relay)
+            terminal.add(relay)
+            if (terminal.containsAll(relays)) done.complete(Unit)
+        }
+        val listener = object : SubscriptionListener {
+            override fun onEvent(event: Event, isLive: Boolean, relay: NormalizedRelayUrl, forFilters: List<Filter>?) {
+                if (!filter.match(event)) return
+                val candidate = toDomainEvent(event) ?: return
+                val verified = NostrEventVerifier.verify(candidate,
+                    context = NostrEventContext(expectedKind = kind, expectedPubkey = pubkey))?.event ?: return
+                synchronized(lock) { events[verified.id] = verified }
+            }
+
+            override fun onEose(relay: NormalizedRelayUrl, forFilters: List<Filter>?) { ended(relay, true) }
+            override fun onClosed(message: String, relay: NormalizedRelayUrl, forFilters: List<Filter>?) { ended(relay, false) }
+            override fun onCannotConnect(relay: NormalizedRelayUrl, message: String, forFilters: List<Filter>?) { ended(relay, false) }
+        }
+        try {
+            client.subscribe(requestId, relays.associateWith { listOf(filter) }, listener)
+            withTimeoutOrNull(timeoutMillis) { done.await() }
+            return synchronized(lock) {
+                if (completed.isEmpty()) throw NostrRelayException("Reading state could not be refreshed; no relay completed the query.")
+                events.values.toList()
+            }
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: NostrRelayException) {
+            throw failure
+        } catch (failure: Throwable) {
+            throw NostrRelayException("Could not refresh reading state.", failure)
+        } finally {
+            client.unsubscribe(requestId)
+        }
+    }
+
+    /** Reading events use configured routes and the active author's NIP-65 write routes only. */
+    suspend fun readingRelayUrls(pubkey: String, excludedRelayUrl: String? = null): List<String> {
+        val normalizedPubkey = pubkey.lowercase()
+        val owner = synchronized(relayListLock) { readingRoutesVerifiedOwner }
+        if (owner != normalizedPubkey) {
+            val event = fetchReadingEvents(normalizedPubkey, BookKinds.USER_RELAY_LIST,
+                userRelayListFilter(normalizedPubkey), configuredRelays())
+                .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenByDescending { it.id })
+            synchronized(relayListLock) {
+                discoveredRelays = event?.let(::relayListFromVerifiedEvent) ?: UserRelayList()
+                relayListOwner = normalizedPubkey
+                readingRoutesVerifiedOwner = normalizedPubkey
+            }
+        }
+        val excluded = excludedRelayUrl?.let(RelayUrlNormalizer::normalizeOrNull)?.url
+        return publishRelayUrls.filter { it != excluded }
+    }
+
+    /** Background reading work must never trigger foreground NIP-42 signer requests. */
+    suspend fun publishReadingEventToRelays(event: NostrEvent, relayUrls: Collection<String>): PublishReport {
+        val targets = relayUrls.mapNotNull(RelayUrlNormalizer::normalizeOrNull).toCollection(LinkedHashSet())
+        return publishEvent(event, targets, allowRelayAuthentication = false)
     }
 
     suspend fun fetchLatestProfile(pubkey: String): NostrEvent? {
@@ -209,6 +347,7 @@ class NostrRelayClient(
     fun clearUserRelayList() {
         synchronized(relayListLock) {
             relayListOwner = null
+            readingRoutesVerifiedOwner = null
             discoveredRelays = UserRelayList()
             publicationAuthorRelayLists.clear()
         }
@@ -520,6 +659,10 @@ internal fun profileFilter(pubkey: String) =
 internal fun userRelayListFilter(pubkey: String) =
     Filter(kinds = listOf(BookKinds.USER_RELAY_LIST), authors = listOf(pubkey.lowercase()), limit = 1)
 
+internal fun finishedLabelsFilter(pubkey: String, until: Long? = null, since: Long? = null, limit: Int = FINISHED_LABEL_PAGE_SIZE) =
+    Filter(kinds = listOf(BookKinds.FINISHED_LABEL), authors = listOf(pubkey.lowercase()),
+        tags = mapOf("l" to listOf("read")), until = until, since = since, limit = limit)
+
 data class UserRelayList(
     val read: List<String> = emptyList(),
     val write: List<String> = emptyList(),
@@ -652,3 +795,4 @@ private const val AUTH_SIGNING_TIMEOUT_MILLIS = 90_000L
 private const val AUTH_ACK_TIMEOUT_MILLIS = 15_000L
 private const val MAX_AUTH_REASON_LENGTH = 240
 private const val MAX_USER_RELAY_COUNT = 12
+private const val FINISHED_LABEL_PAGE_SIZE = 500

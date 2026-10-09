@@ -32,6 +32,45 @@ class ContinueReadingBookTest {
         assertNull(mostRecentlyOpenedSavedBook(listOf(bookSummary("saved", "1")), emptyMap()))
     }
 
+    @Test
+    fun excludesFinishedBooksEvenWhenTheirResumeIsMostRecent() {
+        val unfinished = bookSummary("unfinished", "1")
+        val finished = bookSummary("finished", "2")
+        val result = mostRecentlyOpenedSavedBook(
+            savedBooks = listOf(unfinished, finished),
+            readingProgress = mapOf(
+                unfinished.coordinate to ReadingProgress(unfinished.coordinate, 1, 5, 20),
+                finished.coordinate to ReadingProgress(finished.coordinate, 4, 5, 40),
+            ),
+            finishedCoordinates = setOf(finished.coordinate),
+        )
+        assertEquals(unfinished, result?.book)
+    }
+
+    @Test
+    fun explicitRereadingAllowsACompletedBookBackIntoContinueReading() {
+        val finished = bookSummary("finished", "2")
+        val resume = ReadingProgress(finished.coordinate, 2, 5, 40, chapterScrollOffsetPx = 120)
+        val result = mostRecentlyOpenedSavedBook(
+            savedBooks = listOf(finished),
+            readingProgress = mapOf(finished.coordinate to resume),
+            finishedCoordinates = setOf(finished.coordinate),
+            rereadingCoordinates = setOf(finished.coordinate),
+        )
+        assertEquals(finished, result?.book)
+        assertEquals(resume, result?.progress)
+    }
+
+    @Test
+    fun allFinishedBooksLeaveNoContinueReadingEntry() {
+        val finished = bookSummary("finished", "2")
+        assertNull(mostRecentlyOpenedSavedBook(
+            savedBooks = listOf(finished),
+            readingProgress = mapOf(finished.coordinate to ReadingProgress(finished.coordinate, 4, 5, 40)),
+            finishedCoordinates = setOf(finished.coordinate),
+        ))
+    }
+
     private fun bookSummary(identifier: String, keyDigit: String): BookSummary {
         val pubkey = keyDigit.repeat(64)
         return BookSummary(

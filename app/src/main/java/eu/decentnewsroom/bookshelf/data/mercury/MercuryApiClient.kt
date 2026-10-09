@@ -14,7 +14,6 @@ import okhttp3.Response
 import java.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -517,8 +516,8 @@ class MercuryApiClient(
         val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
-            override fun onFailure(call: Call, exception: IOException) {
-                if (continuation.isActive) continuation.resumeWith(Result.failure(exception))
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) continuation.resumeWith(Result.failure(e))
             }
 
             override fun onResponse(call: Call, response: Response) {

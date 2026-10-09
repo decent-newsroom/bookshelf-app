@@ -8,6 +8,8 @@ object BookKinds {
     const val PROFILE_METADATA = 0
     const val HIGHLIGHT = 9802
     const val RATING = 34259
+    const val READING_LIST = 16374
+    const val FINISHED_LABEL = 1985
     const val PUBLICATION_INDEX = 30040
     const val PUBLICATION_CONTENT = 30041
     const val DIRECTORY = 30045
@@ -34,6 +36,8 @@ data class BookSummary(
     val chapterCount: Int,
     val chapterRefs: List<ChapterReference>,
     @Transient val ratingSummary: BookRatingSummary? = null,
+    /** False for unsupported nested or malformed section streams. */
+    val sectionStreamKnown: Boolean = true,
 )
 
 @Serializable

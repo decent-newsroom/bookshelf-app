@@ -8,6 +8,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.OfflineBookCacheStats
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCacheStats
 import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
+import eu.decentnewsroom.bookshelf.data.reading.ReadingState
 
 enum class CacheSelection(val label: String) {
     Chapters("Chapter HTML"),
@@ -25,6 +26,7 @@ data class SettingsUiState(
     val isOnline: Boolean = false,
     val savedBookCount: Int = 0,
     val pendingHighlightCount: Int = 0,
+    val pendingHighlightDetails: List<String> = emptyList(),
     val pendingReviewCount: Int = 0,
     val chapterCacheStats: ChapterHtmlCacheStats = ChapterHtmlCacheStats(),
     val recommendationCacheStats: BookRecommendationCacheStats = BookRecommendationCacheStats(),
@@ -37,4 +39,5 @@ data class SettingsUiState(
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,
     val signerSession: NostrSignerSession? = null,
+    val readingState: ReadingState = ReadingState(),
 )

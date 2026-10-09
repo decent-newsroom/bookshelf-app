@@ -6,6 +6,9 @@ import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -14,6 +17,48 @@ import java.io.File
 import java.nio.file.Files
 
 class OfflineBookCacheTest {
+    @Test
+    fun legacyFiveHundredSectionPrefixRemainsReadableWithoutClaimingBookEnd() = runBlocking {
+        val root = Files.createTempDirectory("reader-cache-legacy-cap").toFile()
+        try {
+            val cache = OfflineBookCache(root)
+            val book = bookWithSections(500)
+            cache.store(book)
+            removeKnownStreamFlag(root)
+
+            val loaded = requireNotNull(cache.load(book.summary.coordinate))
+            assertEquals(500, loaded.chapters.size)
+            assertEquals("<p>cached</p>", loaded.chapters.first().renderedHtml)
+            assertTrue(loaded.truncated)
+            assertTrue(loaded.summary.sectionStreamKnown.not())
+
+            cache.store(book)
+            val refreshed = requireNotNull(cache.load(book.summary.coordinate))
+            assertTrue(refreshed.summary.sectionStreamKnown)
+            assertTrue(refreshed.truncated.not())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun legacyShortBookKeepsKnownStreamCompatibility() = runBlocking {
+        val root = Files.createTempDirectory("reader-cache-legacy-short").toFile()
+        try {
+            val cache = OfflineBookCache(root)
+            val book = bookWithSections(499)
+            cache.store(book)
+            removeKnownStreamFlag(root)
+
+            val loaded = requireNotNull(cache.load(book.summary.coordinate))
+            assertTrue(loaded.summary.sectionStreamKnown)
+            assertTrue(loaded.truncated.not())
+            assertEquals(499, loaded.chapters.size)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun roundTripOmitsSourceEventAndPreservesRenderedReaderContent() = runBlocking {
         val root = Files.createTempDirectory("reader-cache").toFile()
@@ -87,6 +132,27 @@ class OfflineBookCacheTest {
             missingChapterCount = 0,
             truncated = false,
         )
+    }
+
+    private fun bookWithSections(count: Int): BookDetail {
+        val original = bookDetail()
+        val reference = original.summary.chapterRefs.single()
+        val references = (0 until count).map { index -> reference.copy(
+            coordinate = "30041:${reference.pubkey}:chapter-$index", identifier = "chapter-$index",
+        ) }
+        return original.copy(
+            summary = original.summary.copy(chapterCount = count, chapterRefs = references),
+            chapters = references.mapIndexed { index, ref -> original.chapters.single().copy(reference = ref, position = index) },
+            availableChapterCount = count,
+        )
+    }
+
+    /** Recreate the pre-tracking v1 wire shape, including its absent default field. */
+    private fun removeKnownStreamFlag(root: File) {
+        val entry = root.resolve("bookshelf/reader-cache-v1").listFiles()!!.single()
+        val encoded = Json.parseToJsonElement(entry.readText()).jsonObject
+        val legacySummary = JsonObject(encoded.getValue("summary").jsonObject - "sectionStreamKnown")
+        entry.writeText(JsonObject(encoded + ("summary" to legacySummary)).toString())
     }
 }
 

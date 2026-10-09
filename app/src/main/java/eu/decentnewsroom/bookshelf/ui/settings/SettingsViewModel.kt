@@ -22,6 +22,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderSettingsStore
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.data.reader.OfflineBookCache
 import eu.decentnewsroom.bookshelf.data.rendering.ChapterHtmlCache
+import eu.decentnewsroom.bookshelf.data.reading.ReadingStateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,7 @@ class SettingsViewModel(
     private val highlightDispatcher: HighlightOutboxDispatcher = AppGraph.highlightDispatcher,
     private val reviews: ReviewOutbox = AppGraph.reviewOutbox,
     private val reviewDispatcher: ReviewOutboxDispatcher = AppGraph.reviewOutboxDispatcher,
+    private val reading: ReadingStateRepository = AppGraph.readingState,
 ) : ViewModel() {
     private var statsJob: Job? = null
 
@@ -60,6 +62,7 @@ class SettingsViewModel(
             relayConfiguration = relaySync.relayConfiguration,
             syncState = relaySync.state.value,
             signerSession = relaySync.activeSession.value,
+            readingState = reading.state.value,
         ),
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -72,6 +75,8 @@ class SettingsViewModel(
         viewModelScope.launch { bookshelf.savedBooks.collect { value -> _uiState.update { it.copy(savedBookCount = value.size) } } }
         viewModelScope.launch { relaySync.state.collect { value -> _uiState.update { it.copy(syncState = value, relayConfiguration = relaySync.relayConfiguration) } } }
         viewModelScope.launch { relaySync.activeSession.collect { value -> _uiState.update { it.copy(signerSession = value) } } }
+        viewModelScope.launch { reading.state.collect { value -> _uiState.update { it.copy(readingState = value) } } }
+        viewModelScope.launch { highlights.changes.collect { refreshHighlightDelivery() } }
         refreshStats()
     }
 
@@ -80,6 +85,25 @@ class SettingsViewModel(
     fun setTheme(theme: ReaderTheme) = readerSettings.setTheme(theme)
     fun setFont(font: ReaderFont) = readerSettings.setFontFamily(font)
     fun setParagraphAlignment(alignment: ParagraphAlignment) = readerSettings.setParagraphAlignment(alignment)
+
+    fun setReadingPrivacy(
+        readingDeviceOnly: Boolean? = null,
+        finishedDeviceOnly: Boolean? = null,
+        shareCoordinates: Set<String> = emptySet(),
+    ) {
+        val owner = relaySync.activeSession.value?.pubkey
+        viewModelScope.launch {
+            if (relaySync.activeSession.value?.pubkey != owner) return@launch
+            try {
+                check(reading.activeAccountPubkey == owner) { "Reading account is changing. Try again." }
+                reading.setPrivacy(readingDeviceOnly, finishedDeviceOnly, shareCoordinates)
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                _uiState.update { it.copy(message = failure.message ?: "Could not update reading privacy.") }
+            }
+        }
+    }
 
     fun addChapterSource(rawUrl: String) {
         runCatching { ChapterSourceList.add(chapterSources.relayUrls.value, rawUrl) }
@@ -139,7 +163,6 @@ class SettingsViewModel(
                 val recommendation = async { recommendations.cacheStats() }
                 val rating = async { ratings.cacheStats() }
                 val offlineBooks = async { offlineBookCache.stats() }
-                val pendingHighlights = async { highlights.pending().size }
                 val pendingReviews = async { reviews.pendingCount() }
                 _uiState.update {
                     it.copy(
@@ -147,11 +170,11 @@ class SettingsViewModel(
                         recommendationCacheStats = recommendation.await(),
                         ratingCacheStats = rating.await(),
                         offlineBookCacheStats = offlineBooks.await(),
-                        pendingHighlightCount = pendingHighlights.await(),
                         pendingReviewCount = pendingReviews.await(),
                     )
                 }
             }
+            refreshHighlightDelivery()
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Exception) {
@@ -160,6 +183,22 @@ class SettingsViewModel(
             _uiState.update { it.copy(isRefreshingStats = false) }
         }
     }
+    private suspend fun refreshHighlightDelivery() {
+        try {
+            val pending = highlights.pending()
+            _uiState.update {
+                it.copy(
+                    pendingHighlightCount = pending.size,
+                    pendingHighlightDetails = pending.map(::pendingHighlightDetail),
+                )
+            }
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            _uiState.update { it.copy(message = failure.message ?: "Could not refresh pending highlights.") }
+        }
+    }
+
     fun clearSelectedCaches(selected: Set<CacheSelection>) {
         if (selected.isEmpty() || _uiState.value.isClearingCaches || _uiState.value.isRefreshingStats) return
         val targets = selected.toSet()

@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
@@ -96,7 +97,15 @@ class OfflineBookCache private constructor(
             val file = fileFor(bookCoordinate)
             if (!file.isFile || file.length() > maxSnapshotBytes) return@withLock null
             runCatching {
-                val snapshot = json.decodeFromString<Snapshot>(file.readText(Charsets.UTF_8))
+                val encoded = json.parseToJsonElement(file.readText(Charsets.UTF_8)).jsonObject
+                val decoded = json.decodeFromJsonElement(Snapshot.serializer(), encoded)
+                // Earlier Mercury metadata silently stopped at 500 refs. Such a legacy
+                // prefix cannot establish the end of a book until fresh metadata arrives.
+                val legacyCappedStream = decoded.summary.chapterCount == MAX_CHAPTERS &&
+                    encoded["summary"]?.jsonObject?.containsKey("sectionStreamKnown") != true
+                val snapshot = if (legacyCappedStream) decoded.copy(
+                    summary = decoded.summary.copy(sectionStreamKnown = false), truncated = true,
+                ) else decoded
                 if (!snapshot.isSafeFor(bookCoordinate, maxChapters)) return@runCatching null
                 file.setLastModified(System.currentTimeMillis())
                 snapshot.toBookDetail()
@@ -225,7 +234,9 @@ class OfflineBookCache private constructor(
         const val MAX_SNAPSHOT_BYTES = 8L * 1024 * 1024
         const val MAX_TEXT_CHARS = 1_000_000
         const val MAX_CONTENT_CHARS = 8_000_000
-        val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+        // Persist the known-stream flag even when true, distinguishing refreshed
+        // exactly-500-section books from ambiguous pre-tracking cache snapshots.
+        val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true }
 
         fun sha256(value: String): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))

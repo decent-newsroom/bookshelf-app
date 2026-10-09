@@ -11,6 +11,8 @@ import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -35,6 +37,9 @@ class HighlightOutbox internal constructor(
     constructor(context: Context) : this(File(File(context.applicationContext.filesDir, "bookshelf"), FILE_NAME))
 
     private val mutex = Mutex()
+    private val revision = MutableStateFlow(0L)
+    /** Emitted only after durable writes, so observers can reread the authoritative queue. */
+    val changes = revision.asStateFlow()
 
     suspend fun enqueue(
         highlight: NostrEvent,
@@ -120,6 +125,7 @@ class HighlightOutbox internal constructor(
         runCatching { Files.move(temporary.toPath(), file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING) }
             .recoverCatching { Files.move(temporary.toPath(), file.toPath(), REPLACE_EXISTING) }
             .getOrElse { failure -> temporary.delete(); throw IllegalStateException("Could not update highlight outbox.", failure) }
+        revision.value += 1
     }
 
     @Serializable private data class PersistedOutbox(val entries: List<HighlightOutboxEntry> = emptyList())
@@ -138,6 +144,8 @@ enum class HighlightDeliveryState { PENDING, ACCEPTED, FAILED }
 data class HighlightPairDelivery(
     val highlight: HighlightDeliveryState = HighlightDeliveryState.PENDING,
     val chapter: HighlightDeliveryState = HighlightDeliveryState.PENDING,
+    val highlightFailure: String? = null,
+    val chapterFailure: String? = null,
 ) {
     val isComplete: Boolean get() = highlight == HighlightDeliveryState.ACCEPTED && chapter == HighlightDeliveryState.ACCEPTED
 }
@@ -158,7 +166,7 @@ data class HighlightOutboxEntry(
     val lastFailure: String? = null,
 ) {
     val isComplete: Boolean
-        get() = remoteRoutesResolved && remote.isNotEmpty() &&
+        get() = remoteRoutesResolved && (local.isNotEmpty() || remote.isNotEmpty()) &&
             (local.values + remote.values).all(HighlightPairDelivery::isComplete)
 
     val deliveryLabel: String
@@ -262,7 +270,7 @@ class HighlightOutboxDispatcher(
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
-                persistFailure(current, localFailure = local.thenFailure(failure), remoteFailure = (!local).thenFailure(failure))
+                persistFailure(current, localFailure = local.thenFailure(failure), remoteFailure = (!local).thenFailure(failure), highlight = true)
             }
         }
         val updatedState = if (local) current.local else current.remote
@@ -273,7 +281,7 @@ class HighlightOutboxDispatcher(
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Exception) {
-            persistFailure(current, localFailure = local.thenFailure(failure), remoteFailure = (!local).thenFailure(failure))
+            persistFailure(current, localFailure = local.thenFailure(failure), remoteFailure = (!local).thenFailure(failure), highlight = false)
         }
     }
 
@@ -283,20 +291,29 @@ class HighlightOutboxDispatcher(
             report.outcomes.forEach { outcome ->
                 val prior = deliveries[outcome.relayUrl] ?: HighlightPairDelivery()
                 val nextState = if (outcome.isDurablyAccepted()) HighlightDeliveryState.ACCEPTED else HighlightDeliveryState.FAILED
-                deliveries[outcome.relayUrl] = if (highlight) prior.copy(highlight = nextState) else prior.copy(chapter = nextState)
+                val failure = if (nextState == HighlightDeliveryState.ACCEPTED) null else
+                    outcome.reason ?: outcome.type.name.lowercase().replace('_', ' ')
+                deliveries[outcome.relayUrl] = if (highlight) {
+                    prior.copy(highlight = nextState, highlightFailure = failure)
+                } else {
+                    prior.copy(chapter = nextState, chapterFailure = failure)
+                }
             }
             val failure = report.outcomes.firstOrNull { !it.isDurablyAccepted() }?.reason
             previous.withAttempt(local = local, deliveries = deliveries, failure = failure)
         } ?: entry
 
-    private suspend fun persistFailure(entry: HighlightOutboxEntry, localFailure: String? = null, remoteFailure: String? = null): HighlightOutboxEntry =
+    private suspend fun persistFailure(entry: HighlightOutboxEntry, localFailure: String? = null, remoteFailure: String? = null, highlight: Boolean? = null): HighlightOutboxEntry =
         outbox.update(entry.event.id) { previous ->
             val isLocal = localFailure != null
+            val failure = localFailure ?: remoteFailure
             val original = if (isLocal) previous.local else previous.remote
             val deliveries = original.mapValues { (_, pair) ->
                 pair.copy(
-                    highlight = if (pair.highlight == HighlightDeliveryState.PENDING) HighlightDeliveryState.FAILED else pair.highlight,
-                    chapter = if (pair.chapter == HighlightDeliveryState.PENDING) HighlightDeliveryState.FAILED else pair.chapter,
+                    highlight = if (highlight != false && pair.highlight != HighlightDeliveryState.ACCEPTED) HighlightDeliveryState.FAILED else pair.highlight,
+                    chapter = if (highlight != true && pair.chapter != HighlightDeliveryState.ACCEPTED) HighlightDeliveryState.FAILED else pair.chapter,
+                    highlightFailure = if (highlight != false && pair.highlight != HighlightDeliveryState.ACCEPTED) failure else pair.highlightFailure,
+                    chapterFailure = if (highlight != true && pair.chapter != HighlightDeliveryState.ACCEPTED) failure else pair.chapterFailure,
                 )
             }
             previous.withAttempt(local = isLocal, deliveries = deliveries, failure = localFailure ?: remoteFailure)
@@ -304,11 +321,16 @@ class HighlightOutboxDispatcher(
 
     private fun HighlightOutboxEntry.withAttempt(local: Boolean, deliveries: Map<String, HighlightPairDelivery>, failure: String?): HighlightOutboxEntry {
         val attempts = attempts + 1
-        return if (local) {
+        val updated = if (local) {
             copy(local = deliveries, attempts = attempts, nextRetryAtMillis = now() + retryDelay(attempts), lastFailure = failure)
         } else {
             copy(remote = deliveries, attempts = attempts, nextRetryAtMillis = now() + retryDelay(attempts), lastFailure = failure)
         }
+        // A successful chapter report must not hide an outstanding highlight failure (or vice versa).
+        val outstandingFailure = (updated.local.values + updated.remote.values).firstNotNullOfOrNull {
+            it.highlightFailure ?: it.chapterFailure
+        }
+        return updated.copy(lastFailure = if (updated.isComplete) null else outstandingFailure ?: failure ?: lastFailure)
     }
 
     private fun Boolean.thenFailure(failure: Exception): String? = takeIf { it }?.let { failure.message ?: "Could not publish highlight event." }

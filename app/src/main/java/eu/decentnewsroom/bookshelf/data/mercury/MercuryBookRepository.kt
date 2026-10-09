@@ -526,6 +526,14 @@ class MercuryBookRepository(
             createdAt = event.createdAt,
             chapterCount = chapterRefs.size,
             chapterRefs = chapterRefs,
+            sectionStreamKnown = chapterRefs.isNotEmpty() && event.tags.none { tag ->
+                if (tag.getOrNull(0) != "a") false else {
+                    val parts = tag.getOrNull(1).orEmpty().split(':', limit = 3)
+                    parts.firstOrNull() == BookKinds.PUBLICATION_INDEX.toString() ||
+                        (parts.firstOrNull() == BookKinds.PUBLICATION_CONTENT.toString() &&
+                            (parts.size != 3 || !HEX_64.matches(parts[1]) || parts[2].isBlank()))
+                }
+            },
         )
     }
 
@@ -533,7 +541,6 @@ class MercuryBookRepository(
         val seen = mutableSetOf<String>()
         val references = mutableListOf<ChapterReference>()
         for (tag in tags) {
-            if (references.size >= MAX_CHAPTERS) break
             if (tag.getOrNull(0) != "a") {
                 continue
             }
@@ -543,6 +550,7 @@ class MercuryBookRepository(
             if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_CONTENT) {
                 continue
             }
+            if (!HEX_64.matches(parts[1]) || parts[2].isBlank()) continue
             val normalizedCoordinate = "${BookKinds.PUBLICATION_CONTENT}:${parts[1].lowercase()}:${parts[2]}"
             if (!seen.add(normalizedCoordinate)) {
                 continue

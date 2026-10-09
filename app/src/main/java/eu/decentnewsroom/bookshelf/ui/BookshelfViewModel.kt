@@ -73,6 +73,9 @@ import java.util.UUID
 import kotlin.collections.emptyList
 import kotlin.collections.sortedWith
 import kotlin.math.roundToInt
+import eu.decentnewsroom.bookshelf.data.reading.ReadingState
+import eu.decentnewsroom.bookshelf.data.reading.ReadingStateRepository
+import eu.decentnewsroom.bookshelf.data.reading.ReadingSignRequest
 
 class BookshelfViewModel(
     private val repository: MercuryBookRepository = AppGraph.mercuryBooks,
@@ -91,6 +94,7 @@ class BookshelfViewModel(
     private val highlightStore: HighlightStore = AppGraph.highlights,
     private val highlightOutbox: HighlightOutbox = AppGraph.highlightOutbox,
     private val highlightDispatcher: HighlightOutboxDispatcher = AppGraph.highlightDispatcher,
+    private val readingState: ReadingStateRepository = AppGraph.readingState,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
@@ -110,6 +114,12 @@ class BookshelfViewModel(
     private var latestSavedReviewId: String? = null
 
     init {
+        viewModelScope.launch {
+            readingState.state.collect { reading -> _uiState.update { it.copy(readingState = reading) } }
+        }
+        viewModelScope.launch {
+            readingState.signRequest.collect { request -> _uiState.update { it.copy(pendingReadingSignRequest = request) } }
+        }
         viewModelScope.launch {
             localBookshelf.savedBooks.collect { savedBooks ->
                 _uiState.update { it.copy(savedBooks = savedBooks) }
@@ -153,6 +163,9 @@ class BookshelfViewModel(
         }
         viewModelScope.launch {
             relaySync.activeSession.collect { session ->
+                if (_uiState.value.signerSession != session && _uiState.value.inlineRatingComposer) {
+                    dismissRatingComposer()
+                }
                 if (_uiState.value.signerSession != session) ratingComposerJob?.cancel()
                 _uiState.update {
                     it.copy(
@@ -351,7 +364,7 @@ class BookshelfViewModel(
         dismissRecommendations()
         dismissBookDetails()
         dismissBookActions()
-        _uiState.update { it.copy(isSearching = false, readerInitialChapterIndex = null) }
+        _uiState.update { it.copy(isSearching = false, readerInitialChapterIndex = null, latestReviewDelivery = null, inlineReviewCoordinate = null) }
         if (book.chapterRefs.isEmpty()) {
             bookOpenJob?.cancel()
             _uiState.update {
@@ -381,15 +394,19 @@ class BookshelfViewModel(
                 )
                 currentCoroutineContext().ensureActive()
                 val targetIndex = target?.resolveChapterIndex(detail.chapters)
+                val trackedIndex = if (target == null && readerSettings.progress.value[book.coordinate] == null)
+                    readingState.state.value.tracked.firstOrNull { it.bookCoordinate == book.coordinate }?.position
+                        ?.coerceIn(0, (detail.chapters.size - 1).coerceAtLeast(0)) else null
+                val initialIndex = targetIndex ?: trackedIndex
                 // An explicit jump records progress only once the reader has positioned successfully.
-                if (targetIndex == null && localBookshelf.isSaved(detail.summary.coordinate)) {
+                if (initialIndex == null && localBookshelf.isSaved(detail.summary.coordinate)) {
                     readerSettings.recordBookOpened(detail)
                 }
                 _uiState.update {
                     it.copy(
                         isLoadingBook = false, loadingBook = null,
                         selectedBook = detail,
-                        readerInitialChapterIndex = targetIndex,
+                        readerInitialChapterIndex = initialIndex,
                         readerOpenRequestId = UUID.randomUUID().toString(),
                         syncMessage = if (target != null && targetIndex == null) "The matching chapter is no longer available. Resuming this book." else it.syncMessage,
                         error = null,
@@ -711,7 +728,7 @@ class BookshelfViewModel(
         dismissBookDetails()
         dismissRatings()
         val session = _uiState.value.signerSession
-        _uiState.update { it.copy(ratingComposer = RatingComposerState(
+        _uiState.update { it.copy(inlineRatingComposer = false, ratingComposer = RatingComposerState(
             book = book, requiresSignIn = session == null, isLoadingReview = true,
         )) }
         ratingComposerJob = viewModelScope.launch {
@@ -732,7 +749,49 @@ class BookshelfViewModel(
 
     fun dismissRatingComposer() {
         ratingComposerJob?.cancel()
-        _uiState.update { it.copy(ratingComposer = null) }
+        _uiState.update { it.copy(ratingComposer = null, inlineRatingComposer = false) }
+    }
+
+    fun prepareInlineReview() {
+        val state = _uiState.value
+        val book = state.selectedBook?.summary ?: return
+        if (state.signerSession == null || state.pendingRatingSignRequest != null) return
+        if (state.inlineRatingComposer && state.ratingComposer?.book?.coordinate == book.coordinate) return
+        showRatingComposer(book)
+        _uiState.update { it.copy(inlineRatingComposer = true, latestReviewDelivery = null, inlineReviewCoordinate = book.coordinate) }
+    }
+
+    fun setReadingForeground(active: Boolean) = readingState.setForeground(active)
+
+    private fun readingAction(action: suspend () -> Unit) {
+        val signer = _uiState.value.signerSession
+        viewModelScope.launch {
+            try {
+                check(_uiState.value.signerSession == signer) { "Account changed. Try again." }
+                check(readingState.activeAccountPubkey == signer?.pubkey) { "Reading account is changing. Try again." }
+                action()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _uiState.update { it.copy(syncMessage = failure.message ?: "Could not save reading changes.") } }
+        }
+    }
+
+    fun trackReading(chapterIndex: Int) {
+        val book = _uiState.value.selectedBook ?: return
+        readingAction { readingState.track(book, chapterIndex) }
+    }
+
+    fun advanceReading(book: BookDetail, chapterIndex: Int) = readingAction { readingState.advance(book, chapterIndex) }
+    fun resetReading() { _uiState.value.selectedBook?.summary?.coordinate?.let { readingAction { readingState.reset(it) } } }
+    fun stopReading() { _uiState.value.selectedBook?.summary?.coordinate?.let { readingAction { readingState.stop(it) } } }
+    fun finishReading() { _uiState.value.selectedBook?.summary?.let { readingAction { readingState.finish(it) } } }
+    fun syncReading() = readingAction { readingState.sync(manual = true) }
+    fun completeReadingSignature(id: String?, eventJson: String) = readingAction { readingState.completeSignature(id, eventJson) }
+    fun failReadingSignature(id: String?, message: String) = readingAction { readingState.failSignature(id, message) }
+    fun openReadingCoordinate(coordinate: String) = readingAction {
+        val book = readingState.resolveBook(coordinate)
+        if (book != null) {
+            if (book.chapterRefs.isEmpty()) showBookDetails(book) else openBook(book)
+        } else _uiState.update { it.copy(syncMessage = "Book details are unavailable. Connect and try again.") }
     }
 
     fun updateRatingStars(stars: Int) {
@@ -1575,6 +1634,10 @@ data class HighlightComposerState(
 )
 
 data class BookshelfUiState(
+    val readingState: ReadingState = ReadingState(),
+    val pendingReadingSignRequest: ReadingSignRequest? = null,
+    val inlineRatingComposer: Boolean = false,
+    val inlineReviewCoordinate: String? = null,
     val isOnline: Boolean = false,
     val tab: BookshelfTab = BookshelfTab.Home,
     val curatedShelves: List<CuratedShelf> = emptyList(),
@@ -1688,8 +1751,11 @@ data class ContinueReadingBook(
 internal fun mostRecentlyOpenedSavedBook(
     savedBooks: List<BookSummary>,
     readingProgress: Map<String, ReadingProgress>,
+    finishedCoordinates: Set<String> = emptySet(),
+    rereadingCoordinates: Set<String> = emptySet(),
 ): ContinueReadingBook? =
     savedBooks
+        .filter { it.coordinate !in finishedCoordinates || it.coordinate in rereadingCoordinates }
         .mapNotNull { book -> readingProgress[book.coordinate]?.let { ContinueReadingBook(book, it) } }
         .maxByOrNull { it.progress.updatedAtMillis }
 

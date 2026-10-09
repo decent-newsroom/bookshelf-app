@@ -101,11 +101,25 @@ fun RatingReviewCard(review: RatingReviewUi) {
 
 @Composable
 fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, onStarsChanged: (Int) -> Unit, onOpinionChanged: (String) -> Unit, onSubmit: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) { Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    ModalBottomSheet(onDismissRequest = { if (!composer.isPublishing) onDismiss() }) {
+        RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit, Modifier.padding(24.dp))
+    }
+}
+
+/** The same account-bound composer is used in a sheet and at the reader's end. */
+@Composable
+fun RatingComposerForm(
+    composer: RatingComposerState,
+    onStarsChanged: (Int) -> Unit,
+    onOpinionChanged: (String) -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("${if (composer.editingEventId == null) "Rate" else "Edit your review of"} ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Choose a star rating", style = MaterialTheme.typography.titleMedium)
         if (composer.isLoadingReview) LoadingInline("Loading your saved review…")
-        Row { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, enabled = !composer.isPublishing && !composer.isLoadingReview) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
+        Row(Modifier.fillMaxWidth()) { (1..5).forEach { star -> TextButton(onClick = { onStarsChanged(star) }, modifier = Modifier.weight(1f), enabled = !composer.isPublishing && !composer.isLoadingReview) { Text(if (star <= (composer.selectedStars ?: 0)) "★" else "☆", fontSize = 32.sp) } } }
         val originalDisplayStars = composer.originalDisplayStars
         if (originalDisplayStars != null && (originalDisplayStars == 0.0 || originalDisplayStars % 1.0 != 0.0) && !composer.hasChangedStars) {
             val currentStars = composer.originalNormalizedRating?.let {
@@ -121,9 +135,9 @@ fun RatingComposerSheet(composer: RatingComposerState, onDismiss: () -> Unit, on
         OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing && !composer.isLoadingReview, label = { Text("Your opinion (optional)") }, minLines = 4)
         if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
         composer.error?.let { Notice(it) }
-        Button(onClick = onSubmit, enabled = !composer.isPublishing && !composer.isLoadingReview, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
+        Button(onClick = onSubmit, enabled = !composer.isPublishing && !composer.isLoadingReview && !composer.requiresSignIn, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }
         Spacer(Modifier.height(16.dp))
-    } }
+    }
 }
 
 private fun Double.formatOneDecimal(): String = ((this * 10.0).roundToInt() / 10.0).toString()

@@ -68,6 +68,10 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.key
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -140,6 +144,19 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val homeListState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) viewModel.setReadingForeground(true)
+            if (event == Lifecycle.Event.ON_STOP) viewModel.setReadingForeground(false)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        viewModel.setReadingForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setReadingForeground(false)
+        }
+    }
     BackHandler(
         enabled = state.selectedBook != null ||
             state.isLoadingBook ||
@@ -215,6 +232,20 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onTipSeen = viewModel::markOnboardingTipSeen,
                             initialChapterIndex = state.readerInitialChapterIndex,
                             onInitialPositioned = viewModel::readerInitiallyPositioned,
+                            readingState = state.readingState,
+                            isSignedIn = state.signerSession != null,
+                            inlineReviewComposer = state.ratingComposer?.takeIf { state.inlineRatingComposer && it.book.coordinate == selectedBook.summary.coordinate },
+                            inlineReviewStatus = state.latestReviewDelivery?.takeIf { state.inlineReviewCoordinate == selectedBook.summary.coordinate },
+                            onTrackReading = viewModel::trackReading,
+                            onResetTracking = viewModel::resetReading,
+                            onStopTracking = viewModel::stopReading,
+                            onFinishBook = viewModel::finishReading,
+                            onSyncReading = viewModel::syncReading,
+                            onTrackedSectionChanged = viewModel::advanceReading,
+                            onPrepareInlineReview = viewModel::prepareInlineReview,
+                            onReviewStarsChanged = viewModel::updateRatingStars,
+                            onReviewOpinionChanged = viewModel::updateRatingOpinion,
+                            onSubmitInlineReview = viewModel::submitRatingReview,
                         )
                     }
 
@@ -237,6 +268,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             continueReading = mostRecentlyOpenedSavedBook(
                                 savedBooks = state.savedBooks,
                                 readingProgress = state.readingProgress,
+                                finishedCoordinates = state.readingState.finished.map { it.bookCoordinate }.toSet(),
+                                rereadingCoordinates = state.readingState.tracked.map { it.bookCoordinate }.toSet(),
                             ),
                             message = state.shelfMessage,
                             profileName = state.nostrProfile?.preferredName,
@@ -245,6 +278,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onRetry = viewModel::retryShelves,
                             onOpen = viewModel::openBook,
                             onLongPress = viewModel::showBookActions,
+                            readingNow = state.readingState.tracked,
+                            onResolveReading = viewModel::openReadingCoordinate,
                         )
 
                         state.tab == BookshelfTab.MyBooks -> MyBooksScreen(
@@ -253,6 +288,9 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                             onOpen = viewModel::openBook,
                             error = state.error,
                             onLongPress = viewModel::showBookActions,
+                            readingNow = state.readingState.tracked,
+                            finishedBooks = state.readingState.finished,
+                            onResolveReading = viewModel::openReadingCoordinate,
                         )
 
                         state.tab == BookshelfTab.Settings -> {
@@ -274,6 +312,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     removeLocalRelay = settingsViewModel::removeLocalRelay,
                                     clearSelectedCaches = settingsViewModel::clearSelectedCaches,
                                     refreshStorage = settingsViewModel::refreshStats,
+                                    setReadingPrivacy = settingsViewModel::setReadingPrivacy,
                                 ),
                                 account = AccountSettingsState(
                                     profileName = state.nostrProfile?.preferredName,
@@ -297,6 +336,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     retryNow = settingsViewModel::retryPendingPublications,
                                 ),
                                 onBackFromSettings = viewModel::returnHome,
+                                onRetryReading = viewModel::syncReading,
                             )
                         }
                     }
@@ -343,7 +383,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 onAddReview = viewModel::showRatingComposer,
             )
         }
-        state.ratingComposer?.let { composer ->
+        state.ratingComposer?.takeUnless { state.inlineRatingComposer }?.let { composer ->
             RatingComposerSheet(
                 composer = composer,
                 onDismiss = viewModel::dismissRatingComposer,

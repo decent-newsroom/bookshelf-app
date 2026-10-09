@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.data.discovery.CuratedShelf
+import eu.decentnewsroom.bookshelf.data.reading.TrackedBook
+import eu.decentnewsroom.bookshelf.ui.reading.ReadingNowCarousel
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.ContinueReadingBook
 import eu.decentnewsroom.bookshelf.ui.components.LoadingInline
@@ -50,6 +52,8 @@ fun HomeScreen(
     onRetry: () -> Unit,
     onOpen: (BookSummary) -> Unit,
     onLongPress: (BookSummary) -> Unit,
+    readingNow: List<TrackedBook> = emptyList(),
+    onResolveReading: (String) -> Unit = {},
 ) {
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
@@ -60,6 +64,12 @@ fun HomeScreen(
             }
         }
         continueReading?.let { item { ContinueReadingCard(it, onOpen = { onOpen(it.book) }, onLongPress = { onLongPress(it.book) }) } }
+        if (readingNow.isNotEmpty()) item(key = "reading-now") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Reading now", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                ReadingNowCarousel(readingNow, onOpen, onLongPress, onResolveReading)
+            }
+        }
         if (isLoading && shelves.isEmpty()) item { LoadingInline("Loading shelves...") }
         message?.let { text -> item { Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Text(text, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant); SecondaryButton(onClick = onRetry) { Text("Retry") } } } }
         shelves.forEach { shelf ->
