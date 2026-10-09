@@ -5,6 +5,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -71,11 +73,43 @@ fun ReadingNowCarousel(
     onLongPress: (BookSummary) -> Unit,
     onResolve: (String) -> Unit,
 ) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(books, key = TrackedBook::bookCoordinate) { tracked ->
-            ReadingBookCard(tracked.bookCoordinate, tracked.book, readingDeliveryLabel(tracked.isPublic, tracked.status), onOpen, onLongPress, onResolve, Modifier.width(180.dp)) {
-                Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.bodySmall)
-                LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = (maxWidth - 40.dp).coerceAtLeast(0.dp).coerceAtMost(320.dp)
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(books, key = TrackedBook::bookCoordinate) { tracked ->
+                ReadingNowBookCard(tracked, onOpen, onLongPress, onResolve, Modifier.width(cardWidth))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ReadingNowBookCard(
+    tracked: TrackedBook,
+    onOpen: (BookSummary) -> Unit,
+    onLongPress: (BookSummary) -> Unit,
+    onResolve: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val book = tracked.book
+    Card(modifier.combinedClickable(
+        onClick = { if (book == null) onResolve(tracked.bookCoordinate) else onOpen(book) },
+        onLongClick = { book?.let(onLongPress) },
+    )) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (book != null) {
+                BookCover(book, Modifier.size(width = 48.dp, height = 68.dp))
+                Text(book.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            } else {
+                Column(Modifier.weight(1f)) {
+                    Text("Publication details unavailable", style = MaterialTheme.typography.titleSmall)
+                    Text(tracked.bookCoordinate.substringAfterLast(':'), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = { onResolve(tracked.bookCoordinate) }) { Text("Load details") }
+                }
+            }
+            IconButton(onClick = { book?.let(onLongPress) }, enabled = book != null, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Outlined.MoreVert, contentDescription = book?.let { "Actions for ${it.title}" } ?: "Book actions unavailable")
             }
         }
     }

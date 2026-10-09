@@ -360,9 +360,14 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
             BookActionsSheet(
                 book = book,
                 isSaved = book.coordinate in state.savedCoordinates,
+                isTracked = activeReading.tracked.any { it.bookCoordinate == book.coordinate },
                 localRelayConfigured = state.localRelayUrl != null,
                 isBroadcasting = state.isBroadcastingBook,
                 onDismiss = viewModel::dismissBookActions,
+                onStopTracking = {
+                    viewModel.dismissBookActions()
+                    viewModel.stopReading(book.coordinate)
+                },
                 onToggleSaved = {
                     viewModel.dismissBookActions()
                     viewModel.toggleSaved(book)

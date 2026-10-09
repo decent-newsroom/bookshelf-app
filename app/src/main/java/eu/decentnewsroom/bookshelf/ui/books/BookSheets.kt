@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,9 +52,11 @@ import eu.decentnewsroom.bookshelf.ui.ratings.RatingSummaryCard
 fun BookActionsSheet(
     book: BookSummary,
     isSaved: Boolean,
+    isTracked: Boolean,
     localRelayConfigured: Boolean,
     isBroadcasting: Boolean,
     onDismiss: () -> Unit,
+    onStopTracking: () -> Unit,
     onToggleSaved: () -> Unit,
     onDetails: () -> Unit,
     onRateReview: () -> Unit,
@@ -67,6 +70,9 @@ fun BookActionsSheet(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(book.title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            if (isTracked) {
+                BookActionRow(Icons.Outlined.StopCircle, "Stop tracking", onStopTracking)
+            }
             BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
             BookActionRow(Icons.Outlined.Info, "See details", onDetails)
             BookActionRow(Icons.Outlined.Star, "Rate and review", onRateReview)

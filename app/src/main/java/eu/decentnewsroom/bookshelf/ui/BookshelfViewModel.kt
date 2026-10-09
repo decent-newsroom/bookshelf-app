@@ -824,6 +824,10 @@ class BookshelfViewModel(
 
     fun stopReading() {
         val coordinate = _uiState.value.selectedBook?.summary?.coordinate ?: return
+        stopReading(coordinate)
+    }
+
+    fun stopReading(coordinate: String) {
         readerTrackingGate.invalidatePendingAdvances()
         coordinatedReadingAction { readingState.stop(coordinate) }
     }
