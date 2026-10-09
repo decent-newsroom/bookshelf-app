@@ -2,6 +2,7 @@ package eu.decentnewsroom.bookshelf.ui.reader
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -14,6 +15,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.shape.RoundedCornerShape
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
@@ -28,6 +31,8 @@ import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialScreen
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialTopic
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
@@ -118,6 +123,8 @@ internal fun ReaderScreen(
     val coroutineScope = rememberCoroutineScope(); val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }; var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showTracking by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    var showTrackingTutorial by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    val trackingScrollState = rememberScrollState()
     var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }; var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showReaderMenusTip by rememberSaveable(detail.summary.coordinate) {
         mutableStateOf(OnboardingTip.ReaderMenus !in seenTips)
@@ -277,7 +284,27 @@ internal fun ReaderScreen(
             onReset = onResetTracking,
             onStop = onStopTracking,
             onSync = onSyncReading,
+            onOpenTutorial = {
+                showTracking = false
+                showTrackingTutorial = true
+            },
+            scrollState = trackingScrollState,
         )
+    }
+    if (showTrackingTutorial) {
+        val closeTutorial = {
+            showTrackingTutorial = false
+            showTracking = true
+        }
+        // Keep the reader composed so help never reopens the book or moves its bookmark.
+        Dialog(
+            onDismissRequest = closeTutorial,
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                TutorialScreen(topic = TutorialTopic.TrackingProgress, onClose = closeTutorial)
+            }
+        }
     }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) { explicitNavigationGeneration += 1; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }

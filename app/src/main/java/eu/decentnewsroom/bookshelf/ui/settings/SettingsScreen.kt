@@ -44,9 +44,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
@@ -57,12 +59,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.AppGraph
 import eu.decentnewsroom.bookshelf.BuildConfig
+import eu.decentnewsroom.bookshelf.R
 import eu.decentnewsroom.bookshelf.data.mercury.ChapterRelayUrls
 import eu.decentnewsroom.bookshelf.data.reader.ParagraphAlignment
 import eu.decentnewsroom.bookshelf.data.reader.ReaderFont
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.ui.reader.readerTextStyle
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialCatalog
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialScreen
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialTopic
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialsScreen
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import kotlin.math.roundToInt
 
@@ -105,7 +112,7 @@ data class SettingsActions(
     val setReadingPrivacy: (Boolean?, Boolean?, Set<String>) -> Unit = { _, _, _ -> },
 )
 
-private enum class SettingsSection { Index, Reading, ReadingProgress, Account, Sources, Relays, Storage, About }
+private enum class SettingsSection { Index, Reading, ReadingProgress, Tutorials, Account, Sources, Relays, Storage, About }
 
 @Composable
 fun SettingsScreen(
@@ -117,17 +124,33 @@ fun SettingsScreen(
     onRetryReading: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Index) }
-    BackHandler { if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index }
+    var selectedTutorial by rememberSaveable { mutableStateOf<TutorialTopic?>(null) }
+    val savedSettingsState = rememberSaveableStateHolder()
+    BackHandler(enabled = selectedTutorial == null) { if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index }
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
-    when (section) {
-        SettingsSection.Index -> SettingsIndex(state, account) { section = it }
-        SettingsSection.Reading -> ReadingSettings(state, actions)
-        SettingsSection.ReadingProgress -> ReadingProgressSettings(state, actions, account, onRetryReading)
-        SettingsSection.Account -> AccountSettings(state, account, accountActions)
-        SettingsSection.Sources -> SourcesSettings(state, actions)
-        SettingsSection.Relays -> RelaySettings(state, account, actions)
-        SettingsSection.Storage -> StorageSettings(state, actions, accountActions.retryNow)
-        SettingsSection.About -> AboutSettings()
+    if (selectedTutorial != null) {
+        TutorialScreen(topic = selectedTutorial!!, onClose = { selectedTutorial = null })
+    } else {
+        savedSettingsState.SaveableStateProvider("settings-${section.name}") {
+            when (section) {
+                SettingsSection.Index -> SettingsIndex(state, account) { section = it }
+                SettingsSection.Reading -> ReadingSettings(state, actions)
+                SettingsSection.ReadingProgress -> ReadingProgressSettings(
+                    state, actions, account, onRetryReading,
+                    onOpenTrackingTutorial = {
+                        selectedTutorial = TutorialTopic.TrackingProgress
+                    },
+                )
+                SettingsSection.Tutorials -> TutorialsScreen(onOpenTopic = {
+                    selectedTutorial = it
+                })
+                SettingsSection.Account -> AccountSettings(state, account, accountActions)
+                SettingsSection.Sources -> SourcesSettings(state, actions)
+                SettingsSection.Relays -> RelaySettings(state, account, actions)
+                SettingsSection.Storage -> StorageSettings(state, actions, accountActions.retryNow)
+                SettingsSection.About -> AboutSettings()
+            }
+        }
     }
 }
 
@@ -157,6 +180,7 @@ private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState,
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
     item { IndexRow(Icons.Outlined.Router, "Nostr Relays", "${AppGraph.defaultRelays.size} defaults · ${if (state.localRelayUrl == null) 0 else 1} local") { navigate(SettingsSection.Relays) } }
     item { IndexRow(Icons.Outlined.Storage, "Storage & Offline", "${state.chapterCacheStats.sizeBytes + state.ratingCacheStats.sizeBytes + state.offlineBookCacheStats.sizeBytes + state.recommendationCacheStats.sizeBytes} cached bytes") { navigate(SettingsSection.Storage) } }
+    item { IndexRow(Icons.Outlined.Info, stringResource(R.string.tutorial_title), stringResource(R.string.tutorial_index_summary)) { navigate(SettingsSection.Tutorials) } }
     item { IndexRow(Icons.Outlined.Info, "About", "Version ${BuildConfig.VERSION_NAME}") { navigate(SettingsSection.About) } }
 }
 
@@ -224,14 +248,18 @@ private fun ReadingProgressSettings(
     actions: SettingsActions,
     account: AccountSettingsState,
     onRetryReading: () -> Unit,
+    onOpenTrackingTutorial: () -> Unit,
 ) = SettingsScaffold("Reading progress & privacy") {
     sectionTitle("Track progress")
-    item {
-        Text("Your reading position is saved automatically on this device so you can continue where you left off.")
+    if (!TutorialCatalog.get(TutorialTopic.TrackingProgress).hasContent) {
+        item {
+            Text("Your reading position is saved automatically on this device so you can continue where you left off.")
+        }
+        item {
+            Text("Open the reader menu and choose Track progress to add a book to Reading now on Home and the Reading list in My Books. You can reset or stop tracking from the same controls.")
+        }
     }
-    item {
-        Text("Open the reader menu and choose Track progress to add a book to Reading now on Home and the Reading list in My Books. You can reset or stop tracking from the same controls.")
-    }
+    item { TextButton(onClick = onOpenTrackingTutorial) { Text(stringResource(R.string.tutorial_tracking_help)) } }
     sectionTitle("Current sharing mode")
     val preferences = state.readingState.preferences
     val signedIn = account.pubkey != null

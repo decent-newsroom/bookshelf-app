@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tutorial_title">Tutorials</string>
+    <string name="tutorial_index_summary">Getting started · Tracking progress</string>
+    <string name="tutorial_tracking_help">How tracking works</string>
+    <string name="tutorial_preserves_reading">Both keep your reading position and finished history.</string>
+    <string name="tutorial_topic_getting_started_title">Getting started</string>
+    <string name="tutorial_topic_getting_started_summary">Getting started tutorial</string>
+    <string name="tutorial_topic_tracking_progress_title">Tracking progress</string>
+    <string name="tutorial_topic_tracking_progress_summary">Tracking progress tutorial</string>
+    <string name="tutorial_close">Close</string>
+    <string name="tutorial_done">Done</string>
+    <string name="tutorial_previous">Previous</string>
+    <string name="tutorial_next">Next</string>
+    <string name="tutorial_step_of">Step %1$d of %2$d</string>
+</resources>

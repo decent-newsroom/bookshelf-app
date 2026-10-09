@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Add the offline Tutorials catalog and reusable viewer infrastructure, with Getting started and Tracking progress topics ready for user-authored content. Contextual tracking entry points reuse the same topic viewer without changing reading state or contacting relays.
 - Make cover reading indicators easier to see with a larger badge, thicker progress ring, opaque backing, and contrasting outer border; hide them on Continue reading thumbnails, book-opening artwork, and reader-header covers.
 - Add Track progress to the reader menu and reader settings, with a scrollable sheet for Track, Reset, Stop, and Sync plus current status and bookmark guidance.
 - Add a dedicated Reading progress & privacy Settings screen with automatic-resume guidance, current sharing modes, and accessible privacy controls.
