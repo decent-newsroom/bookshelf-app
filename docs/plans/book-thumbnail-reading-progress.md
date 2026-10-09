@@ -15,17 +15,18 @@ Implemented, 2026-10-09. Show a corner indicator on eligible book thumbnails for
 
 ## Implemented appearance
 
-Use a circular indicator in the thumbnail's bottom-right corner, inset by 4 dp: a ring for every non-complete started state, and a solid filled circle for the 100% read state. For partial progress, highlight the corresponding arc; for started state with an unknown fraction, use a static outline ring without a claimed fractional arc. Use a 26 dp diameter, 4 dp progress stroke, opaque theme surface backing, a contrasting 1.5 dp outer border, and a 1 dp gap between border and progress. Keep it inside the cover bounds, including the existing 48 x 68 dp reading-list thumbnails. The badge is informational and does not introduce a new tap target. Continue reading, book-opening artwork, and reader-header covers show no badge.
+Use a circular indicator in the thumbnail's bottom-right corner, inset by 4 dp: a ring for every non-complete started state, and a solid filled circle for the 100% read state. Use a 26 dp diameter, a 3 dp round stroke, an opaque theme surface backing, and a quieter neutral track at 18% `onSurface`. Keep the 2 dp surface margin that separates the ring from cover artwork; remove the outer border and its border-to-ring gap. At exactly zero known progress, show a 4 dp accent dot at the ring's 12 o'clock position. Positive progress uses an arc beginning at -90 degrees with round ends and no extra dot. Unknown progress uses the neutral ring and a small muted center dash. Complete progress is a solid accent circle; explicit finished history retains a contrasting check. Never-started books have no badge. Keep the badge inside the cover bounds, including the existing 48 x 68 dp reading-list thumbnails. It is informational and does not introduce a new tap target. Continue reading, book-opening artwork, and reader-header covers show no badge. See [ADR 0055](../decisions/0055-cover-progress-badge-styling.md) for the current styling decision, which supersedes ADR 0048's earlier border and stroke treatment.
 
 | State | Appearance | Accessibility label |
 | --- | --- | --- |
 | Never started / only opened | No badge | No reading status |
-| Started, overall fraction unavailable | Static outline ring, without a fractional arc | Reading started; overall progress unavailable |
-| Partial chapter-based progress | Partially highlighted ring | Approximately X% by chapter position |
+| Started, overall fraction unavailable | Neutral ring with a muted center dash | Reading started; overall progress unavailable |
+| Started, known zero fraction | Neutral ring with a 4 dp accent dot at 12 o'clock | Approximately 0% by chapter position |
+| Partial chapter-based progress | Accent arc from 12 o'clock with round ends | Approximately X% by chapter position |
 | Complete content at the reader bottom | Solid filled circle | 100% read; end of book reached |
 | Explicit finished history without active rereading | Solid filled circle with contrasting check mark | Marked as finished |
 
-The initial fractional arc is an approximation by chapter position, consistent with the current model; it must not claim text-weighted accuracy. A numeric alternative can use an opaque pill displaying `~42%`, or `100%` only at a verified end. Prefer the ring because it fits small covers and does not imply more precision than the chapter-based source provides. No appearance setting is needed for the first implementation.
+The initial fractional arc is an approximation by chapter position, consistent with the current model; it must not claim text-weighted accuracy. A numeric alternative can use an opaque pill displaying `~42%`, or `100%` only at a verified end. The ring fits small covers and does not imply more precision than the chapter-based source provides. No appearance setting is needed.
 
 ## Cooperation between the three progress tracks
 

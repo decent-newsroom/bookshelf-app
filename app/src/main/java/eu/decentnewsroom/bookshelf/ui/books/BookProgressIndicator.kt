@@ -57,9 +57,8 @@ fun BookProgressIndicator(
     size: Dp = 26.dp,
     backgroundColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
     progressColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-    trackColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
+    trackColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
     checkColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary,
-    borderColor: Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
 ) {
     if (presentation == null || !presentation.hasStarted) return
 
@@ -71,18 +70,16 @@ fun BookProgressIndicator(
             }
         },
     ) {
-        val strokeWidth = 4.dp.toPx()
-        val borderWidth = 1.5.dp.toPx()
+        val strokeWidth = 3.dp.toPx()
         val radius = this.size.minDimension / 2f
-        // Keep an opaque gap between the outline and progress, clear of the cover art.
-        val contentRadius = radius - borderWidth - 1.dp.toPx()
+        // The opaque surface margin separates the ring from arbitrary cover artwork.
+        val contentRadius = radius - 2.dp.toPx()
         val inset = radius - contentRadius + strokeWidth / 2f
         val diameter = this.size.minDimension - inset * 2f
         val topLeft = Offset(inset, inset)
         val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
 
         drawCircle(backgroundColor.copy(alpha = 1f), radius = radius)
-        drawCircle(borderColor, radius = radius - borderWidth / 2f, style = Stroke(borderWidth))
         if (presentation.isComplete || (presentation.percentage ?: 0) >= 100) {
             drawCircle(progressColor, radius = contentRadius)
             if (presentation.isMarkedFinished) {
@@ -92,8 +89,24 @@ fun BookProgressIndicator(
             }
         } else {
             drawArc(trackColor, 0f, 360f, false, topLeft, arcSize, style = Stroke(strokeWidth, cap = StrokeCap.Round))
-            presentation.fraction?.takeIf { it > 0f }?.let { fraction ->
-                drawArc(progressColor, -90f, fraction.coerceIn(0f, 0.99f) * 360f, false, topLeft, arcSize, style = Stroke(strokeWidth, cap = StrokeCap.Round))
+            val fraction = presentation.fraction?.coerceIn(0f, 0.99f)
+            when {
+                fraction == null -> {
+                    val center = Offset(this.size.width / 2f, this.size.height / 2f)
+                    val halfDash = 2.dp.toPx()
+                    drawLine(
+                        trackColor,
+                        start = center - Offset(halfDash, 0f),
+                        end = center + Offset(halfDash, 0f),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                }
+                fraction == 0f -> {
+                    // A known starting position is intentional, even before the arc grows.
+                    drawCircle(progressColor, radius = 2.dp.toPx(), center = Offset(this.size.width / 2f, inset))
+                }
+                else -> drawArc(progressColor, -90f, fraction * 360f, false, topLeft, arcSize, style = Stroke(strokeWidth, cap = StrokeCap.Round))
             }
         }
     }

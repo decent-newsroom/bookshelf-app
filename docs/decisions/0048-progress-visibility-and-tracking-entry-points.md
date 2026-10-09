@@ -6,13 +6,15 @@ Accepted, 2026-10-09. Extends ADR 0046's indicator presentation and ADR 0029's S
 
 Reader tracking presentation is superseded by [ADR 0050](0050-unified-reader-progress-controls.md): the header and tap-to-show menu now share compact progress controls, replacing the tracking sheet, Aa shortcut, and long reader explanations. Cover presentation, Settings privacy controls, and tracking behavior remain accepted.
 
+Badge styling is superseded by [ADR 0055](0055-cover-progress-badge-styling.md). The 26 dp size, 4 dp corner inset, opaque theme backing, informational behavior, progress semantics, and three suppressed surfaces remain accepted; the outer border, border-to-ring gap, and 4 dp stroke do not.
+
 ## Context
 
 The 22 dp cover badge's roughly 2.3 dp progress stroke was hard to distinguish against artwork. Explicit tracking was only exposed in scrolling reader metadata, while the Aa sheet contained appearance controls and Settings buried reading privacy under Reading & Display. Automatic local resume and optional reading-list tracking were difficult to distinguish.
 
 ## Decision
 
-- Render eligible badges at 26 dp with a 4 dp progress stroke, opaque theme backing, a contrasting 1.5 dp outer border, and a 1 dp separating gap. Preserve unknown/partial rings, filled completion, the finished check, and progress semantics. A badge remains informational, with no additional touch target.
+- Render eligible badges at 26 dp with a 4 dp progress stroke, opaque theme backing, a contrasting 1.5 dp outer border, and a 1 dp separating gap. This styling is superseded by ADR 0055; the accepted size, backing, state semantics, and informational behavior remain.
 - Hide the cover badge in Continue reading, book-opening artwork, and the reader header. Continue reading text and reader progress bars/labels remain. Suppression is local to the rendering call site; it never removes or alters the shared reading presentation or stored progress.
 - Add Track progress to the reader's tap-to-show menu and a shortcut near the top of its scrollable Aa settings sheet. Both open the same scrollable tracking sheet. Transitioning from appearance settings closes that sheet and the overlay menu before exposing tracking.
 - Reuse existing ReadingTrackingControls and ViewModel actions for Track, Reset, Stop, and Sync, including unknown-stream disabling and public-delivery status. Action rows wrap at large text sizes. Track uses the latest observation's tracking section (including the final section at a verified endpoint), falling back to its resume chapter and then current local progress, so header/footer indexes cannot manufacture a section.
