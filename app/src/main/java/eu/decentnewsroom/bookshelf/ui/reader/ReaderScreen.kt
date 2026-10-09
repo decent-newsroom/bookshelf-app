@@ -2,7 +2,6 @@ package eu.decentnewsroom.bookshelf.ui.reader
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -15,8 +14,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.shape.RoundedCornerShape
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.onboarding.OnboardingTip
@@ -27,12 +24,9 @@ import eu.decentnewsroom.bookshelf.domain.*
 import eu.decentnewsroom.bookshelf.ui.*
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
-import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
-import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialScreen
-import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialTopic
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
@@ -122,9 +116,6 @@ internal fun ReaderScreen(
     }
     val coroutineScope = rememberCoroutineScope(); val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }; var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
-    var showTracking by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
-    var showTrackingTutorial by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
-    val trackingScrollState = rememberScrollState()
     var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }; var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showReaderMenusTip by rememberSaveable(detail.summary.coordinate) {
         mutableStateOf(OnboardingTip.ReaderMenus !in seenTips)
@@ -265,46 +256,24 @@ internal fun ReaderScreen(
         val observation = latestObservation
         onTrackReading(observation?.trackingChapterIndex ?: observation?.chapterIndex ?: currentChapterIndex)
     }
-    val openTracking = {
-        showSettings = false
-        showNavigationMenus = false
-        showTracking = true
-    }
-    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-        ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged, openTracking)
-    }
-    if (showTracking) ModalBottomSheet(onDismissRequest = { showTracking = false }) {
-        ReaderTrackingSheet(
-            bookTitle = detail.summary.title,
-            progressLabel = chapterReadingProgressLabel(progress, presentation),
+    val progressControls: @Composable () -> Unit = {
+        ReaderProgressControls(
+            progress = progress,
+            presentation = presentation,
+            book = detail.summary,
             tracked = tracked,
             streamKnown = streamKnown,
             readingState = readingState,
+            isSignedIn = isSignedIn,
+            colors = colors,
             onTrack = trackCurrentPosition,
             onReset = onResetTracking,
             onStop = onStopTracking,
             onSync = onSyncReading,
-            onOpenTutorial = {
-                showTracking = false
-                showTrackingTutorial = true
-            },
-            scrollState = trackingScrollState,
         )
     }
-    if (showTrackingTutorial) {
-        val closeTutorial = {
-            showTrackingTutorial = false
-            showTracking = true
-        }
-        // Keep the reader composed so help never reopens the book or moves its bookmark.
-        Dialog(
-            onDismissRequest = closeTutorial,
-            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
-        ) {
-            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                TutorialScreen(topic = TutorialTopic.TrackingProgress, onClose = closeTutorial)
-            }
-        }
+    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) {
+        ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged)
     }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) { explicitNavigationGeneration += 1; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
@@ -319,18 +288,23 @@ internal fun ReaderScreen(
         }
     }
     pendingChapterLinkUrl?.let { url -> ChapterLinkPolicy.parse(url)?.let { link -> AlertDialog(onDismissRequest = { pendingChapterLinkUrl = null }, title = { Text("Open external link?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("This chapter links outside Bookshelf."); Text(link.host, fontWeight = FontWeight.SemiBold) } }, confirmButton = { SecondaryButton({ pendingChapterLinkUrl = null; runCatching { uriHandler.openUri(link.url) } }) { Text("Open") } }, dismissButton = { SecondaryButton({ pendingChapterLinkUrl = null }) { Text("Cancel") } }) } ?: run { pendingChapterLinkUrl = null } }
-    Box(Modifier.fillMaxSize().background(colors.background)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
         OnboardingTooltip(showReaderMenusTip, "Tap anywhere while reading to show menus for navigation and reader settings.", { showReaderMenusTip = false }) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().pointerInput(detail.summary.coordinate) { detectTapGestures { showNavigationMenus = !showNavigationMenus } }, contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item(key = "reader-header") {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ReaderHeader(detail, isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, !showReaderMenusTip && OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips) { onTipSeen(OnboardingTip.BookListMembership) }
-                        ReadingTrackingControls(tracked, streamKnown, readingState.preferences.readingDeviceOnly,
-                            trackCurrentPosition,
-                            onResetTracking, onStopTracking, onSyncReading)
-                        if (readingState.isSyncing) Text("Syncing reading lists…", color = colors.muted)
-                        else if (readingState.pendingCount > 0) Text("${readingState.pendingCount} reading changes pending sync", color = colors.muted)
-                        readingState.error?.let { Text(it, color = colors.muted) }
+                        ReaderHeader(
+                            detail = detail,
+                            isSaved = isSaved,
+                            colors = colors,
+                            onBack = onBack,
+                            onToggleSaved = onToggleSaved,
+                            onShowContents = { showContents = true },
+                            onShowSettings = { showSettings = true },
+                            showBookListTip = !showReaderMenusTip && OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips,
+                            onBookListTipDismissed = { onTipSeen(OnboardingTip.BookListMembership) },
+                            progressControls = progressControls,
+                        )
                         if (detail.truncated) Text("This reader loaded only part of the publication. The end of the book is not available here.", color = colors.muted)
                         if (detail.missingChapterCount > 0) Text("${detail.missingChapterCount} sections are unavailable. Their positions remain in the reading order.", color = colors.muted)
                     }
@@ -351,6 +325,19 @@ internal fun ReaderScreen(
                 }
             }
         }
-        if (showNavigationMenus) { ReaderControlsMenu(isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, { showHighlights = true }, openTracking, Modifier.align(Alignment.TopCenter)); ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter)) }
+        if (showNavigationMenus) {
+            ReaderControlsMenu(
+                isSaved = isSaved,
+                colors = colors,
+                onBack = onBack,
+                onToggleSaved = onToggleSaved,
+                onShowContents = { showContents = true },
+                onShowSettings = { showSettings = true },
+                onShowHighlights = { showHighlights = true },
+                progressControls = progressControls,
+                modifier = Modifier.align(Alignment.TopCenter).heightIn(max = maxHeight * 0.75f),
+            )
+            ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter))
+        }
     }
 }

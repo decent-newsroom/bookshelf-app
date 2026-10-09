@@ -4,6 +4,8 @@
 
 Accepted, 2026-10-09. Extends ADR 0046's indicator presentation and ADR 0029's Settings UI boundary. Supersedes ADR 0046's inclusion of opening artwork and the earlier thumbnail plan's inclusion of Continue reading and reader-header covers.
 
+Reader tracking presentation is superseded by [ADR 0050](0050-unified-reader-progress-controls.md): the header and tap-to-show menu now share compact progress controls, replacing the tracking sheet, Aa shortcut, and long reader explanations. Cover presentation, Settings privacy controls, and tracking behavior remain accepted.
+
 ## Context
 
 The 22 dp cover badge's roughly 2.3 dp progress stroke was hard to distinguish against artwork. Explicit tracking was only exposed in scrolling reader metadata, while the Aa sheet contained appearance controls and Settings buried reading privacy under Reading & Display. Automatic local resume and optional reading-list tracking were difficult to distinguish.

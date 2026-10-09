@@ -25,6 +25,7 @@ fun SecondaryButton(
         colors = ButtonDefaults.textButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
         ),
         content = content,
     )

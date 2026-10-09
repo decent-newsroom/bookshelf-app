@@ -4,6 +4,8 @@
 
 Accepted, 2026-10-09. Extends ADR 0029's dedicated Settings boundary. Once the user supplies and reviews Tracking progress content, it conditionally supersedes ADR 0048's requirement to repeat the long tracking explanations in the sheet; tracking behavior and status/privacy information remain unchanged.
 
+[ADR 0050](0050-unified-reader-progress-controls.md) supersedes the reader tracking-sheet tutorial entry point, return-to-sheet lifecycle, and requirement to retain long reader explanations until tutorial content is supplied. The offline catalog, reusable viewer, Settings entry points, and user-authored content requirement remain accepted; tutorial authoring is separate work.
+
 ## Context
 
 Reading progress and privacy has important explanations, and the reader's tracking controls need the same guidance in context. Duplicating explanatory copy across Settings and the reader risks drift. The existing onboarding system serves brief, dismissible tips with persistent seen state; it is not a suitable content model for a navigable tutorial.

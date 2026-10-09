@@ -26,41 +26,29 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.ui.BookshelfTab
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
-import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
-import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
-import eu.decentnewsroom.bookshelf.ui.books.resolveUiReadingPresentation
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.components.ReaderNotice
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
-import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 
 @Composable
 internal fun ReaderControlsMenu(
-    isSaved: Boolean, progress: eu.decentnewsroom.bookshelf.data.reader.ReadingProgress,
+    isSaved: Boolean,
     colors: ReaderColors, onBack: () -> Unit, onToggleSaved: () -> Unit,
     onShowContents: () -> Unit, onShowSettings: () -> Unit, onShowHighlights: () -> Unit,
-    onShowTracking: () -> Unit,
+    progressControls: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = resolveUiReadingPresentation(progress, sharedPresentation = LocalBookReadingPresentations.current[progress.bookCoordinate])
-    val displayedFraction = presentation.fraction
-    val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Surface(modifier.fillMaxWidth().padding(12.dp), RoundedCornerShape(8.dp), colors.controls, shadowElevation = 8.dp) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }
-                Spacer(Modifier.weight(1f))
-                SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }
-                Spacer(Modifier.width(6.dp)); SecondaryButton(onClick = onShowSettings, modifier = Modifier.semantics { contentDescription = "Reader settings" }) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }
-                Spacer(Modifier.width(6.dp)); Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") }
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SecondaryButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") }
+                SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
+                SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
+                Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") }
+                SecondaryButton(onClick = onShowHighlights, modifier = Modifier.heightIn(min = 48.dp)) { Text("Highlights") }
             }
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton(onClick = onShowTracking) { Text("Track progress", color = colors.accent) }
-                SecondaryButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) }
-            }
-            displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
-            Text(progressLabel, style = MaterialTheme.typography.labelMedium, color = colors.muted)
+            progressControls()
         }
     }
 }
@@ -77,22 +65,19 @@ internal fun ReaderBottomNavigationMenu(selected: BookshelfTab, colors: ReaderCo
 @Composable
 internal fun ReaderHeader(
     detail: eu.decentnewsroom.bookshelf.domain.BookDetail, isSaved: Boolean,
-    progress: eu.decentnewsroom.bookshelf.data.reader.ReadingProgress, colors: ReaderColors,
+    colors: ReaderColors,
     onBack: () -> Unit, onToggleSaved: () -> Unit, onShowContents: () -> Unit, onShowSettings: () -> Unit,
     showBookListTip: Boolean, onBookListTipDismissed: () -> Unit,
+    progressControls: @Composable () -> Unit,
 ) {
-    val presentation = resolveUiReadingPresentation(progress, detail.summary, LocalBookReadingPresentations.current[detail.summary.coordinate])
-    val displayedFraction = presentation.fraction
-    val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }; Spacer(Modifier.weight(1f))
-            SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }; Spacer(Modifier.width(6.dp))
-            SecondaryButton(onClick = onShowSettings, modifier = Modifier.semantics { contentDescription = "Reader settings" }) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
-            OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") } }
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SecondaryButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") }
+            SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
+            SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
+            OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") } }
         }
-        displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
-        Text(progressLabel, style = MaterialTheme.typography.labelMedium, color = colors.muted)
+        progressControls()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             BookCover(
                 detail.summary,
@@ -116,19 +101,26 @@ internal fun ReaderHeader(
 }
 
 @Composable
-internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit, onShowTracking: () -> Unit) {
+internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Reader", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        OutlinedButton(onClick = onShowTracking, modifier = Modifier.fillMaxWidth()) { Text("Track progress") }
         SettingHeader("Font size", "${preferences.fontSizeSp.roundToInt()}sp"); Slider(preferences.fontSizeSp, onFontSizeChanged, valueRange = 14f..28f, steps = 13)
         SettingHeader("Line height", "${preferences.lineHeightMultiplier.formatOneDecimal()}x"); Slider(preferences.lineHeightMultiplier, onLineHeightChanged, valueRange = 1.2f..2.0f, steps = 7)
         Text("Theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(preferences.theme == theme, { onThemeChanged(theme) }, label = { Text(theme.label) }) } }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(preferences.theme == theme, { onThemeChanged(theme) }, label = { Text(theme.label) }, modifier = Modifier.heightIn(min = 48.dp), colors = readerSettingChipColors()) } }
         Text("Text alignment", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ParagraphAlignment.entries.forEach { alignment -> FilterChip(preferences.paragraphAlignment == alignment, { onParagraphAlignmentChanged(alignment) }, label = { Text(alignment.name) }) } }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ParagraphAlignment.entries.forEach { alignment -> FilterChip(preferences.paragraphAlignment == alignment, { onParagraphAlignmentChanged(alignment) }, label = { Text(alignment.name) }, modifier = Modifier.heightIn(min = 48.dp), colors = readerSettingChipColors()) } }
         Spacer(Modifier.height(8.dp))
     }
 }
+
+@Composable
+private fun readerSettingChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+    labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+)
 
 @Composable private fun SettingHeader(label: String, value: String) { Row(verticalAlignment = Alignment.CenterVertically) { Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.weight(1f)); Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) } }
 @Composable

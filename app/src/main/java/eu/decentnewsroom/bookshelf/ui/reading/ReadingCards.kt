@@ -17,40 +17,10 @@ import eu.decentnewsroom.bookshelf.data.reading.TrackedBook
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.ui.RatingComposerState
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
+import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.ratings.RatingComposerForm
 import java.text.DateFormat
 import java.util.Date
-
-@Composable
-fun ReadingTrackingControls(
-    tracked: TrackedBook?,
-    streamKnown: Boolean,
-    deviceOnly: Boolean,
-    onTrack: () -> Unit,
-    onReset: () -> Unit,
-    onStop: () -> Unit,
-    onSync: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (tracked == null) {
-            Text(if (deviceOnly) "Reading list: on this device" else "Reading list: public", style = MaterialTheme.typography.bodySmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onTrack, enabled = streamKnown) { Text("Track progress") }
-                if (!deviceOnly) TextButton(onClick = onSync) { Text("Sync") }
-            }
-            if (!streamKnown) Text("Loading section order before tracking…", style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.labelLarge)
-            LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
-            Text(readingDeliveryLabel(tracked.isPublic, tracked.status), style = MaterialTheme.typography.bodySmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onReset) { Text("Reset tracking") }
-                TextButton(onClick = onStop) { Text("Stop tracking") }
-            }
-            if (tracked.isPublic) TextButton(onClick = onSync) { Text("Sync") }
-        }
-    }
-}
 
 @Composable
 fun FinishBookCard(
@@ -88,7 +58,7 @@ fun InlineReviewCard(
             Text("Your rating and optional review are public.", style = MaterialTheme.typography.bodySmall)
             status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             if (composer != null) RatingComposerForm(composer, onStarsChanged, onOpinionChanged, onSubmit)
-            else TextButton(onClick = onPrepare) { Text(if (status == null) "Write your review" else "Edit your review") }
+            else SecondaryButton(onClick = onPrepare, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (status == null) "Write your review" else "Edit your review") }
         }
     }
 }
