@@ -95,7 +95,7 @@ fun ContinueReadingCard(continueReading: ContinueReadingBook, onOpen: () -> Unit
     val progressLabel = chapterReadingProgressLabel(progress, presentation)
     Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp).combinedClickable(onClick = onOpen, onLongClick = onLongPress), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(book, Modifier.size(width = 64.dp, height = 92.dp))
+            BookCover(book, Modifier.size(width = 64.dp, height = 92.dp), readingPresentation = null)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Continue reading", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)

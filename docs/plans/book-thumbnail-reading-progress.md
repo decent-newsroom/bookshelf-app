@@ -2,7 +2,7 @@
 
 ## Status and goal
 
-Implemented, 2026-10-09. Show a corner indicator on every displayed book thumbnail for a book the person has started reading, including unsaved books. The implementation follows [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md). Unit cases were added and the integration was statically reviewed; Gradle tests/builds and Compose/device visual checks remain for the user, per AGENTS.md.
+Implemented, 2026-10-09. Show a corner indicator on eligible book thumbnails for a book the person has started reading, including unsaved books. Continue reading, book-opening artwork, and reader-header covers suppress the badge while retaining existing progress text/bars. The implementation follows [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md), with styling, exceptions, and tracking-entry updates in [ADR 0048](../decisions/0048-progress-visibility-and-tracking-entry-points.md). Unit cases were added for the underlying progress model and the integration was statically reviewed; Gradle tests/builds and Compose/device visual checks remain for the user, per AGENTS.md.
 
 ## Verified behavior before this implementation
 
@@ -13,9 +13,9 @@ Implemented, 2026-10-09. Show a corner indicator on every displayed book thumbna
 - `BookCover` in `ui/books/BookCard.kt` renders cover artwork or a monogram without a reading indicator. Cards, carousels, reading lists, details, and Continue reading reuse it. The opening screen renders its artwork separately.
 - Existing `ReaderTerminalProgressTest` covers footer resume safety and partial-stream gating, but does not test 100% at the bottom. No Gradle commands were run, in accordance with the repository instructions.
 
-## Recommended appearance
+## Implemented appearance
 
-Use a circular indicator in the thumbnail's bottom-right corner, inset by 4 dp: a ring for every non-complete started state, and a solid filled circle for the 100% read state. For partial progress, highlight the corresponding arc; for started state with an unknown fraction, use a static outline ring without a claimed fractional arc. Give the ring an opaque theme surface backing and a contrasting track/highlight, and use a nominal diameter of 22 dp. Keep it inside the cover bounds, including the existing 48 x 68 dp reading-list thumbnails. The badge is informational and does not introduce a new tap target.
+Use a circular indicator in the thumbnail's bottom-right corner, inset by 4 dp: a ring for every non-complete started state, and a solid filled circle for the 100% read state. For partial progress, highlight the corresponding arc; for started state with an unknown fraction, use a static outline ring without a claimed fractional arc. Use a 26 dp diameter, 4 dp progress stroke, opaque theme surface backing, a contrasting 1.5 dp outer border, and a 1 dp gap between border and progress. Keep it inside the cover bounds, including the existing 48 x 68 dp reading-list thumbnails. The badge is informational and does not introduce a new tap target. Continue reading, book-opening artwork, and reader-header covers show no badge.
 
 | State | Appearance | Accessibility label |
 | --- | --- | --- |
@@ -88,11 +88,11 @@ Account changes replace only account/guest tracked and finished projections and 
 - Use the full ordered section total when available. The existing resume count may describe a capped loaded prefix; never turn that prefix into a whole-book percentage. For unknown/missing/truncated content without sufficient complete metadata, show the started marker. Synced tracked positions can yield an explicitly approximate section fraction below 100%; a tracked position alone is not evidence of a verified local endpoint.
 - Local resume remains device-wide as today. Tracked and finished overlays follow the current guest/account state; switching accounts must not retain the previous account's overlays. Reset/Stop tracking keeps its existing behavior and does not erase independent local resume evidence or finished history.
 
-### 3. Render the reusable cover badge everywhere
+### 3. Render the reusable cover badge on eligible surfaces
 
 - Add an optional resolved badge parameter to `BookCover`, rendered after the artwork/monogram in its existing clipped Box. Apply progress semantics and a single useful status label without duplicate TalkBack announcements.
-- Thread the coordinate-keyed resolved state through `BookshelfApp`, `HomeScreen`, `MyBooksScreen`, `SearchScreen`, book details/recommendations, and their shared card/carousel components. Cover both metadata and content-search results, Continue reading, Reading/Finished cards, and the reader's cover. Unsaved books remain eligible when they have reading evidence.
-- Include the separately rendered `BookOpeningScreen` artwork using the same badge composable when state is known. Books with unavailable summary artwork can keep their existing reading-list text status until a thumbnail can be rendered.
+- Thread the coordinate-keyed resolved state through `BookshelfApp`, `HomeScreen`, `MyBooksScreen`, `SearchScreen`, book details/recommendations, and their shared card/carousel components. Cover metadata and content-search results and Reading/Finished cards. Unsaved books remain eligible when they have reading evidence. Continue reading and the reader header pass an explicit null presentation to their cover to suppress the badge while retaining progress labels/bars.
+- The separately rendered `BookOpeningScreen` artwork shows no badge. Books with unavailable summary artwork can keep their existing reading-list text status until a thumbnail can be rendered.
 - UI changes must react to progress flow updates immediately after leaving the reader and after account changes. Displaying thumbnails must not open/render chapter content or start any relay work.
 
 ### 4. Validation and documentation

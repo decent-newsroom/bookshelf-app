@@ -4,6 +4,8 @@
 
 Accepted, 2026-10-09. Extends ADR 0032's local position model and ADR 0044's independent explicit tracking/history model. Semantic text anchors remain deferred.
 
+[ADR 0048](0048-progress-visibility-and-tracking-entry-points.md) updates badge styling and excludes Continue reading, opening artwork, and reader-header covers from indicators; it also adds discoverable tracking entry points. The persistence and coordination decisions here remain in effect.
+
 ## Context
 
 Local chapter display, the furthest section in kind 16374 tracking, and the last physical scroll position have different meanings. The existing chapter-index fraction cannot reach 100% through valid persisted indexes, and saved-book opening alone creates resume metadata. A corner badge must distinguish started/completed books without inventing reading activity, moving bookmarks to remote positions, or treating entry into the last section as completion.
@@ -18,7 +20,7 @@ Local chapter display, the furthest section in kind 16374 tracking, and the last
 - Restore explicit targets first, then valid local chapter/offset, then a resolved account tracked section at offset zero, then the beginning. A remote refresh cannot move an active reader. Local display can move backward while explicit tracking remains a maximum.
 - Use one pure presentation resolver for reader percentage, Continue reading, and every cover. Local reading evidence wins over synced fallback; incomplete local content keeps an unknown fraction. Finished history wins until a new reading cycle. Explicitly finishing a reread clears its local activity/cycle evidence without moving its bookmark or replacing original finished history.
 - Render a bottom-right ring for non-complete started books, highlight the approximate chapter fraction when known, and use a solid filled circle at 100%. Explicit finished history adds a check. No badge appears for merely opened books. Incomplete numeric display caps at 99%.
-- Supply the derived map at the Compose root. Shared covers and standalone opening artwork consume it without preference access, book rendering, or relay traffic. Account overlays are guarded against signer/repository handoffs; device-local resume remains device-wide. Cache clearing preserves all metadata and signed pending events.
+- Supply the derived map at the Compose root. Eligible shared covers consume it without preference access, book rendering, or relay traffic. Continue reading, standalone opening artwork, and reader-header covers suppress the badge as specified in ADR 0048. Account overlays are guarded against signer/repository handoffs; device-local resume remains device-wide. Cache clearing preserves all metadata and signed pending events.
 
 ## Consequences
 

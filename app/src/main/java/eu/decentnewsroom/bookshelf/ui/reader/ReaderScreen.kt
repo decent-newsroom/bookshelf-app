@@ -24,6 +24,7 @@ import eu.decentnewsroom.bookshelf.domain.*
 import eu.decentnewsroom.bookshelf.ui.*
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
 import eu.decentnewsroom.bookshelf.ui.books.LocalBookReadingPresentations
+import eu.decentnewsroom.bookshelf.ui.books.chapterReadingProgressLabel
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
@@ -116,6 +117,7 @@ internal fun ReaderScreen(
     }
     val coroutineScope = rememberCoroutineScope(); val colors = preferences.theme.readerColors
     var showSettings by rememberSaveable { mutableStateOf(false) }; var showContents by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
+    var showTracking by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showHighlights by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }; var showNavigationMenus by rememberSaveable(detail.summary.coordinate) { mutableStateOf(false) }
     var showReaderMenusTip by rememberSaveable(detail.summary.coordinate) {
         mutableStateOf(OnboardingTip.ReaderMenus !in seenTips)
@@ -252,7 +254,31 @@ internal fun ReaderScreen(
     LaunchedEffect(showReaderMenusTip) {
         if (showReaderMenusTip) onTipSeen(OnboardingTip.ReaderMenus)
     }
-    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) { ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged) }
+    val trackCurrentPosition = {
+        val observation = latestObservation
+        onTrackReading(observation?.trackingChapterIndex ?: observation?.chapterIndex ?: currentChapterIndex)
+    }
+    val openTracking = {
+        showSettings = false
+        showNavigationMenus = false
+        showTracking = true
+    }
+    if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) {
+        ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged, openTracking)
+    }
+    if (showTracking) ModalBottomSheet(onDismissRequest = { showTracking = false }) {
+        ReaderTrackingSheet(
+            bookTitle = detail.summary.title,
+            progressLabel = chapterReadingProgressLabel(progress, presentation),
+            tracked = tracked,
+            streamKnown = streamKnown,
+            readingState = readingState,
+            onTrack = trackCurrentPosition,
+            onReset = onResetTracking,
+            onStop = onStopTracking,
+            onSync = onSyncReading,
+        )
+    }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) { explicitNavigationGeneration += 1; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) {
@@ -273,7 +299,7 @@ internal fun ReaderScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         ReaderHeader(detail, isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, !showReaderMenusTip && OnboardingTip.ReaderMenus in seenTips && OnboardingTip.BookListMembership !in seenTips) { onTipSeen(OnboardingTip.BookListMembership) }
                         ReadingTrackingControls(tracked, streamKnown, readingState.preferences.readingDeviceOnly,
-                            { onTrackReading(chapterIndexForReaderListItem(listState.firstVisibleItemIndex, detail.chapters.size)) },
+                            trackCurrentPosition,
                             onResetTracking, onStopTracking, onSyncReading)
                         if (readingState.isSyncing) Text("Syncing reading lists…", color = colors.muted)
                         else if (readingState.pendingCount > 0) Text("${readingState.pendingCount} reading changes pending sync", color = colors.muted)
@@ -298,6 +324,6 @@ internal fun ReaderScreen(
                 }
             }
         }
-        if (showNavigationMenus) { ReaderControlsMenu(isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, { showHighlights = true }, Modifier.align(Alignment.TopCenter)); ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter)) }
+        if (showNavigationMenus) { ReaderControlsMenu(isSaved, progress, colors, onBack, onToggleSaved, { showContents = true }, { showSettings = true }, { showHighlights = true }, openTracking, Modifier.align(Alignment.TopCenter)); ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter)) }
     }
 }

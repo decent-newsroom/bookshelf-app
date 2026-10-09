@@ -34,8 +34,8 @@ fun ReadingTrackingControls(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (tracked == null) {
             Text(if (deviceOnly) "Reading list: on this device" else "Reading list: public", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onTrack, enabled = streamKnown) { Text("Track reading") }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onTrack, enabled = streamKnown) { Text("Track progress") }
                 if (!deviceOnly) TextButton(onClick = onSync) { Text("Sync") }
             }
             if (!streamKnown) Text("Loading section order before tracking…", style = MaterialTheme.typography.bodySmall)
@@ -43,7 +43,7 @@ fun ReadingTrackingControls(
             Text(furthestSectionLabel(tracked), style = MaterialTheme.typography.labelLarge)
             LinearProgressIndicator(progress = { trackedFraction(tracked) }, modifier = Modifier.fillMaxWidth())
             Text(readingDeliveryLabel(tracked.isPublic, tracked.status), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onReset) { Text("Reset tracking") }
                 TextButton(onClick = onStop) { Text("Stop tracking") }
             }

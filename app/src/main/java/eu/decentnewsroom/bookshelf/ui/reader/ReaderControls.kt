@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -12,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +40,7 @@ internal fun ReaderControlsMenu(
     isSaved: Boolean, progress: eu.decentnewsroom.bookshelf.data.reader.ReadingProgress,
     colors: ReaderColors, onBack: () -> Unit, onToggleSaved: () -> Unit,
     onShowContents: () -> Unit, onShowSettings: () -> Unit, onShowHighlights: () -> Unit,
+    onShowTracking: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val presentation = resolveUiReadingPresentation(progress, sharedPresentation = LocalBookReadingPresentations.current[progress.bookCoordinate])
@@ -47,10 +52,13 @@ internal fun ReaderControlsMenu(
                 SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }
                 Spacer(Modifier.weight(1f))
                 SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }
-                Spacer(Modifier.width(6.dp)); SecondaryButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }
+                Spacer(Modifier.width(6.dp)); SecondaryButton(onClick = onShowSettings, modifier = Modifier.semantics { contentDescription = "Reader settings" }) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }
                 Spacer(Modifier.width(6.dp)); Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { SecondaryButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) } }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton(onClick = onShowTracking) { Text("Track progress", color = colors.accent) }
+                SecondaryButton(onClick = onShowHighlights) { Text("Highlights", color = colors.accent) }
+            }
             displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
             Text(progressLabel, style = MaterialTheme.typography.labelMedium, color = colors.muted)
         }
@@ -80,7 +88,7 @@ internal fun ReaderHeader(
         Row(verticalAlignment = Alignment.CenterVertically) {
             SecondaryButton(onClick = onBack) { Text("Back", color = colors.accent) }; Spacer(Modifier.weight(1f))
             SecondaryButton(onClick = onShowContents) { Text("Contents", color = colors.accent) }; Spacer(Modifier.width(6.dp))
-            SecondaryButton(onClick = onShowSettings) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
+            SecondaryButton(onClick = onShowSettings, modifier = Modifier.semantics { contentDescription = "Reader settings" }) { Text("Aa", color = colors.accent, fontWeight = FontWeight.SemiBold) }; Spacer(Modifier.width(6.dp))
             OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved) { Text(if (isSaved) "Remove" else "Save") } }
         }
         displayedFraction?.let { fraction -> LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)), color = colors.accent, trackColor = colors.track) }
@@ -91,6 +99,7 @@ internal fun ReaderHeader(
                 Modifier.size(width = 88.dp, height = 124.dp),
                 colors.track,
                 colors.accent,
+                readingPresentation = null,
                 badgeBackgroundColor = colors.controls,
                 badgeProgressColor = colors.accent,
                 badgeCheckColor = colors.controls,
@@ -107,9 +116,10 @@ internal fun ReaderHeader(
 }
 
 @Composable
-internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit, onShowTracking: () -> Unit) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Reader", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        OutlinedButton(onClick = onShowTracking, modifier = Modifier.fillMaxWidth()) { Text("Track progress") }
         SettingHeader("Font size", "${preferences.fontSizeSp.roundToInt()}sp"); Slider(preferences.fontSizeSp, onFontSizeChanged, valueRange = 14f..28f, steps = 13)
         SettingHeader("Line height", "${preferences.lineHeightMultiplier.formatOneDecimal()}x"); Slider(preferences.lineHeightMultiplier, onLineHeightChanged, valueRange = 1.2f..2.0f, steps = 7)
         Text("Theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

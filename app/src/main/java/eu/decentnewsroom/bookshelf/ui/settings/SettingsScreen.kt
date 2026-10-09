@@ -105,7 +105,7 @@ data class SettingsActions(
     val setReadingPrivacy: (Boolean?, Boolean?, Set<String>) -> Unit = { _, _, _ -> },
 )
 
-private enum class SettingsSection { Index, Reading, Account, Sources, Relays, Storage, About }
+private enum class SettingsSection { Index, Reading, ReadingProgress, Account, Sources, Relays, Storage, About }
 
 @Composable
 fun SettingsScreen(
@@ -121,7 +121,8 @@ fun SettingsScreen(
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
     when (section) {
         SettingsSection.Index -> SettingsIndex(state, account) { section = it }
-        SettingsSection.Reading -> ReadingSettings(state, actions, account, onRetryReading)
+        SettingsSection.Reading -> ReadingSettings(state, actions)
+        SettingsSection.ReadingProgress -> ReadingProgressSettings(state, actions, account, onRetryReading)
         SettingsSection.Account -> AccountSettings(state, account, accountActions)
         SettingsSection.Sources -> SourcesSettings(state, actions)
         SettingsSection.Relays -> RelaySettings(state, account, actions)
@@ -151,6 +152,7 @@ private fun SettingsScaffold(title: String, isIndex: Boolean = false, content: L
 @Composable
 private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", isIndex = true) {
     item { IndexRow(Icons.Outlined.Book, "Reading & Display", "${state.readerPreferences.theme.name} · ${state.readerPreferences.fontSizeSp.roundToInt()} sp · ${state.readerPreferences.lineHeightMultiplier}×") { navigate(SettingsSection.Reading) } }
+    item { IndexRow(Icons.Outlined.Book, "Reading progress & privacy", "Track progress · Reading lists · Sharing") { navigate(SettingsSection.ReadingProgress) } }
     item { IndexRow(Icons.Outlined.AccountCircle, "Account & Sync", account.profileName ?: if (account.pubkey == null) "Not connected" else account.pubkey.take(12) + "…") { navigate(SettingsSection.Account) } }
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
     item { IndexRow(Icons.Outlined.Router, "Nostr Relays", "${AppGraph.defaultRelays.size} defaults · ${if (state.localRelayUrl == null) 0 else 1} local") { navigate(SettingsSection.Relays) } }
@@ -199,9 +201,7 @@ private fun ReaderPreview(preferences: ReaderPreferences) {
 }
 
 @Composable
-private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions, account: AccountSettingsState, onRetryReading: () -> Unit) = SettingsScaffold("Reading & Display") {
-    sectionTitle("Reading lists & finished books")
-    item { ReadingPrivacySettings(state, actions, account, onRetryReading) }
+private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions) = SettingsScaffold("Reading & Display") {
     val p = state.readerPreferences
     sectionTitle("Appearance")
     item { Text("Theme") }
@@ -216,6 +216,29 @@ private fun ReadingSettings(state: SettingsUiState, actions: SettingsActions, ac
     item { Text("Paragraph alignment") }
     item { ChoiceRow { ParagraphAlignment.entries.forEach { alignment -> FilterChip(selected = p.paragraphAlignment == alignment, onClick = { actions.setAlignment(alignment) }, label = { Text(alignment.name) }) } } }
     item { ReaderPreview(p) }
+}
+
+@Composable
+private fun ReadingProgressSettings(
+    state: SettingsUiState,
+    actions: SettingsActions,
+    account: AccountSettingsState,
+    onRetryReading: () -> Unit,
+) = SettingsScaffold("Reading progress & privacy") {
+    sectionTitle("Track progress")
+    item {
+        Text("Your reading position is saved automatically on this device so you can continue where you left off.")
+    }
+    item {
+        Text("Open the reader menu and choose Track progress to add a book to Reading now on Home and the Reading list in My Books. You can reset or stop tracking from the same controls.")
+    }
+    sectionTitle("Current sharing mode")
+    val preferences = state.readingState.preferences
+    val signedIn = account.pubkey != null
+    detail("Reading list updates", if (!signedIn || preferences.readingDeviceOnly) "Device only" else "Public on Nostr")
+    detail("Finished book updates", if (!signedIn || preferences.finishedDeviceOnly) "Device only" else "Public on Nostr")
+    sectionTitle("Reading lists & finished books")
+    item { ReadingPrivacySettings(state, actions, account, onRetryReading) }
 }
 
 @Composable
@@ -257,7 +280,7 @@ private fun ReadingPrivacySettings(
             if (deviceOnly) actions.setReadingPrivacy(null, true, emptySet()) else preview(false)
         }
         Text(
-            if (signedIn) "Public sharing publishes signed events to Nostr for other devices to read. Turning device-only on pauses pending delivery; previously published records remain public."
+            if (signedIn) "Public sharing publishes signed events to Nostr for other devices to read. Existing private entries are shared only when you select them. Turning device-only on pauses pending delivery; previously published records remain public."
             else "Reading lists and finished books work without an account. Connect an account to share publicly and sync between devices.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -328,12 +351,17 @@ private fun ReadingPrivacySettings(
 @Composable
 private fun ReadingPrivacyToggle(label: String, deviceOnly: Boolean, signedIn: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+            value = deviceOnly,
+            enabled = signedIn,
+            role = Role.Switch,
+            onValueChange = onChange,
+        ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = deviceOnly, onCheckedChange = onChange, enabled = signedIn)
+        Switch(checked = deviceOnly, onCheckedChange = null, enabled = signedIn)
     }
 }
 

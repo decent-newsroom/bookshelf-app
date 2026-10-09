@@ -80,10 +80,6 @@ fun BookOpeningScreen(book: BookSummary?) {
                                 onError = { artworkLoaded = false; coverAspectRatio = 0.68f },
                             )
                         }
-                        BookProgressOverlay(
-                            presentation = LocalBookReadingPresentations.current[book.coordinate],
-                            modifier = Modifier.align(Alignment.BottomEnd),
-                        )
                     }
                 }
             }
