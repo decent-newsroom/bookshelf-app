@@ -575,6 +575,12 @@ private fun LazyListScope.pendingHighlightDetails(state: SettingsUiState) {
 @Composable
 private fun AboutSettings() = SettingsScaffold("About") {
     item { Text("Bookshelf", style = MaterialTheme.typography.headlineSmall) }
+    item {
+        Text(
+            "Bookshelf is a calm e-reader for discovering, saving, and enjoying books. It turns an open publishing network into a personal pocket library: browse curated shelves or search the public catalog, open a book, settle into a comfortable chapter view, and keep the titles you care about close at hand.",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
     item { Text("Version ${BuildConfig.VERSION_NAME}") }
     item {
         Column {

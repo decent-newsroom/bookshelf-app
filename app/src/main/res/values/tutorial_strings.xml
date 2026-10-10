@@ -18,8 +18,6 @@
     <string name="tutorial_topic_tracking_progress_summary">Keep your current reads together and enjoy seeing how far you have come.</string>
     <string name="tutorial_close">Close</string>
     <string name="tutorial_done">Done</string>
-    <string name="tutorial_previous">Previous</string>
-    <string name="tutorial_next">Next</string>
     <string name="tutorial_step_of">Step %1$d of %2$d</string>
     <string name="tutorial_getting_started_open_and_read_title">A good read starts here</string>
     <string name="tutorial_getting_started_open_and_read_body">Something catch your eye? On Home, browse the shelves and tap a book to open it. Scroll at your own pace and enjoy the first few pages. You can start without an account.\n\nFor your first visit, stay connected while the chapters load. Entries marked as library cards have book details but no readable text.</string>

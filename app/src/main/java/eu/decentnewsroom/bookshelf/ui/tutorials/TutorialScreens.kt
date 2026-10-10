@@ -10,7 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.Button
@@ -18,7 +17,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -42,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.R
 import eu.decentnewsroom.bookshelf.ui.components.BackCloseButton
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 
 @Composable
 fun TutorialsScreen(onOpenTopic: (TutorialTopic) -> Unit) {
@@ -106,7 +102,6 @@ private fun TutorialPager(topic: TutorialTopic, onClose: () -> Unit, onAction: (
     val initialPage = tutorial.steps.indexOfFirst { it.id == savedStepId }.coerceAtLeast(0)
     val pagerState = rememberPagerState(initialPage = initialPage) { tutorial.steps.size }
     val savedStepState = rememberSaveableStateHolder()
-    val scope = rememberCoroutineScope()
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
             savedStepId = tutorial.steps.getOrNull(page)?.id
@@ -154,6 +149,15 @@ private fun TutorialPager(topic: TutorialTopic, onClose: () -> Unit, onAction: (
                             )
                         }
                         Text(stringResource(step.bodyRes), style = MaterialTheme.typography.bodyLarge)
+                        if (page == tutorial.steps.lastIndex) {
+                            Button(
+                                onClick = { onAction(topic.destination) },
+                                enabled = !pagerState.isScrollInProgress,
+                                modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                            ) {
+                                Text(stringResource(topic.actionLabelRes))
+                            }
+                        }
                     }
                 }
             }
@@ -172,38 +176,6 @@ private fun TutorialPager(topic: TutorialTopic, onClose: () -> Unit, onAction: (
                             CircleShape,
                         ),
                     )
-                }
-            }
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { scope.launch { pagerState.animateScrollToPage((page - 1).coerceAtLeast(0)) } },
-                    enabled = page > 0 && !pagerState.isScrollInProgress,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Icon(Icons.Outlined.ChevronLeft, contentDescription = null)
-                    Text(stringResource(R.string.tutorial_previous))
-                }
-                if (page == tutorial.steps.lastIndex) {
-                    Button(
-                        onClick = { onAction(topic.destination) },
-                        enabled = !pagerState.isScrollInProgress,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(stringResource(topic.actionLabelRes))
-                    }
-                } else {
-                    Button(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(page + 1) } },
-                        enabled = !pagerState.isScrollInProgress,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(stringResource(R.string.tutorial_next))
-                        Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-                    }
                 }
             }
         } else {

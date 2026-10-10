@@ -22,4 +22,4 @@ Books should be easy to find, pleasant to read, and portable beyond any single p
 
 Bookshelf is an early native Android app with active work around discovery, reading comfort, and Nostr-backed library sync.
 
-Developer setup, architecture notes, verification commands, and release steps live in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Start with the [engineering documentation](docs/README.md) for architecture, development, verification, release steps, and decision records.
