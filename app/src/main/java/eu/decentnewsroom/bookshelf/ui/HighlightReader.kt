@@ -28,7 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -38,7 +38,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightAnchors
 import eu.decentnewsroom.bookshelf.data.highlights.ReaderHighlight
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
@@ -81,6 +85,7 @@ internal fun HighlightableChapterText(
     val selectedText = selectionState.selectedTexts.singleOrNull()?.text
     val selectedRange = selectedText?.let { uniquelySelectedRange(displayedText, it) }
     val textLayoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
+    val selectionControlGap = with(LocalDensity.current) { 48.dp.roundToPx() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box {
@@ -96,10 +101,31 @@ internal fun HighlightableChapterText(
             }
             if (selectedRange != null) {
                 textLayoutResult.value?.let { layout ->
-                    val bounds = layout.getBoundingBox(selectedRange.last.coerceAtMost(displayedText.lastIndex))
+                    val startBounds = layout.getBoundingBox(selectedRange.first)
+                    val endBounds = layout.getBoundingBox(selectedRange.last.coerceAtMost(displayedText.lastIndex))
                     Popup(
-                        alignment = Alignment.TopStart,
-                        offset = IntOffset(bounds.left.toInt(), bounds.bottom.toInt()),
+                        popupPositionProvider = remember(startBounds, endBounds, selectionControlGap) {
+                            object : PopupPositionProvider {
+                                override fun calculatePosition(
+                                    anchorBounds: IntRect,
+                                    windowSize: IntSize,
+                                    layoutDirection: LayoutDirection,
+                                    popupContentSize: IntSize,
+                                ): IntOffset {
+                                    // Leave room for the selection handles and their drag targets.
+                                    val below = anchorBounds.top + endBounds.bottom.toInt() + selectionControlGap
+                                    val above = anchorBounds.top + startBounds.top.toInt() -
+                                        selectionControlGap - popupContentSize.height
+                                    val maxY = (windowSize.height - popupContentSize.height).coerceAtLeast(0)
+                                    val y = if (below <= maxY) below else above
+                                    val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+                                    return IntOffset(
+                                        x = (anchorBounds.left + endBounds.left.toInt()).coerceIn(0, maxX),
+                                        y = y.coerceIn(0, maxY),
+                                    )
+                                }
+                            }
+                        },
                     ) {
                         Surface(shape = MaterialTheme.shapes.small, shadowElevation = 6.dp) {
                             Row(
