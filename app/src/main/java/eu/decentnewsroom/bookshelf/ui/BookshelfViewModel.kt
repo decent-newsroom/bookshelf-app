@@ -109,6 +109,7 @@ class BookshelfViewModel(
     private val _uiState = MutableStateFlow(
         BookshelfUiState(
             readerPreferences = readerSettings.readerPreferences.value,
+            seenOnboardingTips = onboardingTips.seenTips.value,
             isOnline = connectivity.isOnline,
         ),
     )

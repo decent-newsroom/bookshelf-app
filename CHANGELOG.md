@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Permanently remember dismissed reader Save/Remove and tap-to-show-menu hints across books and app restarts, including when leaving the reader before the timeout.
 - Use consistent icon-only back and close controls across Settings, Tutorials, and the reader.
 - Show Continue reading on Home only when the Reading now shelf is empty, avoiding competing reading sections.
 - Register Bookshelf for incoming Android `nostr:naddr` book links. Open verified kind-30040 publications through the normal reader and resume flow, show library-card details, and report malformed, unsupported, unavailable, or offline links without automatically saving the book.

@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -27,17 +29,28 @@ private const val OnboardingTooltipDurationMillis = 10_000L
 
 @Composable
 fun OnboardingTooltip(visible: Boolean, text: String, onDismissed: () -> Unit, content: @Composable () -> Unit) {
+    if (!visible) {
+        content()
+        return
+    }
     val state = rememberTooltipState(isPersistent = true)
     val coroutineScope = rememberCoroutineScope()
+    val latestOnDismissed by rememberUpdatedState(onDismissed)
     LaunchedEffect(visible) {
         if (visible) {
             val autoDismiss = launch {
                 delay(OnboardingTooltipDurationMillis.milliseconds)
+                latestOnDismissed()
                 state.dismiss()
             }
-            state.show()
-            autoDismiss.cancel()
-            onDismissed()
+            try {
+                state.show()
+            } finally {
+                autoDismiss.cancel()
+                // Persistent TooltipState.show() can remain suspended after dismiss().
+                // Also consume the tip if its anchor leaves composition early.
+                latestOnDismissed()
+            }
         }
     }
     TooltipBox(
@@ -50,7 +63,10 @@ fun OnboardingTooltip(visible: Boolean, text: String, onDismissed: () -> Unit, c
                 ) {
                     Text(text)
                     SecondaryButton(
-                        onClick = { coroutineScope.launch { state.dismiss() } },
+                        onClick = {
+                            latestOnDismissed()
+                            coroutineScope.launch { state.dismiss() }
+                        },
                         modifier = Modifier.align(Alignment.End),
                     ) {
                         Text("Got it")
@@ -58,6 +74,6 @@ fun OnboardingTooltip(visible: Boolean, text: String, onDismissed: () -> Unit, c
                 }
             }
         },
-        state = state, focusable = false, content = content,
+        state = state, focusable = false, enableUserInput = false, content = content,
     )
 }
