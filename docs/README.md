@@ -12,6 +12,7 @@ This directory records architectural context and implementation decisions that s
 - [plans/book-ratings-and-suggestions.md](plans/book-ratings-and-suggestions.md) records the proposed rating-event ingestion and high-rated-book discovery plan.
 - [plans/airplane-mode-offline-review-sync.md](plans/airplane-mode-offline-review-sync.md) records the implemented offline cache policy, local Citrine review delivery, and deferred remote-relay synchronization design.
 - [plans/precise-reader-progress.md](plans/precise-reader-progress.md) records the proposed staged upgrade from chapter-level reader progress to durable in-chapter positions.
+- [plans/reader-menu-layout.md](plans/reader-menu-layout.md) records the implemented navigation, Highlights, and progress/tracking cards for the reader menu, shared header styling, responsive action alignment, and pending owner verification.
 - [plans/book-thumbnail-reading-progress.md](plans/book-thumbnail-reading-progress.md) records implemented endpoint detection, shared corner indicators, and cooperation between local chapter progress, Nostr section tracking, and scroll resume.
 - [plans/reading-lists-and-finished-history.md](plans/reading-lists-and-finished-history.md) records independent local/public reading lists, completed-book labels, durable synchronization, and inline reader reviews.
 - [plans/full-text-search-and-recommendations.md](plans/full-text-search-and-recommendations.md) records the implemented full-text search and seed-based recommendations integration, with deferred follow-ups.

@@ -2,7 +2,6 @@ package eu.decentnewsroom.bookshelf.ui.reader
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -14,6 +13,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.data.reader.BookReadingPresentation
 import eu.decentnewsroom.bookshelf.data.reader.ReadingProgress
@@ -45,6 +46,12 @@ internal fun ReaderProgressControls(
     val canSync = tracked?.isPublic == true || (tracked == null && !deviceOnly) ||
         (isSignedIn && readingState.pendingCount > 0)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Reading progress",
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleSmall,
+            color = colors.text,
+        )
         position.fraction?.let { fraction ->
             LinearProgressIndicator(
                 progress = { fraction },
@@ -66,21 +73,20 @@ internal fun ReaderProgressControls(
             style = MaterialTheme.typography.bodySmall,
             color = colors.muted,
         )
-        FlowRow(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (tracked == null) {
-                Button(onClick = onTrack, enabled = streamKnown, modifier = Modifier.heightIn(min = 48.dp)) {
+                Button(onClick = onTrack, enabled = streamKnown, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text("Track progress")
                 }
             } else {
-                SecondaryButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Reset tracking") }
-                SecondaryButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) { Text("Stop tracking") }
+                SecondaryButton(onClick = onReset, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Reset tracking") }
+                SecondaryButton(onClick = onStop, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Stop tracking") }
             }
             if (canSync) {
-                SecondaryButton(onClick = onSync, enabled = !readingState.isSyncing, modifier = Modifier.heightIn(min = 48.dp)) {
+                SecondaryButton(onClick = onSync, enabled = !readingState.isSyncing, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text("Sync")
                 }
             }

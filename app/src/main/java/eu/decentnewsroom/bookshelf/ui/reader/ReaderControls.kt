@@ -8,12 +8,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -40,15 +43,97 @@ internal fun ReaderControlsMenu(
     progressControls: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier.fillMaxWidth().padding(12.dp), RoundedCornerShape(8.dp), colors.controls, shadowElevation = 8.dp) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                BackCloseButton(onClick = onBack)
-                SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
-                SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
-                Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") }
-                SecondaryButton(onClick = onShowHighlights, modifier = Modifier.heightIn(min = 48.dp)) { Text("Highlights") }
+    Column(modifier.fillMaxWidth().padding(12.dp).verticalScroll(rememberScrollState())) {
+        ReaderNavigationCard(colors, onBack, onShowContents, onShowSettings) {
+            ReaderSaveAction(isSaved, onToggleSaved)
+        }
+        Spacer(Modifier.height(12.dp))
+        ReaderMenuCard(colors) {
+            Column {
+                ReaderSocialMenuItem("Highlights", colors, onShowHighlights)
             }
+        }
+        Spacer(Modifier.height(24.dp))
+        ReaderProgressCard(colors, progressControls)
+    }
+}
+
+@Composable
+private fun ReaderMenuCard(
+    colors: ReaderColors,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = colors.controls,
+        contentColor = colors.text,
+        shadowElevation = 1.dp,
+        content = content,
+    )
+}
+
+@Composable
+private fun ReaderNavigationCard(
+    colors: ReaderColors,
+    onBack: () -> Unit,
+    onShowContents: () -> Unit,
+    onShowSettings: () -> Unit,
+    saveAction: @Composable () -> Unit,
+) {
+    ReaderMenuCard(colors) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            BackCloseButton(onClick = onBack)
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Contents")
+                }
+                SecondaryButton(
+                    onClick = onShowSettings,
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" },
+                ) {
+                    Text("Aa", fontWeight = FontWeight.SemiBold)
+                }
+                saveAction()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderSaveAction(isSaved: Boolean, onToggleSaved: () -> Unit) {
+    SecondaryButton(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) {
+        Text(if (isSaved) "Remove" else "Save")
+    }
+}
+
+@Composable
+private fun ReaderSocialMenuItem(label: String, colors: ReaderColors, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 56.dp)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = colors.text)
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = colors.muted)
+    }
+}
+
+@Composable
+private fun ReaderProgressCard(colors: ReaderColors, progressControls: @Composable () -> Unit) {
+    ReaderMenuCard(colors) {
+        Box(Modifier.padding(14.dp)) {
             progressControls()
         }
     }
@@ -72,13 +157,18 @@ internal fun ReaderHeader(
     progressControls: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            BackCloseButton(onClick = onBack)
-            SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
-            SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
-            OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") } }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            ReaderNavigationCard(colors, onBack, onShowContents, onShowSettings) {
+                OnboardingTooltip(
+                    visible = showBookListTip,
+                    text = "Save adds this book to your personal My Books list. Remove takes it out again.",
+                    onDismissed = onBookListTipDismissed,
+                ) {
+                    ReaderSaveAction(isSaved, onToggleSaved)
+                }
+            }
+            ReaderProgressCard(colors, progressControls)
         }
-        progressControls()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             BookCover(
                 detail.summary,

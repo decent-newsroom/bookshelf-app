@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Organize the reader menu into separate navigation, Highlights, and reading-progress cards. Keep Back at the left, wrap the other navigation actions at the right, and give tracking extra space above with full-width stacked actions; use the same navigation and progress styling in the book header.
 - Permanently remember dismissed reader Save/Remove and tap-to-show-menu hints across books and app restarts, including when leaving the reader before the timeout.
 - Use consistent icon-only back and close controls across Settings, Tutorials, and the reader.
 - Show Continue reading on Home only when the Reading now shelf is empty, avoiding competing reading sections.

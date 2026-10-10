@@ -11,6 +11,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -290,6 +292,9 @@ internal fun ReaderScreen(
     }
     pendingChapterLinkUrl?.let { url -> ChapterLinkPolicy.parse(url)?.let { link -> AlertDialog(onDismissRequest = { pendingChapterLinkUrl = null }, title = { Text("Open external link?") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("This chapter links outside Bookshelf."); Text(link.host, fontWeight = FontWeight.SemiBold) } }, confirmButton = { SecondaryButton({ pendingChapterLinkUrl = null; runCatching { uriHandler.openUri(link.url) } }) { Text("Open") } }, dismissButton = { SecondaryButton({ pendingChapterLinkUrl = null }) { Text("Cancel") } }) } ?: run { pendingChapterLinkUrl = null } }
     BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
+        var bottomNavigationHeightPx by remember { mutableIntStateOf(0) }
+        val bottomNavigationHeight = with(LocalDensity.current) { bottomNavigationHeightPx.toDp() }
+        val menuMaxHeight = minOf(maxHeight * 0.75f, (maxHeight - bottomNavigationHeight).coerceAtLeast(0.dp))
         OnboardingTooltip(showReaderMenusTip, "Tap anywhere while reading to show menus for navigation and reader settings.", { showReaderMenusTip = false }) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().pointerInput(detail.summary.coordinate) { detectTapGestures { showNavigationMenus = !showNavigationMenus } }, contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item(key = "reader-header") {
@@ -336,9 +341,12 @@ internal fun ReaderScreen(
                 onShowSettings = { showSettings = true },
                 onShowHighlights = { showHighlights = true },
                 progressControls = progressControls,
-                modifier = Modifier.align(Alignment.TopCenter).heightIn(max = maxHeight * 0.75f),
+                modifier = Modifier.align(Alignment.TopCenter).heightIn(max = menuMaxHeight),
             )
-            ReaderBottomNavigationMenu(selectedTab, colors, onTabSelected, Modifier.align(Alignment.BottomCenter))
+            ReaderBottomNavigationMenu(
+                selectedTab, colors, onTabSelected,
+                Modifier.align(Alignment.BottomCenter).onSizeChanged { bottomNavigationHeightPx = it.height },
+            )
         }
     }
 }
