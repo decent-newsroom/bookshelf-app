@@ -34,7 +34,7 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0025: Library-card publication indexes](0025-library-card-publication-indexes.md) | Accepted |
 | [ADR 0026: Associate library-card ratings through address tags](0026-library-card-rating-address-tags.md) | Accepted |
 | [ADR 0027: Resolve reviewer names through the existing profile boundary](0027-reviewer-profile-resolution.md) | Accepted |
-| [ADR 0028: Persist signed reviews before relay delivery](0028-offline-review-outbox.md) | Accepted |
+| [ADR 0028: Persist signed reviews before relay delivery](0028-offline-review-outbox.md) | Accepted; user completion added by 0060 |
 | [ADR 0029: Dedicated Settings Feature](0029-dedicated-settings-feature.md) | Accepted |
 | [ADR 0030: Cache reader content for saved books offline](0030-offline-reader-content-cache.md) | Accepted |
 | [ADR 0031: Cap the reader onboarding hint and provide explicit dismissal](0031-capped-dismissible-contextual-onboarding.md) | Accepted |
@@ -51,7 +51,7 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0042: Inline book details recommendations and independent persistent cache](0042-inline-book-details-recommendations.md) | Accepted |
 | [ADR 0043: Content-only search and cohesive result cards](0043-content-only-search-and-result-cards.md) | Accepted |
 | [ADR 0044: Private reading state with explicit public synchronization](0044-reading-lists-and-finished-history.md) | State accepted; presentation superseded by 0051 |
-| [ADR 0045: Observe and explain pending highlight delivery](0045-observable-highlight-delivery-status.md) | Accepted |
+| [ADR 0045: Observe and explain pending highlight delivery](0045-observable-highlight-delivery-status.md) | Accepted; user completion added by 0060 |
 | [ADR 0046: Coordinate reader progress and shared thumbnail indicators](0046-coordinated-reader-progress-and-thumbnail-indicators.md) | Coordination accepted; presentation updated by 0048/0055 |
 | [ADR 0047: Share stable publication links from book actions](0047-book-link-sharing.md) | Accepted |
 | [ADR 0048: Progress visibility and tracking entry points](0048-progress-visibility-and-tracking-entry-points.md) | Reader UI superseded by 0050; styling by 0055 |
@@ -66,5 +66,6 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0057: Record reader tip dismissal independently of tooltip suspension](0057-durable-reader-tip-dismissal.md) | Accepted |
 | [ADR 0058: Tutorial actions in the lesson body](0058-tutorial-body-actions.md) | Accepted; supersedes 0056's paging controls/action placement |
 | [ADR 0059: Bundled tutorial component illustrations](0059-tutorial-component-illustrations.md) | Accepted; extends 0049/0052 with local Compose examples |
+| [ADR 0060: User completion of pending publications](0060-user-completion-of-pending-publications.md) | Accepted; extends 0028/0045 |
 
 Update supersession links when revising a decision. Proposed/deferred slices are not implementation claims, and acceptance checklists are not evidence that runtime verification passed.

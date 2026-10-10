@@ -164,6 +164,7 @@ class SettingsViewModel(
 
     fun clearPendingPublications() {
         if (_uiState.value.isRetrying || _uiState.value.isClearingPending) return
+        statsJob?.cancel()
         _uiState.update { it.copy(isClearingPending = true, message = null) }
         viewModelScope.launch {
             val failures = mutableListOf<String>()
@@ -195,7 +196,7 @@ class SettingsViewModel(
     }
 
     fun refreshStats() {
-        if (_uiState.value.isClearingCaches) return
+        if (_uiState.value.isClearingCaches || _uiState.value.isClearingPending) return
         statsJob?.cancel()
         statsJob = viewModelScope.launch { refreshStatsNow() }
     }

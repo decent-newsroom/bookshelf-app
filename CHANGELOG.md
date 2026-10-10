@@ -10,6 +10,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Add Clear pending beside Retry now in Settings > Storage & Offline to mark pending highlights and reviews as delivered, clear their delivery errors/counts, and stop retries while retaining signed events. Preserve unreadable review queues instead of treating them as empty.
 - Make the reader's highlight action jump immediately to the chapter containing the saved passage instead of animating through the book, and label it "Jump to passage".
 - Illustrate all 22 tutorial steps with the app's reader controls, highlighted passage, search results, review forms, progress, and Settings components using offline fictional examples. Examples follow the app theme, have accessible descriptions, and preserve tutorial scrolling and navigation without changing user data.
 - Give the reader's floating highlight controls 48 dp of clearance from the selection handles, and move them above the selection when space below is limited.

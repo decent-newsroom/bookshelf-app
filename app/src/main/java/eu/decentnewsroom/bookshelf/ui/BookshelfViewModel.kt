@@ -3,6 +3,7 @@ package eu.decentnewsroom.bookshelf.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eu.decentnewsroom.bookshelf.AppGraph
+import eu.decentnewsroom.bookshelf.AppGraph.reviewOutbox
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightAnchors
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightEventDraft
 import eu.decentnewsroom.bookshelf.data.highlights.HighlightEventFactory
@@ -261,6 +262,22 @@ class BookshelfViewModel(
             }
         }
         refreshCuratedShelves()
+        viewModelScope.launch { highlightOutbox.changes.collect { refreshHighlights() } }
+        viewModelScope.launch {
+            reviewOutbox.changes.collect {
+                val eventId = latestSavedReviewId ?: return@collect
+                val entry = try {
+                    reviewOutbox.entry(eventId) ?: return@collect
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (_: Exception) {
+                    return@collect
+                }
+                if (entry.completedByUserAtMillis != null && latestSavedReviewId == eventId) {
+                    _uiState.update { it.copy(latestReviewDelivery = entry.deliveryLabel(), syncMessage = null) }
+                }
+            }
+        }
         viewModelScope.launch {
             refreshHighlights()
             while (isActive) {
@@ -1961,6 +1978,7 @@ private data class DirectoryApplyResult(
 )
 
 private fun ReviewOutboxEntry.deliveryLabel(): String = when {
+    completedByUserAtMillis != null -> "Review marked as delivered."
     isComplete -> "Review delivered to configured relays."
     citrine == ReviewDeliveryState.ACCEPTED -> "Review saved locally and published to Citrine; remote relay sync is pending."
     lastFailure != null -> "Review saved locally; delivery needs retry."

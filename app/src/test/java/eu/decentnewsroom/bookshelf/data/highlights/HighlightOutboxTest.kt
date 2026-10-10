@@ -11,6 +11,7 @@ import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -176,6 +177,94 @@ class HighlightOutboxTest {
         }
 
         assertEquals(0, observer.await())
+    }
+
+    @Test
+    fun userCompletionPersistsWithoutRoutesAndStopsRetriesOfTheSameSignedPair() = runBlocking {
+        val file = File(Files.createTempDirectory("highlight-outbox-test").toFile(), "outbox.json")
+        val outbox = HighlightOutbox(file) { 123L }
+        val chapter = chapter()
+        val highlight = highlight(chapter)
+        outbox.enqueue(highlight, chapter, "private-42")
+        val dispatcher = dispatcher(outbox, listOf("wss://relay.example")) { _, _ ->
+            error("Cleared events must not be sent again")
+        }
+
+        dispatcher.clearPending()
+        val restored = HighlightOutbox(file).entries().single()
+        assertTrue(restored.isComplete)
+        assertEquals(123L, restored.completedByUserAtMillis)
+        assertEquals(highlight, restored.event)
+        assertEquals(chapter, restored.chapterEvent)
+        assertEquals("private-42", restored.localHighlightId)
+        assertTrue(restored.remote.isEmpty())
+        assertEquals(0, dispatcher.syncPending(force = true))
+        assertTrue(dispatcher.enqueueAndTryDeliver(highlight, chapter).isComplete)
+        assertTrue(HighlightOutbox(file).pending().isEmpty())
+    }
+
+    @Test
+    fun userCompletionClearsPairErrorsAndCannotBeUndoneByStaleUpdates() = runBlocking {
+        val file = File(Files.createTempDirectory("highlight-outbox-test").toFile(), "outbox.json")
+        val outbox = HighlightOutbox(file)
+        val chapter = chapter()
+        val highlight = highlight(chapter)
+        outbox.enqueue(highlight, chapter)
+        val failed = HighlightPairDelivery(
+            highlight = HighlightDeliveryState.FAILED, chapter = HighlightDeliveryState.FAILED,
+            highlightFailure = "highlight failed", chapterFailure = "chapter failed",
+        )
+        outbox.update(highlight.id) { it.copy(
+            local = mapOf("ws://local.example" to failed),
+            remote = mapOf("wss://relay.example" to failed),
+            remoteRoutesResolved = true, lastFailure = "delivery failed",
+        ) }
+        outbox.markPendingDelivered()
+        outbox.update(highlight.id) { it.copy(completedByUserAtMillis = null, lastFailure = "late failure") }
+
+        val restored = HighlightOutbox(file).entries().single()
+        assertTrue(restored.isComplete)
+        assertEquals(null, restored.lastFailure)
+        assertTrue((restored.local.values + restored.remote.values).all {
+            it.highlightFailure == null && it.chapterFailure == null
+        })
+        // Keep the actual acknowledgement history separate from explicit user completion.
+        assertEquals(HighlightDeliveryState.FAILED, restored.remote.values.single().highlight)
+    }
+
+    @Test
+    fun clearPendingWaitsForActiveDeliveryAndRetiresItsFailure() = runBlocking {
+        val file = File(Files.createTempDirectory("highlight-outbox-test").toFile(), "outbox.json")
+        val outbox = HighlightOutbox(file)
+        val chapter = chapter()
+        outbox.enqueue(highlight(chapter), chapter)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var publications = 0
+        val dispatcher = dispatcher(outbox, listOf("wss://relay.example")) { event, routes ->
+            publications++
+            started.complete(Unit)
+            release.await()
+            PublishReport(0, routes.size, event.id, routes.map {
+                RelayPublishOutcome(it, RelayPublishOutcomeType.REJECTED, "blocked")
+            })
+        }
+
+        withTimeout(5_000) {
+            val delivery = async { dispatcher.syncPending(force = true) }
+            started.await()
+            val clearing = async(start = CoroutineStart.UNDISPATCHED) { dispatcher.clearPending() }
+            assertTrue(!clearing.isCompleted)
+            release.complete(Unit)
+            delivery.await()
+            clearing.await()
+        }
+        val completed = HighlightOutbox(file).entries().single()
+        assertTrue(completed.isComplete)
+        assertEquals(null, completed.lastFailure)
+        val previousPublications = publications
+        assertEquals(0, dispatcher.syncPending(force = true))
+        assertEquals(previousPublications, publications)
     }
 
     private fun dispatcher(

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Extended by [ADR 0060](0060-user-completion-of-pending-publications.md) for explicit user completion of pending delivery.
 
 ## Context
 

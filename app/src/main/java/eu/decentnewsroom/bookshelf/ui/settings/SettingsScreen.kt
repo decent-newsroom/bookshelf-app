@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
@@ -55,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -203,7 +205,18 @@ private fun SettingsScaffold(title: String, isIndex: Boolean = false, content: L
 
 @Composable
 private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState, navigate: (SettingsSection) -> Unit) = SettingsScaffold("Settings", isIndex = true) {
-    item { IndexRow(Icons.Outlined.Book, "Reading & Display", "${state.readerPreferences.theme.name} · ${state.readerPreferences.fontSizeSp.roundToInt()} sp · ${state.readerPreferences.lineHeightMultiplier}×") { navigate(SettingsSection.Reading) } }
+    item {
+        IndexRow(
+            icon = {
+                Box(Modifier.size(24.dp).clearAndSetSemantics { }, contentAlignment = Alignment.Center) {
+                    Text("Aa", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            title = "Reading & Display",
+            summary = "${state.readerPreferences.theme.name} · ${state.readerPreferences.fontSizeSp.roundToInt()} sp · ${state.readerPreferences.lineHeightMultiplier}×",
+            onClick = { navigate(SettingsSection.Reading) },
+        )
+    }
     item { IndexRow(Icons.Outlined.Book, "Reading progress & privacy", "Track progress · Reading lists · Sharing") { navigate(SettingsSection.ReadingProgress) } }
     item { IndexRow(Icons.Outlined.AccountCircle, "Account & Sync", account.profileName ?: if (account.pubkey == null) "Not connected" else account.pubkey.take(12) + "…") { navigate(SettingsSection.Account) } }
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
@@ -215,9 +228,14 @@ private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState,
 
 @Composable
 private fun IndexRow(icon: ImageVector, title: String, summary: String, onClick: () -> Unit) {
+    IndexRow(icon = { Icon(icon, contentDescription = null) }, title = title, summary = summary, onClick = onClick)
+}
+
+@Composable
+private fun IndexRow(icon: @Composable () -> Unit, title: String, summary: String, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, contentDescription = null)
+            icon()
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -512,7 +530,7 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions, re
     item { if (state.isRefreshingStats || state.isClearingCaches) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }
     item { Text("Clearing these caches keeps saved books, reading progress, highlights, and unpublished items. Ratings and recommendations may need to load again.", style = MaterialTheme.typography.bodySmall) }
-    item { SecondaryButton(onClick = actions.refreshStorage, enabled = !state.isRefreshingStats && !state.isClearingCaches) { Text("Refresh statistics") } }
+    item { SecondaryButton(onClick = actions.refreshStorage, enabled = !state.isRefreshingStats && !state.isClearingCaches && !state.isClearingPending) { Text("Refresh statistics") } }
     item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 

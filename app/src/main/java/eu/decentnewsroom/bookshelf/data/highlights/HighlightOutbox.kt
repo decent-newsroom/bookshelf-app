@@ -27,8 +27,8 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
  * Durable app-private queue for a signed NIP-84 highlight and the exact chapter event it cites.
  *
  * The pair is written before any relay work. Per-relay acknowledgement is retained separately for
- * each event, so retrying never changes either signed event ID and cannot mistake a partial pair
- * delivery for success.
+ * each event, so retrying never changes either signed event ID. Explicit user completion is
+ * persisted separately from relay acknowledgements.
  */
 class HighlightOutbox internal constructor(
     private val file: File,
