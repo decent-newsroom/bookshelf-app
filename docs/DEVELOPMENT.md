@@ -1,26 +1,6 @@
 # Development Notes
 
-This file keeps the developer-facing notes for Bookshelf. The README is reserved for the project introduction.
-
-## Project Shape
-
-Bookshelf is a native Android app for the Mercury-backed Nostr bookshelf. It is intentionally separate from the Symfony bundle: the bundle remains the reference implementation for Mercury and directory rules while this Android project grows into a standalone reader.
-
-- `app/src/main/java/.../domain` contains Nostr and bookshelf data models.
-- `app/src/main/java/.../data/mercury` owns the Mercury REST and book-mapping boundary.
-- `app/src/main/java/.../data/bookshelf` owns local-first `My Books` directory rules.
-- `app/src/main/java/.../data/nostr` owns the Nostr relay and signer sync boundary.
-- `app/src/main/java/.../ui` contains the Compose app shell and reader.
-
-## Reader Rendering
-
-Chapter event contents are expected to be AsciiDoc. `AsciidoctorChapterRenderer` renders chapter HTML, and `ChapterHtmlCache` stores rendered output under `context.cacheDir/chapter-html`.
-
-The renderer uses the Android-compatible Kotlin Multiplatform `asciidoc-kmp` parser and produces body-only, CSS-free HTML fragments. The reader converts those fragments to Compose `AnnotatedString` values so rich text and links stay native to Compose and do not intercept reader gestures through an embedded view. Do not replace it with the JRuby-backed AsciidoctorJ artifact: AsciidoctorJ's desktop JVM tests can pass while its runtime initialization fails on Android, causing the reader to fall back to raw chapter text.
-
-`BookshelfViewModel.openBook` renders and caches the loaded `BookDetail` before exposing it to the reader. `BookChapter.renderedHtml` is the preferred UI content, with raw `content` as a fallback.
-
-Settings exposes chapter cache stats and `clearChapterHtmlCache()`. Keep cache clearing user-visible and safe.
+See the [documentation index](README.md) and [architecture](ARCHITECTURE.md) for component ownership, rendering, cache safety, and network/lifecycle invariants. This native Android project is independent of the Symfony bundle, which remains a reference for Mercury/directory rules.
 
 ## Local Development
 
@@ -29,15 +9,15 @@ Settings exposes chapter cache stats and `clearChapterHtmlCache()`. Keep cache c
 3. Run the app and verify Mercury search, book opening, reader rendering, and `My Books`.
 4. When a Nostr signer is available, verify sign-in and kind `30045` directory sync.
 
-The dependency versions are pinned on purpose. Avoid dynamic versions for the Android Gradle Plugin, Kotlin, Compose, Quartz, AsciidoctorJ, OkHttp, or related runtime libraries.
+Keep dependency versions pinned in `gradle/libs.versions.toml`. Rendering uses Android-compatible `asciidoc-kmp`; do not substitute desktop/JRuby-backed AsciidoctorJ, whose JVM tests can pass while Android initialization fails.
 
 ## Verification
 
 ### Build and test ownership
 
-The project owner runs local builds and tests, then reports the results to Codex. Do not run build or test commands unless the owner explicitly requests it.
+The project owner runs builds/tests and reports results. Agents must not execute Gradle verification commands on this machine, per `AGENTS.md`. Documentation/static checks do not establish a passing Android build or device acceptance.
 
-On this Windows machine, use Android Studio's JBR and an ASCII Gradle user home outside the repo:
+The generated daemon JVM points at a broken cached JetBrains JDK 25, and test workers can fail with the default non-ASCII Gradle home. Use Android Studio's JBR and an ASCII Gradle home outside the repo, then stop the daemon:
 
 ```powershell
 cmd /c .\gradlew.bat --gradle-user-home C:\Users\Public\Android\gradle-user-home-bookshelf --no-configuration-cache "-Dorg.gradle.java.home=C:\Program Files\Android\Android Studio\jbr" :app:testDebugUnitTest :app:assembleDebug
@@ -63,7 +43,7 @@ On PowerShell, encode the keystore with:
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("keystores\bookshelf-release.jks"))
 ```
 
-Create a release by pushing a tag, for example:
+Move Unreleased changelog entries into the release section before tagging. Create a release by pushing a tag, for example:
 
 ```bash
 git tag v0.1.0
@@ -81,11 +61,4 @@ development metadata (`0.1.0`, code `1`) unless `appVersionName` and
 Before publishing, the release job reads the final APK manifest and fails if
 its version does not match the tag-derived values.
 
-The release workflow pins its actions to immutable commit SHAs. The Gradle
-wrapper also pins the official Gradle 9.7.1 binary distribution checksum; when
-upgrading Gradle, obtain the new value from [Gradle's official checksum
-reference](https://gradle.org/release-checksums/) and update
-`gradle-wrapper.properties` in the same change. The pinned action revisions are
-documented by the upstream [checkout v4.4.0 commit](https://github.com/actions/checkout/commit/11d5960a326750d5838078e36cf38b85af677262)
-and [setup-java v4 commit](https://github.com/actions/setup-java/commit/cf277c60eb25467037889841efdb72551f06f6c3).
-The same verifier checks the checked-in wrapper JAR checksum before CI builds.
+The [release workflow](../.github/workflows/release.yml) pins actions to immutable SHAs. The [Gradle wrapper configuration](../gradle/wrapper/gradle-wrapper.properties) pins the distribution checksum; update it from the official Gradle checksum reference when upgrading. The [security verifier](../.github/scripts/verify-security-config.sh) also checks the wrapper JAR checksum and CI/backup policy. Keep these files aligned when changing release tooling.

@@ -1,7 +1,9 @@
 # ADR 0023: Normalize public book-rating events separately from book content
 
-* Status: Proposed
+* Status: Historical proposal; implemented with later revisions (see below).
 * Date: 2026-09-07
+
+The original proposal below is retained as decision history, not the current contract. [ADR 0026](0026-library-card-rating-address-tags.md) supersedes d-only association with a/A address lookup; [ADR 0028](0028-offline-review-outbox.md) adds durable delivery; [ADR 0035](0035-cache-first-rating-revisions.md) supersedes cache/presentation behavior; [ADR 0038](0038-active-user-relays-for-rating-reads.md) extends read routing. The implemented inclusive score policy is recorded in the compatibility note below. Publication uses active-user write and verified publication-author read routes. The rating-suggestion policy exists, but its production discovery UI remains deferred. See the [current implementation record](../plans/book-ratings-and-suggestions.md).
 
 ## Context
 

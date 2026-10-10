@@ -25,7 +25,7 @@ The fresh-state progress invariant is also implemented: a new reading location r
 ## Consequences
 
 * Resume precision improves without changing network, Nostr, account, cache, or backup boundaries.
-* The Phase 1 index and offset remain safe for legacy and unavailable content; a stable chapter coordinate is deferred for reorder-resistant recovery.
+* The Phase 1 index and offset remain safe for legacy and unavailable content; ADR 0046 now supplies stable chapter-coordinate recovery. Semantic text recovery remains deferred.
 * Progress writes become more frequent than chapter transitions, requiring coalescing and a final lifecycle flush.
 * Pixel locations can move relative to text after typography or viewport changes. Semantic anchoring requires rendered text and layout work, but is the durable route to reflow-stable resume and honest whole-book progress.
 * Highlight anchors are a reusable conceptual precedent, not a reason to merge reader-progress and highlight persistence.
