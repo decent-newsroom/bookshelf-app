@@ -6,6 +6,8 @@ import eu.decentnewsroom.bookshelf.data.nostr.PublishReport
 import eu.decentnewsroom.bookshelf.data.nostr.RelayPublishOutcomeType
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -17,10 +19,12 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
 /** Durable app-private queue for signed review events awaiting relay acknowledgement. */
-class ReviewOutbox private constructor(private val file: File, private val now: () -> Long, private val ratingCache: BookRatingCache?) {
+class ReviewOutbox internal constructor(private val file: File, private val now: () -> Long = System::currentTimeMillis, private val ratingCache: BookRatingCache? = null) {
     constructor(context: Context) : this(File(File(context.applicationContext.filesDir, "bookshelf"), FILE_NAME), System::currentTimeMillis, BookRatingCache(context))
 
     private val mutex = Mutex()
+    private val revision = MutableStateFlow(0L)
+    val changes = revision.asStateFlow()
 
     suspend fun enqueue(event: NostrEvent, publicationAuthorPubkey: String): ReviewOutboxEntry = withContext(Dispatchers.IO) {
         require(event.id.isNotBlank()) { "A signed review event ID is required." }
@@ -43,19 +47,37 @@ class ReviewOutbox private constructor(private val file: File, private val now: 
     suspend fun entry(eventId: String): ReviewOutboxEntry? = withContext(Dispatchers.IO) { mutex.withLock { read().entries.firstOrNull { it.event.id == eventId } } }
     suspend fun pendingCount(): Int = pending().size
 
+    /** Retain signed events and real acknowledgements while accepting distribution as complete. */
+    internal suspend fun markPendingDelivered() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val state = read()
+            val completedAt = now()
+            write(state.copy(entries = state.entries.map { entry ->
+                if (entry.isComplete) entry else entry.copy(completedByUserAtMillis = completedAt, lastFailure = null)
+            }))
+        }
+    }
+
     suspend fun update(eventId: String, transform: (ReviewOutboxEntry) -> ReviewOutboxEntry): ReviewOutboxEntry? = withContext(Dispatchers.IO) {
         mutex.withLock {
             val state = read()
             val old = state.entries.firstOrNull { it.event.id == eventId } ?: return@withLock null
+            if (old.completedByUserAtMillis != null) return@withLock old
             val next = transform(old)
             write(state.copy(entries = state.entries.map { if (it.event.id == eventId) next else it }))
             next
         }
     }
 
-    private fun read(): PersistedOutbox = runCatching {
-        if (!file.isFile) PersistedOutbox() else json.decodeFromString(PersistedOutbox.serializer(), file.readText(Charsets.UTF_8))
-    }.getOrDefault(PersistedOutbox())
+    private fun read(): PersistedOutbox {
+        if (!file.exists()) return PersistedOutbox()
+        check(file.isFile) { "Review outbox path is not a file." }
+        return try {
+            json.decodeFromString(PersistedOutbox.serializer(), file.readText(Charsets.UTF_8))
+        } catch (failure: Exception) {
+            throw IllegalStateException("Could not read review outbox; the queued signed events were left untouched.", failure)
+        }
+    }
 
     private fun write(value: PersistedOutbox) {
         file.parentFile?.mkdirs()
@@ -64,6 +86,7 @@ class ReviewOutbox private constructor(private val file: File, private val now: 
         runCatching { Files.move(temporary.toPath(), file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING) }
             .recoverCatching { Files.move(temporary.toPath(), file.toPath(), REPLACE_EXISTING) }
             .getOrElse { temporary.delete(); throw IllegalStateException("Could not update review outbox.", it) }
+        revision.value += 1
     }
 
     @Serializable private data class PersistedOutbox(val entries: List<ReviewOutboxEntry> = emptyList())
@@ -87,10 +110,12 @@ data class ReviewOutboxEntry(
     val attempts: Int = 0,
     val nextRetryAtMillis: Long,
     val lastFailure: String? = null,
+    val completedByUserAtMillis: Long? = null,
 ) {
     val isComplete: Boolean
-        get() = citrine !in setOf(ReviewDeliveryState.PENDING, ReviewDeliveryState.FAILED) &&
-            remoteRoutesResolved && remote.values.none { it in setOf(ReviewDeliveryState.PENDING, ReviewDeliveryState.FAILED) }
+        get() = completedByUserAtMillis != null ||
+            (citrine !in setOf(ReviewDeliveryState.PENDING, ReviewDeliveryState.FAILED) &&
+                remoteRoutesResolved && remote.values.none { it in setOf(ReviewDeliveryState.PENDING, ReviewDeliveryState.FAILED) })
 }
 
 /** Publishes a saved event to local Citrine immediately and to remote relays after validated connectivity. */
@@ -102,6 +127,9 @@ class ReviewOutboxDispatcher(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val deliveryMutex = Mutex()
+
+    /** Serialized with retries so a late relay failure cannot undo user completion. */
+    suspend fun clearPending() = deliveryMutex.withLock { outbox.markPendingDelivered() }
 
     /** Saves a signed event before any relay work so the cache can show it immediately. */
     suspend fun enqueue(event: NostrEvent, publicationAuthorPubkey: String): ReviewOutboxEntry =

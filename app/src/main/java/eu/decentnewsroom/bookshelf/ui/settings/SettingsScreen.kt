@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package eu.decentnewsroom.bookshelf.ui.settings
 
@@ -9,6 +9,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,6 +114,7 @@ data class SettingsActions(
     val removeLocalRelay: () -> Unit = {},
     val clearSelectedCaches: (Set<CacheSelection>) -> Unit = {},
     val refreshStorage: () -> Unit = {},
+    val clearPending: () -> Unit = {},
     val setReadingPrivacy: (Boolean?, Boolean?, Set<String>) -> Unit = { _, _, _ -> },
 )
 
@@ -294,7 +296,7 @@ private fun ReadingProgressSettings(
             Text("Open the reader menu and choose Track progress to add a book to Reading now on Home. You can reset or stop tracking from the same controls. Finished books appear at the bottom of Home.")
         }
     }
-    item { TextButton(onClick = onOpenTrackingTutorial) { Text(stringResource(R.string.tutorial_tracking_help)) } }
+    item { SecondaryButton(onClick = onOpenTrackingTutorial) { Text(stringResource(R.string.tutorial_tracking_help)) } }
     sectionTitle("Reading lists & finished books")
     item { ReadingPrivacySettings(state, actions, account, onRetryReading) }
 }
@@ -438,7 +440,7 @@ private fun AccountSettings(state: SettingsUiState, account: AccountSettingsStat
     detail("Highlights", account.pendingHighlightCount.toString())
     detail("Reviews", account.pendingReviewCount.toString())
     pendingHighlightDetails(state)
-    item { Button(onClick = actions.retryNow, enabled = account.pendingHighlightCount + account.pendingReviewCount > 0 && !state.isRetrying) { Text(if (state.isRetrying) "Retrying…" else "Retry now") } }
+    item { Button(onClick = actions.retryNow, enabled = account.pendingHighlightCount + account.pendingReviewCount > 0 && !state.isRetrying && !state.isClearingPending) { Text(if (state.isRetrying) "Retrying…" else "Retry now") } }
     item { if (!state.isOnline) Text("Offline. A configured local relay can still receive pending publications; remote delivery will resume online.", style = MaterialTheme.typography.bodySmall) }
     item { state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
 }
@@ -500,8 +502,12 @@ private fun StorageSettings(state: SettingsUiState, actions: SettingsActions, re
     detail("Pending reviews", state.pendingReviewCount.toString())
     pendingHighlightDetails(state)
     item { if (state.pendingHighlightCount + state.pendingReviewCount > 0) {
-        Button(onClick = retryNow, enabled = !state.isRetrying) { Text(if (state.isRetrying) "Retrying…" else "Retry now") }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = retryNow, enabled = !state.isRetrying && !state.isClearingPending) { Text(if (state.isRetrying) "Retrying…" else "Retry now") }
+            SecondaryButton(onClick = actions.clearPending, enabled = !state.isRetrying && !state.isClearingPending) { Text(if (state.isClearingPending) "Clearing…" else "Clear pending") }
+        }
     } }
+    item { if (state.pendingHighlightCount + state.pendingReviewCount > 0) Text("Clear pending accepts the current distribution as delivered, clears delivery errors, and stops retries for these highlights and reviews. Signed events stay saved.", style = MaterialTheme.typography.bodySmall) }
     sectionTitle("Disposable caches")
     item { if (state.isRefreshingStats || state.isClearingCaches) LinearProgressIndicator(Modifier.fillMaxWidth()) }
     item { CacheClearActions(state, actions) }

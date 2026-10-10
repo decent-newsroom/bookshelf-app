@@ -35,6 +35,7 @@ data class SettingsUiState(
     val isRefreshingStats: Boolean = false,
     val isClearingCaches: Boolean = false,
     val isRetrying: Boolean = false,
+    val isClearingPending: Boolean = false,
     val message: String? = null,
     val relayConfiguration: RelayConfiguration = RelayConfiguration(),
     val syncState: BookshelfSyncState = BookshelfSyncState.NotConfigured,

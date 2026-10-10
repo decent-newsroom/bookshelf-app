@@ -80,11 +80,28 @@ class HighlightOutbox internal constructor(
         mutex.withLock { read().entries }
     }
 
+    /** Explicit user completion, retained separately from actual relay acknowledgements. */
+    internal suspend fun markPendingDelivered() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val state = read()
+            val completedAt = now()
+            write(state.copy(entries = state.entries.map { entry ->
+                if (entry.isComplete) entry else entry.copy(
+                    completedByUserAtMillis = completedAt,
+                    lastFailure = null,
+                    local = entry.local.mapValues { (_, pair) -> pair.copy(highlightFailure = null, chapterFailure = null) },
+                    remote = entry.remote.mapValues { (_, pair) -> pair.copy(highlightFailure = null, chapterFailure = null) },
+                )
+            }))
+        }
+    }
+
     internal suspend fun update(eventId: String, transform: (HighlightOutboxEntry) -> HighlightOutboxEntry): HighlightOutboxEntry? =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val state = read()
                 val old = state.entries.firstOrNull { it.event.id == eventId } ?: return@withLock null
+                if (old.completedByUserAtMillis != null) return@withLock old
                 val next = transform(old)
                 write(state.copy(entries = state.entries.map { if (it.event.id == eventId) next else it }))
                 next
@@ -164,10 +181,12 @@ data class HighlightOutboxEntry(
     val attempts: Int = 0,
     val nextRetryAtMillis: Long,
     val lastFailure: String? = null,
+    val completedByUserAtMillis: Long? = null,
 ) {
     val isComplete: Boolean
-        get() = remoteRoutesResolved && (local.isNotEmpty() || remote.isNotEmpty()) &&
-            (local.values + remote.values).all(HighlightPairDelivery::isComplete)
+        get() = completedByUserAtMillis != null ||
+            (remoteRoutesResolved && (local.isNotEmpty() || remote.isNotEmpty()) &&
+                (local.values + remote.values).all(HighlightPairDelivery::isComplete))
 
     val deliveryLabel: String
         get() = when {
@@ -196,6 +215,9 @@ class HighlightOutboxDispatcher(
 ) {
     private val dispatchMutex = Mutex()
 
+    /** Wait for in-flight delivery before retiring pending work. Does not contact relays. */
+    suspend fun clearPending() = dispatchMutex.withLock { outbox.markPendingDelivered() }
+
     suspend fun enqueueAndTryDeliver(
         highlight: NostrEvent,
         chapter: NostrEvent,
@@ -214,6 +236,7 @@ class HighlightOutboxDispatcher(
     }
 
     private suspend fun deliver(entry: HighlightOutboxEntry): HighlightOutboxEntry {
+        if (entry.isComplete) return entry
         outbox.validate(entry)
         var current = deliverLocal(entry, normalizedRelay(localRelayUrl()))
         if (isOnline()) current = deliverRemote(current)

@@ -77,6 +77,18 @@ class SettingsViewModel(
         viewModelScope.launch { relaySync.activeSession.collect { value -> _uiState.update { it.copy(signerSession = value) } } }
         viewModelScope.launch { reading.state.collect { value -> _uiState.update { it.copy(readingState = value) } } }
         viewModelScope.launch { highlights.changes.collect { refreshHighlightDelivery() } }
+        viewModelScope.launch {
+            reviews.changes.collect {
+                try {
+                    val count = reviews.pendingCount()
+                    _uiState.update { it.copy(pendingReviewCount = count) }
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Exception) {
+                    _uiState.update { it.copy(message = failure.message ?: "Could not refresh pending reviews.") }
+                }
+            }
+        }
         refreshStats()
     }
 
@@ -135,8 +147,9 @@ class SettingsViewModel(
     fun removeLocalRelay() = localRelay.setRelayUrl("")
 
     fun retryPendingPublications() {
+        if (_uiState.value.isRetrying || _uiState.value.isClearingPending) return
+        _uiState.update { it.copy(isRetrying = true, message = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isRetrying = true, message = null) }
             try {
                 runCatching { highlightDispatcher.syncPending(force = true) }
                     .onFailure { failure -> if (failure is CancellationException) throw failure else _uiState.update { it.copy(message = failure.message) } }
@@ -145,6 +158,38 @@ class SettingsViewModel(
                 refreshStatsNow()
             } finally {
                 _uiState.update { it.copy(isRetrying = false) }
+            }
+        }
+    }
+
+    fun clearPendingPublications() {
+        if (_uiState.value.isRetrying || _uiState.value.isClearingPending) return
+        _uiState.update { it.copy(isClearingPending = true, message = null) }
+        viewModelScope.launch {
+            val failures = mutableListOf<String>()
+            try {
+                try {
+                    highlightDispatcher.clearPending()
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (_: Exception) {
+                    failures += "highlights"
+                }
+                try {
+                    reviewDispatcher.clearPending()
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (_: Exception) {
+                    failures += "reviews"
+                }
+                refreshStatsNow()
+                _uiState.update { state -> state.copy(message = listOfNotNull(
+                    if (failures.isEmpty()) "Pending publications marked as delivered." else
+                        "Could not clear pending ${failures.joinToString(" and ")}. Please try again.",
+                    state.message,
+                ).joinToString(" ")) }
+            } finally {
+                _uiState.update { it.copy(isClearingPending = false) }
             }
         }
     }

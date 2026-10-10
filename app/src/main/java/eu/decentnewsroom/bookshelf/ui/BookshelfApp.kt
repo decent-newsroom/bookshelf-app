@@ -326,6 +326,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     removeLocalRelay = settingsViewModel::removeLocalRelay,
                                     clearSelectedCaches = settingsViewModel::clearSelectedCaches,
                                     refreshStorage = settingsViewModel::refreshStats,
+                                    clearPending = settingsViewModel::clearPendingPublications,
                                     setReadingPrivacy = settingsViewModel::setReadingPrivacy,
                                 ),
                                 account = AccountSettingsState(
