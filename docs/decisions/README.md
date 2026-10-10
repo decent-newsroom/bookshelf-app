@@ -65,5 +65,6 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0056: Tutorial paging, destination actions, and shared navigation controls](0056-tutorial-paging-and-shared-navigation.md) | Navigation accepted; paging controls/action placement superseded by 0058 |
 | [ADR 0057: Record reader tip dismissal independently of tooltip suspension](0057-durable-reader-tip-dismissal.md) | Accepted |
 | [ADR 0058: Tutorial actions in the lesson body](0058-tutorial-body-actions.md) | Accepted; supersedes 0056's paging controls/action placement |
+| [ADR 0059: Bundled tutorial component illustrations](0059-tutorial-component-illustrations.md) | Accepted; extends 0049/0052 with local Compose examples |
 
 Update supersession links when revising a decision. Proposed/deferred slices are not implementation claims, and acceptance checklists are not evidence that runtime verification passed.

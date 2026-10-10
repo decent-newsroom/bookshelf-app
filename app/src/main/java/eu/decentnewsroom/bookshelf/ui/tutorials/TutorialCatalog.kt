@@ -79,7 +79,17 @@ data class TutorialStep(
     @param:StringRes val bodyRes: Int,
     @param:DrawableRes val illustrationRes: Int? = null,
     @param:StringRes val descriptionRes: Int? = null,
-)
+    val example: TutorialExample? = null,
+) {
+    init {
+        require(illustrationRes == null || example == null) {
+            "A tutorial step must use either a drawable or a component example."
+        }
+        require(illustrationRes == null || descriptionRes != null) {
+            "A tutorial drawable requires an accessible description."
+        }
+    }
+}
 
 data class Tutorial(
     val topic: TutorialTopic,
@@ -100,16 +110,19 @@ object TutorialCatalog {
                     id = "open_and_read",
                     titleRes = R.string.tutorial_getting_started_open_and_read_title,
                     bodyRes = R.string.tutorial_getting_started_open_and_read_body,
+                    example = TutorialExample.OpenAndRead,
                 ),
                 TutorialStep(
                     id = "reader_controls",
                     titleRes = R.string.tutorial_getting_started_reader_controls_title,
                     bodyRes = R.string.tutorial_getting_started_reader_controls_body,
+                    example = TutorialExample.ReaderControls,
                 ),
                 TutorialStep(
                     id = "reading_comfort",
                     titleRes = R.string.tutorial_getting_started_reading_comfort_title,
                     bodyRes = R.string.tutorial_getting_started_reading_comfort_body,
+                    example = TutorialExample.ReadingComfort,
                 ),
             ),
         ),
@@ -120,16 +133,19 @@ object TutorialCatalog {
                     id = "search_books",
                     titleRes = R.string.tutorial_search_search_books_title,
                     bodyRes = R.string.tutorial_search_search_books_body,
+                    example = TutorialExample.SearchBooks,
                 ),
                 TutorialStep(
                     id = "search_chapters",
                     titleRes = R.string.tutorial_search_search_chapters_title,
                     bodyRes = R.string.tutorial_search_search_chapters_body,
+                    example = TutorialExample.SearchChapters,
                 ),
                 TutorialStep(
                     id = "open_match",
                     titleRes = R.string.tutorial_search_open_match_title,
                     bodyRes = R.string.tutorial_search_open_match_body,
+                    example = TutorialExample.OpenMatch,
                 ),
             ),
         ),
@@ -140,11 +156,13 @@ object TutorialCatalog {
                     id = "save_book",
                     titleRes = R.string.tutorial_save_and_resume_save_book_title,
                     bodyRes = R.string.tutorial_save_and_resume_save_book_body,
+                    example = TutorialExample.SaveBook,
                 ),
                 TutorialStep(
                     id = "resume_reading",
                     titleRes = R.string.tutorial_save_and_resume_resume_reading_title,
                     bodyRes = R.string.tutorial_save_and_resume_resume_reading_body,
+                    example = TutorialExample.ResumeReading,
                 ),
             ),
         ),
@@ -155,16 +173,19 @@ object TutorialCatalog {
                     id = "prepare_book",
                     titleRes = R.string.tutorial_offline_reading_prepare_book_title,
                     bodyRes = R.string.tutorial_offline_reading_prepare_book_body,
+                    example = TutorialExample.PrepareBook,
                 ),
                 TutorialStep(
                     id = "check_offline",
                     titleRes = R.string.tutorial_offline_reading_check_offline_title,
                     bodyRes = R.string.tutorial_offline_reading_check_offline_body,
+                    example = TutorialExample.CheckOffline,
                 ),
                 TutorialStep(
                     id = "restore_downloads",
                     titleRes = R.string.tutorial_offline_reading_restore_downloads_title,
                     bodyRes = R.string.tutorial_offline_reading_restore_downloads_body,
+                    example = TutorialExample.RestoreDownloads,
                 ),
             ),
         ),
@@ -175,16 +196,19 @@ object TutorialCatalog {
                     id = "create_highlight",
                     titleRes = R.string.tutorial_highlights_create_highlight_title,
                     bodyRes = R.string.tutorial_highlights_create_highlight_body,
+                    example = TutorialExample.CreateHighlight,
                 ),
                 TutorialStep(
                     id = "revisit_highlights",
                     titleRes = R.string.tutorial_highlights_revisit_highlights_title,
                     bodyRes = R.string.tutorial_highlights_revisit_highlights_body,
+                    example = TutorialExample.RevisitHighlights,
                 ),
                 TutorialStep(
                     id = "share_highlight",
                     titleRes = R.string.tutorial_highlights_share_highlight_title,
                     bodyRes = R.string.tutorial_highlights_share_highlight_body,
+                    example = TutorialExample.ShareHighlight,
                 ),
             ),
         ),
@@ -195,16 +219,19 @@ object TutorialCatalog {
                     id = "open_review",
                     titleRes = R.string.tutorial_reviews_open_review_title,
                     bodyRes = R.string.tutorial_reviews_open_review_body,
+                    example = TutorialExample.OpenReview,
                 ),
                 TutorialStep(
                     id = "publish_review",
                     titleRes = R.string.tutorial_reviews_publish_review_title,
                     bodyRes = R.string.tutorial_reviews_publish_review_body,
+                    example = TutorialExample.PublishReview,
                 ),
                 TutorialStep(
                     id = "edit_review",
                     titleRes = R.string.tutorial_reviews_edit_review_title,
                     bodyRes = R.string.tutorial_reviews_edit_review_body,
+                    example = TutorialExample.EditReview,
                 ),
             ),
         ),
@@ -215,16 +242,19 @@ object TutorialCatalog {
                     id = "start_tracking",
                     titleRes = R.string.tutorial_tracking_progress_start_tracking_title,
                     bodyRes = R.string.tutorial_tracking_progress_start_tracking_body,
+                    example = TutorialExample.StartTracking,
                 ),
                 TutorialStep(
                     id = "understand_progress",
                     titleRes = R.string.tutorial_tracking_progress_understand_progress_title,
                     bodyRes = R.string.tutorial_tracking_progress_understand_progress_body,
+                    example = TutorialExample.UnderstandProgress,
                 ),
                 TutorialStep(
                     id = "manage_tracking",
                     titleRes = R.string.tutorial_tracking_progress_manage_tracking_title,
                     bodyRes = R.string.tutorial_tracking_progress_manage_tracking_body,
+                    example = TutorialExample.ManageTracking,
                 ),
             ),
         ),
@@ -235,11 +265,13 @@ object TutorialCatalog {
                     id = "connect_signer",
                     titleRes = R.string.tutorial_connect_account_connect_signer_title,
                     bodyRes = R.string.tutorial_connect_account_connect_signer_body,
+                    example = TutorialExample.ConnectSigner,
                 ),
                 TutorialStep(
                     id = "review_sharing",
                     titleRes = R.string.tutorial_connect_account_review_sharing_title,
                     bodyRes = R.string.tutorial_connect_account_review_sharing_body,
+                    example = TutorialExample.ReviewSharing,
                 ),
             ),
         ),

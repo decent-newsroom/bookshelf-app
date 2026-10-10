@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tutorial_example_label">Example</string>
+    <string name="tutorial_example_accessibility">Example, illustration only. %1$s</string>
+    <string name="tutorial_example_open_and_read">A book card for The Lantern Path and a short passage from its first chapter.</string>
+    <string name="tutorial_example_reader_controls">Reader controls with Contents, Aa, and Save, followed by a chapter list with the current chapter selected.</string>
+    <string name="tutorial_example_reading_comfort">Reader settings with font size, line height, theme, and text alignment choices above a sample passage.</string>
+    <string name="tutorial_example_search_books">A book search with a sample query and Search book contents turned off.</string>
+    <string name="tutorial_example_search_chapters">A chapter-text search with a sample phrase and Search book contents turned on.</string>
+    <string name="tutorial_example_open_match">A matching chapter result with a passage excerpt and Open matching chapter.</string>
+    <string name="tutorial_example_save_book">Reader navigation with Save, which adds the book to My Books.</string>
+    <string name="tutorial_example_resume_reading">Continue reading for The Lantern Path, showing a saved reading position.</string>
+    <string name="tutorial_example_prepare_book">A saved book with chapters available after being loaded online. Saving alone does not download chapters.</string>
+    <string name="tutorial_example_check_offline">Contents showing two available chapters and one chapter marked Not saved on this device.</string>
+    <string name="tutorial_example_restore_downloads">Storage settings with only Offline reading cache selected and Clear selected caches. Clearing removes stored book content.</string>
+    <string name="tutorial_example_create_highlight">A short passage with one sentence highlighted, showing the result of creating a private highlight.</string>
+    <string name="tutorial_example_revisit_highlights">A private saved highlight with Open passage, Publish, and Delete actions.</string>
+    <string name="tutorial_example_share_highlight">A highlight publication form with the quoted passage, an optional comment, and Publish highlight. Publication shares it publicly.</string>
+    <string name="tutorial_example_open_review">The book action Rate and review.</string>
+    <string name="tutorial_example_publish_review">A review form with four stars selected, a sample opinion, and Publish review. Published reviews are public.</string>
+    <string name="tutorial_example_edit_review">A prefilled review form with an updated rating and opinion, and Publish changes.</string>
+    <string name="tutorial_example_start_tracking">Reading progress with On this device as the new tracking mode and Track progress.</string>
+    <string name="tutorial_example_understand_progress">Reading progress showing a current position earlier than the furthest tracked section.</string>
+    <string name="tutorial_example_manage_tracking">Reset tracking and Stop tracking, followed by the end-of-book Finish action. Completion requires choosing Finish.</string>
+    <string name="tutorial_example_connect_signer">Account settings showing Not connected and Connect account.</string>
+    <string name="tutorial_example_review_sharing">Separate sharing choices for reading lists and finished books.</string>
+</resources>

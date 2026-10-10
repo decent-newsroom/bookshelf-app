@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tutorial_example_search_phrase">lantern</string>
+    <string name="tutorial_example_storage_title">Storage &amp; Offline</string>
+    <string name="tutorial_example_offline_cache_stats">1 book · 240 KB</string>
+    <string name="tutorial_example_offline_cache_caption">Stored chapters must load online again before offline reading. Your saved-book list and reading position remain.</string>
+    <string name="tutorial_example_account_title">Account &amp; Sync</string>
+    <string name="tutorial_example_public_key_label">Public key</string>
+    <string name="tutorial_example_not_connected">Not connected</string>
+    <string name="tutorial_example_reading_device_only">Keep reading list on this device only</string>
+    <string name="tutorial_example_finished_device_only">Keep finished books on this device only</string>
+</resources>

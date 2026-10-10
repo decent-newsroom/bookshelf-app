@@ -5,6 +5,7 @@ package eu.decentnewsroom.bookshelf.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,9 +81,6 @@ internal fun HighlightableChapterText(
             .mapNotNull { HighlightAnchors.resolve(it, displayedText) }
             .toList()
     }
-    val annotatedText = remember(text, ranges, colors.accent) {
-        text.withHighlightRanges(ranges, colors.accent.copy(alpha = 0.24f))
-    }
     val selectedText = selectionState.selectedTexts.singleOrNull()?.text
     val selectedRange = selectedText?.let { uniquelySelectedRange(displayedText, it) }
     val textLayoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -91,13 +89,12 @@ internal fun HighlightableChapterText(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box {
             SelectionContainer(state = selectionState) {
-                Text(
-                    text = annotatedText,
-                    modifier = Modifier.fillMaxWidth(),
+                HighlightedChapterText(
+                    text = text,
+                    ranges = ranges,
+                    preferences = preferences,
+                    colors = colors,
                     onTextLayout = { textLayoutResult.value = it },
-                    style = MaterialTheme.typography.bodyLarge
-                        .merge(readerTextStyle(preferences))
-                        .copy(color = colors.text),
                 )
             }
             if (selectedRange != null) {
@@ -154,6 +151,26 @@ internal fun HighlightableChapterText(
     }
 }
 
+/** Shared read-only text presentation; selection belongs to the reader wrapper. */
+@Composable
+internal fun HighlightedChapterText(
+    text: AnnotatedString,
+    ranges: List<IntRange>,
+    preferences: ReaderPreferences,
+    colors: ReaderColors,
+    onTextLayout: (TextLayoutResult) -> Unit = {},
+) {
+    val annotatedText = remember(text, ranges, colors.accent) {
+        text.withHighlightRanges(ranges, colors.accent.copy(alpha = 0.24f))
+    }
+    Text(
+        text = annotatedText,
+        modifier = Modifier.fillMaxWidth(),
+        onTextLayout = onTextLayout,
+        style = MaterialTheme.typography.bodyLarge.merge(readerTextStyle(preferences)).copy(color = colors.text),
+    )
+}
+
 private fun AnnotatedString.withHighlightRanges(ranges: List<IntRange>, color: Color): AnnotatedString =
     buildAnnotatedString {
         append(this@withHighlightRanges)
@@ -202,7 +219,7 @@ internal fun BookHighlightsSheet(
 }
 
 @Composable
-private fun HighlightCard(
+internal fun HighlightCard(
     highlight: ReaderHighlight,
     deliveryStatus: String?,
     onOpen: () -> Unit,
@@ -218,8 +235,8 @@ private fun HighlightCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryButton(onClick = onOpen) { Text("Open passage") }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(onClick = onOpen) { Text("Jump to passage") }
             if (highlight.publishedEventId == null && deliveryStatus == null) {
                 SecondaryButton(onClick = onPublish) { Text("Publish") }
                 SecondaryButton(onClick = onDelete) { Text("Delete") }
@@ -244,21 +261,35 @@ internal fun HighlightComposerSheet(
                 Text("Publish highlight", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 if (!composer.isPublishing) BackCloseButton(onClick = onDismiss, close = true)
             }
-            Text("“${composer.highlight.quote}”", fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodyLarge)
-            OutlinedTextField(
-                value = composer.comment,
-                onValueChange = onCommentChanged,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp),
-                enabled = !composer.isPublishing,
-                label = { Text("Comment (optional)") },
-                minLines = 3,
-            )
-            if (composer.requiresSignIn) Text("Log in with an Android signer in Settings before publishing this highlight.")
-            composer.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) {
-                if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text("Publish highlight")
-            }
+            HighlightComposerForm(composer, onCommentChanged, onSubmit)
             Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/** Inline content shared by the publishing sheet and non-interactive examples. */
+@Composable
+internal fun HighlightComposerForm(
+    composer: HighlightComposerState,
+    onCommentChanged: (String) -> Unit,
+    onSubmit: () -> Unit,
+    readOnly: Boolean = false,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("“${composer.highlight.quote}”", fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = composer.comment,
+            onValueChange = onCommentChanged,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp),
+            enabled = !composer.isPublishing,
+            readOnly = readOnly,
+            label = { Text("Comment (optional)") },
+            minLines = 3,
+        )
+        if (composer.requiresSignIn) Text("Log in with an Android signer in Settings before publishing this highlight.")
+        composer.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Button(onClick = onSubmit, enabled = !composer.isPublishing, modifier = Modifier.fillMaxWidth()) {
+            if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text("Publish highlight")
         }
     }
 }

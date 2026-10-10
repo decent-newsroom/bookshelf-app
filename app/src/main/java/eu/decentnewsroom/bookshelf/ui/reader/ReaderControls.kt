@@ -74,7 +74,7 @@ private fun ReaderMenuCard(
 }
 
 @Composable
-private fun ReaderNavigationCard(
+internal fun ReaderNavigationCard(
     colors: ReaderColors,
     onBack: () -> Unit,
     onShowContents: () -> Unit,
@@ -109,7 +109,7 @@ private fun ReaderNavigationCard(
 }
 
 @Composable
-private fun ReaderSaveAction(isSaved: Boolean, onToggleSaved: () -> Unit) {
+internal fun ReaderSaveAction(isSaved: Boolean, onToggleSaved: () -> Unit) {
     SecondaryButton(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) {
         Text(if (isSaved) "Remove" else "Save")
     }
@@ -198,13 +198,27 @@ internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChang
             Text("Reader", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             BackCloseButton(onClick = onDismiss, close = true)
         }
+        ReaderSettingsControls(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** Settings presentation shared by the sheet and the bundled tutorial example. */
+@Composable
+internal fun ReaderSettingsControls(
+    preferences: ReaderPreferences,
+    onFontSizeChanged: (Float) -> Unit,
+    onLineHeightChanged: (Float) -> Unit,
+    onThemeChanged: (ReaderTheme) -> Unit,
+    onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         SettingHeader("Font size", "${preferences.fontSizeSp.roundToInt()}sp"); Slider(preferences.fontSizeSp, onFontSizeChanged, valueRange = 14f..28f, steps = 13)
         SettingHeader("Line height", "${preferences.lineHeightMultiplier.formatOneDecimal()}x"); Slider(preferences.lineHeightMultiplier, onLineHeightChanged, valueRange = 1.2f..2.0f, steps = 7)
         Text("Theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ReaderTheme.entries.forEach { theme -> FilterChip(preferences.theme == theme, { onThemeChanged(theme) }, label = { Text(theme.label) }, modifier = Modifier.heightIn(min = 48.dp), colors = readerSettingChipColors()) } }
         Text("Text alignment", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { ParagraphAlignment.entries.forEach { alignment -> FilterChip(preferences.paragraphAlignment == alignment, { onParagraphAlignmentChanged(alignment) }, label = { Text(alignment.name) }, modifier = Modifier.heightIn(min = 48.dp), colors = readerSettingChipColors()) } }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -228,7 +242,7 @@ internal fun ReaderContentsSheet(chapters: List<BookChapter>, currentChapterInde
         if (chapters.isEmpty()) Text("No chapters are available on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant) else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 18.dp)) { itemsIndexed(chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter -> ReaderContentsItem(chapter, index == currentChapterIndex, colors) { onChapterSelected(index) } } }
     }
 }
-@Composable private fun ReaderContentsItem(chapter: BookChapter, selected: Boolean, colors: ReaderColors, onClick: () -> Unit) { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (selected) colors.track else Color.Transparent).clickable(enabled = chapter.available, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(chapter.title, style = MaterialTheme.typography.titleMedium, color = if (selected) colors.accent else colors.text, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis); if (!chapter.available) Text("Not saved on this device", style = MaterialTheme.typography.labelSmall, color = colors.muted); chapter.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis) } } }
+@Composable internal fun ReaderContentsItem(chapter: BookChapter, selected: Boolean, colors: ReaderColors, onClick: () -> Unit) { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (selected) colors.track else Color.Transparent).clickable(enabled = chapter.available, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(chapter.title, style = MaterialTheme.typography.titleMedium, color = if (selected) colors.accent else colors.text, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis); if (!chapter.available) Text("Not saved on this device", style = MaterialTheme.typography.labelSmall, color = colors.muted); chapter.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis) } } }
 
 private val BookshelfTab.label: String get() = when (this) { BookshelfTab.Home -> "Home"; BookshelfTab.MyBooks -> "My Books"; BookshelfTab.Settings -> "Settings" }
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()

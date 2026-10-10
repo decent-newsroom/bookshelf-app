@@ -43,44 +43,14 @@ fun SearchScreen(
 ) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    if (state.searchBookContents) "Search within book chapters."
-                    else "Search all titles, authors, subjects, and other book details."
-                )
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQueryChanged,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Search books") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .toggleable(
-                            value = state.searchBookContents,
-                            role = Role.Switch,
-                            onValueChange = onSearchBookContentsChanged,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Search book contents")
-                        Text(
-                            "Search within chapters. Use 4 to 160 characters; results may take longer.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = state.searchBookContents, onCheckedChange = null)
-                }
-                Button(onClick = onSearch, modifier = Modifier.fillMaxWidth()) { Text(if (state.isSearching) "Search again" else "Search") }
-            }
+            SearchForm(
+                query = state.query,
+                searchBookContents = state.searchBookContents,
+                isSearching = state.isSearching,
+                onQueryChanged = onQueryChanged,
+                onSearchBookContentsChanged = onSearchBookContentsChanged,
+                onSearch = onSearch,
+            )
         }
         if (state.isSearching) item { LoadingInline("Searching…") }
         state.searchMessage?.let { item { Notice(it) } }
@@ -114,4 +84,56 @@ internal fun Set<MatchProvenance>.searchMatchLabel(): String {
 
 internal fun Set<MatchProvenance>.isContentMatch(): Boolean = any {
     it == MatchProvenance.CHAPTER_TITLE || it == MatchProvenance.CHAPTER_BODY || it == MatchProvenance.CHAPTER_TEXT
+}
+
+/** Shared search controls; callers own all state and actions. */
+@Composable
+internal fun SearchForm(
+    query: String,
+    searchBookContents: Boolean,
+    isSearching: Boolean,
+    onQueryChanged: (String) -> Unit,
+    onSearchBookContentsChanged: (Boolean) -> Unit,
+    onSearch: () -> Unit,
+    readOnly: Boolean = false,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            if (searchBookContents) "Search within book chapters."
+            else "Search all titles, authors, subjects, and other book details."
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChanged,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Search books") },
+            singleLine = true,
+            readOnly = readOnly,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .toggleable(
+                    value = searchBookContents,
+                    role = Role.Switch,
+                    onValueChange = onSearchBookContentsChanged,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Search book contents")
+                Text(
+                    "Search within chapters. Use 4 to 160 characters; results may take longer.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = searchBookContents, onCheckedChange = null)
+        }
+        Button(onClick = onSearch, modifier = Modifier.fillMaxWidth()) { Text(if (isSearching) "Search again" else "Search") }
+    }
 }

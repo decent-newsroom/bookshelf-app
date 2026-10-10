@@ -226,7 +226,15 @@ private fun IndexRow(icon: ImageVector, title: String, summary: String, onClick:
 }
 
 private fun LazyListScope.sectionTitle(title: String) { item { Text(title, style = MaterialTheme.typography.titleMedium) } }
-private fun LazyListScope.detail(label: String, value: String) { item { Column { Text(label, style = MaterialTheme.typography.labelLarge); Text(value, style = MaterialTheme.typography.bodyMedium) } } }
+private fun LazyListScope.detail(label: String, value: String) { item { SettingsDetail(label, value) } }
+
+@Composable
+internal fun SettingsDetail(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
 
 @Composable
 private fun ChoiceRow(content: @Composable () -> Unit) {
@@ -399,7 +407,7 @@ private fun ReadingPrivacySettings(
 }
 
 @Composable
-private fun ReadingPrivacyToggle(label: String, deviceOnly: Boolean, signedIn: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ReadingPrivacyToggle(label: String, deviceOnly: Boolean, signedIn: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
             value = deviceOnly,
@@ -421,7 +429,7 @@ private fun AccountSettings(state: SettingsUiState, account: AccountSettingsStat
     detail("Name", account.profileName ?: "No profile name available")
     detail("Public key", account.pubkey ?: "Not connected")
     detail("Signer", account.signerPackage ?: if (account.signerAvailable) "Available" else "No Android signer found")
-    item { if (account.pubkey == null) Button(onClick = actions.login, enabled = account.signerAvailable) { Text("Connect account") } else SecondaryButton(onClick = actions.signOut, enabled = !account.isSyncing && !account.isPublishing) { Text("Disconnect") } }
+    item { AccountConnectionAction(account, actions) }
     sectionTitle("Bookshelf sync")
     detail("Relay sync", account.syncState ?: "Unknown")
     item { if (account.pendingAuthRequest) Text("Relay authorization requested in your signer.") }
@@ -519,26 +527,19 @@ private fun CacheClearActions(state: SettingsUiState, actions: SettingsActions) 
                 CacheSelection.Recommendations -> "${state.recommendationCacheStats.entryCount} lists · ${state.recommendationCacheStats.sizeBytes.formatBytes()}"
                 CacheSelection.OfflineBooks -> "${state.offlineBookCacheStats.entryCount} books · ${state.offlineBookCacheStats.sizeBytes.formatBytes()}"
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().toggleable(
-                    value = checked, enabled = !busy, role = Role.Switch,
-                    onValueChange = { selectedMask = if (it) selectedMask or bit else selectedMask and bit.inv() },
-                ).padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(cache.label, style = MaterialTheme.typography.bodyLarge)
-                    Text(stats, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = checked, onCheckedChange = null, enabled = !busy)
-            }
+            CacheSelectionRow(
+                cache = cache,
+                stats = stats,
+                checked = checked,
+                enabled = !busy,
+                onChange = { selectedMask = if (it) selectedMask or bit else selectedMask and bit.inv() },
+            )
         }
-        Button(
-            onClick = { confirmationMask = selectedMask },
+        CacheClearButton(
             enabled = selected.isNotEmpty() && !busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (state.isClearingCaches) "Clearing caches…" else "Clear selected caches") }
+            clearing = state.isClearingCaches,
+            onClick = { confirmationMask = selectedMask },
+        )
     }
     if (confirmationMask != 0) {
         val confirmed = CacheSelection.entries.filter { confirmationMask and (1 shl it.ordinal) != 0 }.toSet()
@@ -604,4 +605,46 @@ private fun Long.formatBytes(): String = when {
     this < 1024 -> "$this B"
     this < 1024 * 1024 -> "${this / 1024} KB"
     else -> "${this / (1024 * 1024)} MB"
+}
+
+/** Connection actions remain supplied by the account screen. */
+@Composable
+internal fun AccountConnectionAction(account: AccountSettingsState, actions: AccountSettingsActions) {
+    if (account.pubkey == null) {
+        Button(onClick = actions.login, enabled = account.signerAvailable) { Text("Connect account") }
+    } else {
+        SecondaryButton(onClick = actions.signOut, enabled = !account.isSyncing && !account.isPublishing) { Text("Disconnect") }
+    }
+}
+
+/** A single cache choice; selection and clearing are owned by the caller. */
+@Composable
+internal fun CacheSelectionRow(
+    cache: CacheSelection,
+    stats: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().toggleable(
+            value = checked, enabled = enabled, role = Role.Switch,
+            onValueChange = onChange,
+        ).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(cache.label, style = MaterialTheme.typography.bodyLarge)
+            Text(stats, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+@Composable
+internal fun CacheClearButton(enabled: Boolean, clearing: Boolean, onClick: () -> Unit) {
+    Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+        Text(if (clearing) "Clearing caches…" else "Clear selected caches")
+    }
 }

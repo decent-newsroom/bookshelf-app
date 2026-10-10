@@ -141,6 +141,7 @@ private fun TutorialPager(topic: TutorialTopic, onClose: () -> Unit, onAction: (
                             style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.semantics { heading() },
                         )
+                        step.example?.let { TutorialExampleFrame(it) }
                         step.illustrationRes?.let { illustration ->
                             Image(
                                 painter = painterResource(illustration),

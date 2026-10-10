@@ -122,13 +122,18 @@ fun HomeScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ContinueReadingCard(continueReading: ContinueReadingBook, onOpen: () -> Unit, onLongPress: () -> Unit) {
+fun ContinueReadingCard(
+    continueReading: ContinueReadingBook,
+    onOpen: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+) {
     val book = continueReading.book
     val progress = continueReading.progress
     val presentation = resolveUiReadingPresentation(progress, book, LocalBookReadingPresentations.current[book.coordinate])
     val fraction = presentation.fraction
     val progressLabel = chapterReadingProgressLabel(progress, presentation)
-    Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp).combinedClickable(onClick = onOpen, onLongClick = onLongPress), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+    Card(modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             BookCover(book, Modifier.size(width = 64.dp, height = 92.dp), readingPresentation = null)
             Spacer(Modifier.width(14.dp))

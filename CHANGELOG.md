@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v0.1.27
 
+- Make the reader's highlight action jump immediately to the chapter containing the saved passage instead of animating through the book, and label it "Jump to passage".
+- Illustrate all 22 tutorial steps with the app's reader controls, highlighted passage, search results, review forms, progress, and Settings components using offline fictional examples. Examples follow the app theme, have accessible descriptions, and preserve tutorial scrolling and navigation without changing user data.
 - Give the reader's floating highlight controls 48 dp of clearance from the selection handles, and move them above the selection when space below is limited.
 - Add the app description below the Bookshelf title and above the version in Settings > About.
 - Organize the reader menu into separate navigation, Highlights, and reading-progress cards. Keep Back at the left, wrap the other navigation actions at the right, and give tracking extra space above with full-width stacked actions; use the same navigation and progress styling in the book header.

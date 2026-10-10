@@ -25,6 +25,7 @@ These records summarize implemented slices; they do not establish that builds or
 | [Cover progress](plans/book-thumbnail-reading-progress.md) | Implemented; approximate intermediate percentages remain |
 | [Reading lists and finished history](plans/reading-lists-and-finished-history.md) | Implemented; deferred extensions listed |
 | [Full-text search and recommendations](plans/full-text-search-and-recommendations.md) | Implemented, including persistent recommendation cache |
+| [Tutorial component illustrations](plans/tutorial-component-illustrations.md) | Implemented for all 22 steps; owner build/device verification pending |
 
 ## References and historical evidence
 

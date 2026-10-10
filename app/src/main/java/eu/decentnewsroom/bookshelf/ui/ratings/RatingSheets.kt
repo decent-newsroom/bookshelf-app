@@ -116,6 +116,7 @@ fun RatingComposerForm(
     onSubmit: () -> Unit,
     onDiscard: () -> Unit,
     modifier: Modifier = Modifier,
+    readOnly: Boolean = false,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("${if (composer.editingEventId == null) "Rate" else "Edit your review of"} ${composer.book.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -134,7 +135,7 @@ fun RatingComposerForm(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing && !composer.isLoadingReview, label = { Text("Your opinion (optional)") }, minLines = 4)
+        OutlinedTextField(value = composer.opinion, onValueChange = onOpinionChanged, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp), enabled = !composer.isPublishing && !composer.isLoadingReview, readOnly = readOnly, label = { Text("Your opinion (optional)") }, minLines = 4)
         if (composer.requiresSignIn) Notice("Log in with an Android signer in Settings before publishing a review.")
         composer.error?.let { Notice(it) }
         Button(onClick = onSubmit, enabled = !composer.isPublishing && !composer.isLoadingReview && !composer.requiresSignIn, modifier = Modifier.fillMaxWidth()) { if (composer.isPublishing) CircularProgressIndicator(Modifier.size(18.dp)) else Text(if (composer.editingEventId == null) "Publish review" else "Publish changes") }

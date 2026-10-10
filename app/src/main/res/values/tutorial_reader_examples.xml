@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tutorial_sample_book_title">The Lantern Path</string>
+    <string name="tutorial_sample_author">Mira Vale</string>
+    <string name="tutorial_sample_chapter_one">1. A light in the window</string>
+    <string name="tutorial_sample_chapter_two">2. Across the bridge</string>
+    <string name="tutorial_sample_chapter_three">3. The way home</string>
+    <string name="tutorial_sample_quote">Every small light makes the path easier to follow.</string>
+    <string name="tutorial_sample_passage">Mira lifted the lantern as the evening settled around the bridge. %1$s On the far bank, a window glowed.</string>
+    <string name="tutorial_sample_offline_loaded">Example after saving and loading the chapters.</string>
+    <string name="tutorial_sample_finish_location">At the end of the book</string>
+</resources>

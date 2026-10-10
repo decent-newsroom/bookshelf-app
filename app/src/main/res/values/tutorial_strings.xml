@@ -20,7 +20,7 @@
     <string name="tutorial_done">Done</string>
     <string name="tutorial_step_of">Step %1$d of %2$d</string>
     <string name="tutorial_getting_started_open_and_read_title">A good read starts here</string>
-    <string name="tutorial_getting_started_open_and_read_body">Something catch your eye? On Home, browse the shelves and tap a book to open it. Scroll at your own pace and enjoy the first few pages. You can start without an account.\n\nFor your first visit, stay connected while the chapters load. Entries marked as library cards have book details but no readable text.</string>
+    <string name="tutorial_getting_started_open_and_read_body">Something catch your eye? On Home, browse the shelves and tap a book to open it. Scroll at your own pace and enjoy the first few pages. \n\nFor your first visit, stay connected while the chapters load. Entries marked as library cards have book details but no readable text.\n\nYou can start without an account.</string>
     <string name="tutorial_getting_started_reader_controls_title">Find your way around</string>
     <string name="tutorial_getting_started_reader_controls_body">Ready for another chapter? Tap the reading area to show the menus, choose Contents, and tap an available chapter to jump in. Use Back to return to Home when you feel like browsing again.</string>
     <string name="tutorial_getting_started_reading_comfort_title">Make the page feel right</string>
