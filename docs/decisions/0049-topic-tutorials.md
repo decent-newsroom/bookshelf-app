@@ -8,6 +8,8 @@ Accepted, 2026-10-09. Extends ADR 0029's dedicated Settings boundary. Once the u
 
 [ADR 0052](0052-approved-focused-tutorials.md) extends the catalog to eight populated topics with user-approved copy and supersedes the two-topic, empty-content restriction and user-authored-only requirement. The original topic IDs and the offline, explanatory viewer boundary remain accepted.
 
+[ADR 0056](0056-tutorial-paging-and-shared-navigation.md) supersedes the viewer's navigation presentation with swipe paging, dots, shared icon controls, and explicit final actions to existing app screens. Stable IDs, approved offline content, and the absence of tutorial persistence remain accepted; paging itself retains the no-effects boundary.
+
 ## Context
 
 Reading progress and privacy has important explanations, and the reader's tracking controls need the same guidance in context. Duplicating explanatory copy across Settings and the reader risks drift. The existing onboarding system serves brief, dismissible tips with persistent seen state; it is not a suitable content model for a navigable tutorial.

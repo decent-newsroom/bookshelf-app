@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="navigation_back">Back</string>
+    <string name="navigation_close">Close</string>
+    <string name="tutorial_action_start_reading">Start reading</string>
+    <string name="tutorial_action_search">Search now</string>
+    <string name="tutorial_action_my_books">Open My Books</string>
+    <string name="tutorial_action_storage">Check offline storage</string>
+    <string name="tutorial_action_tracking">Open reading progress</string>
+    <string name="tutorial_action_account">Connect your account</string>
     <string name="tutorial_title">Tutorials</string>
     <string name="tutorial_index_summary">Read, discover, highlight, and share</string>
     <string name="tutorial_tracking_help">How tracking works</string>

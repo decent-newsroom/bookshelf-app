@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Storage
@@ -39,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
+import eu.decentnewsroom.bookshelf.ui.components.BackCloseButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +70,7 @@ import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.ui.reader.readerTextStyle
 import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialCatalog
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialDestination
 import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialScreen
 import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialTopic
 import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialsScreen
@@ -121,34 +125,57 @@ fun SettingsScreen(
     account: AccountSettingsState,
     accountActions: AccountSettingsActions,
     onBackFromSettings: () -> Unit,
+    onTutorialDestination: (TutorialDestination) -> Unit,
     onRetryReading: () -> Unit = {},
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Index) }
     var selectedTutorial by rememberSaveable { mutableStateOf<TutorialTopic?>(null) }
     val savedSettingsState = rememberSaveableStateHolder()
-    BackHandler(enabled = selectedTutorial == null) { if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index }
+    val navigateBack: () -> Unit = {
+        if (section == SettingsSection.Index) onBackFromSettings() else section = SettingsSection.Index
+    }
+    BackHandler(enabled = selectedTutorial == null, onBack = navigateBack)
     LaunchedEffect(section) { if (section == SettingsSection.Storage) actions.refreshStorage() }
     if (selectedTutorial != null) {
-        TutorialScreen(topic = selectedTutorial!!, onClose = { selectedTutorial = null })
+        TutorialScreen(
+            topic = selectedTutorial!!,
+            onClose = { selectedTutorial = null },
+            onAction = { destination ->
+                selectedTutorial = null
+                when (destination) {
+                    TutorialDestination.Storage -> section = SettingsSection.Storage
+                    TutorialDestination.ReadingProgress -> section = SettingsSection.ReadingProgress
+                    TutorialDestination.Account -> section = SettingsSection.Account
+                    TutorialDestination.Home,
+                    TutorialDestination.Search,
+                    TutorialDestination.MyBooks -> onTutorialDestination(destination)
+                }
+            },
+        )
     } else {
-        savedSettingsState.SaveableStateProvider("settings-${section.name}") {
-            when (section) {
-                SettingsSection.Index -> SettingsIndex(state, account) { section = it }
-                SettingsSection.Reading -> ReadingSettings(state, actions)
-                SettingsSection.ReadingProgress -> ReadingProgressSettings(
-                    state, actions, account, onRetryReading,
-                    onOpenTrackingTutorial = {
-                        selectedTutorial = TutorialTopic.TrackingProgress
-                    },
-                )
-                SettingsSection.Tutorials -> TutorialsScreen(onOpenTopic = {
-                    selectedTutorial = it
-                })
-                SettingsSection.Account -> AccountSettings(state, account, accountActions)
-                SettingsSection.Sources -> SourcesSettings(state, actions)
-                SettingsSection.Relays -> RelaySettings(state, account, actions)
-                SettingsSection.Storage -> StorageSettings(state, actions, accountActions.retryNow)
-                SettingsSection.About -> AboutSettings()
+        Column(Modifier.fillMaxSize()) {
+            BackCloseButton(onClick = navigateBack, modifier = Modifier.padding(start = 20.dp, top = 12.dp))
+            Box(Modifier.weight(1f)) {
+                savedSettingsState.SaveableStateProvider("settings-${section.name}") {
+                    when (section) {
+                        SettingsSection.Index -> SettingsIndex(state, account) { section = it }
+                        SettingsSection.Reading -> ReadingSettings(state, actions)
+                        SettingsSection.ReadingProgress -> ReadingProgressSettings(
+                            state, actions, account, onRetryReading,
+                            onOpenTrackingTutorial = {
+                                selectedTutorial = TutorialTopic.TrackingProgress
+                            },
+                        )
+                        SettingsSection.Tutorials -> TutorialsScreen(onOpenTopic = {
+                            selectedTutorial = it
+                        })
+                        SettingsSection.Account -> AccountSettings(state, account, accountActions)
+                        SettingsSection.Sources -> SourcesSettings(state, actions)
+                        SettingsSection.Relays -> RelaySettings(state, account, actions)
+                        SettingsSection.Storage -> StorageSettings(state, actions, accountActions.retryNow)
+                        SettingsSection.About -> AboutSettings()
+                    }
+                }
             }
         }
     }
@@ -180,7 +207,7 @@ private fun SettingsIndex(state: SettingsUiState, account: AccountSettingsState,
     item { IndexRow(Icons.Outlined.Search, "Discovery Sources", "${state.chapterSources.size} chapter relays") { navigate(SettingsSection.Sources) } }
     item { IndexRow(Icons.Outlined.Router, "Nostr Relays", "${AppGraph.defaultRelays.size} defaults · ${if (state.localRelayUrl == null) 0 else 1} local") { navigate(SettingsSection.Relays) } }
     item { IndexRow(Icons.Outlined.Storage, "Storage & Offline", "${state.chapterCacheStats.sizeBytes + state.ratingCacheStats.sizeBytes + state.offlineBookCacheStats.sizeBytes + state.recommendationCacheStats.sizeBytes} cached bytes") { navigate(SettingsSection.Storage) } }
-    item { IndexRow(Icons.Outlined.Info, stringResource(R.string.tutorial_title), stringResource(R.string.tutorial_index_summary)) { navigate(SettingsSection.Tutorials) } }
+    item { IndexRow(Icons.Outlined.Lightbulb, stringResource(R.string.tutorial_title), stringResource(R.string.tutorial_index_summary)) { navigate(SettingsSection.Tutorials) } }
     item { IndexRow(Icons.Outlined.Info, "About", "Version ${BuildConfig.VERSION_NAME}") { navigate(SettingsSection.About) } }
 }
 

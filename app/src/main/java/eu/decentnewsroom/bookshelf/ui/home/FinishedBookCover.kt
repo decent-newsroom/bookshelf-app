@@ -50,7 +50,7 @@ internal fun FinishedBookCover(
         )
     if (book != null) {
         Box(modifier) {
-            BookCover(book, Modifier.fillMaxSize().clearAndSetSemantics {})
+            BookCover(book, Modifier.fillMaxSize().clearAndSetSemantics {}, readingPresentation = null)
         }
     } else {
         Box(

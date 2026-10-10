@@ -27,6 +27,7 @@ import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.ui.BookshelfTab
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
+import eu.decentnewsroom.bookshelf.ui.components.BackCloseButton
 import eu.decentnewsroom.bookshelf.ui.components.ReaderNotice
 import eu.decentnewsroom.bookshelf.ui.onboarding.OnboardingTooltip
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
@@ -42,7 +43,7 @@ internal fun ReaderControlsMenu(
     Surface(modifier.fillMaxWidth().padding(12.dp), RoundedCornerShape(8.dp), colors.controls, shadowElevation = 8.dp) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SecondaryButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") }
+                BackCloseButton(onClick = onBack)
                 SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
                 SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
                 Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") }
@@ -72,7 +73,7 @@ internal fun ReaderHeader(
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SecondaryButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back") }
+            BackCloseButton(onClick = onBack)
             SecondaryButton(onClick = onShowContents, modifier = Modifier.heightIn(min = 48.dp)) { Text("Contents") }
             SecondaryButton(onClick = onShowSettings, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Reader settings" }) { Text("Aa", fontWeight = FontWeight.SemiBold) }
             OnboardingTooltip(visible = showBookListTip, text = "Save adds this book to your personal My Books list. Remove takes it out again.", onDismissed = onBookListTipDismissed) { Button(onClick = onToggleSaved, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (isSaved) "Remove" else "Save") } }
@@ -101,9 +102,12 @@ internal fun ReaderHeader(
 }
 
 @Composable
-internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit) {
+internal fun ReaderSettingsSheet(preferences: ReaderPreferences, onFontSizeChanged: (Float) -> Unit, onLineHeightChanged: (Float) -> Unit, onThemeChanged: (ReaderTheme) -> Unit, onParagraphAlignmentChanged: (ParagraphAlignment) -> Unit, onDismiss: () -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Text("Reader", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Reader", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            BackCloseButton(onClick = onDismiss, close = true)
+        }
         SettingHeader("Font size", "${preferences.fontSizeSp.roundToInt()}sp"); Slider(preferences.fontSizeSp, onFontSizeChanged, valueRange = 14f..28f, steps = 13)
         SettingHeader("Line height", "${preferences.lineHeightMultiplier.formatOneDecimal()}x"); Slider(preferences.lineHeightMultiplier, onLineHeightChanged, valueRange = 1.2f..2.0f, steps = 7)
         Text("Theme", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -124,9 +128,12 @@ private fun readerSettingChipColors() = FilterChipDefaults.filterChipColors(
 
 @Composable private fun SettingHeader(label: String, value: String) { Row(verticalAlignment = Alignment.CenterVertically) { Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.weight(1f)); Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) } }
 @Composable
-internal fun ReaderContentsSheet(chapters: List<BookChapter>, currentChapterIndex: Int, colors: ReaderColors, onChapterSelected: (Int) -> Unit) {
+internal fun ReaderContentsSheet(chapters: List<BookChapter>, currentChapterIndex: Int, colors: ReaderColors, onDismiss: () -> Unit, onChapterSelected: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Contents", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Contents", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            BackCloseButton(onClick = onDismiss, close = true)
+        }
         Text(if (chapters.size == 1) "1 chapter" else "${chapters.size} chapters", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (chapters.isEmpty()) Text("No chapters are available on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant) else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 18.dp)) { itemsIndexed(chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter -> ReaderContentsItem(chapter, index == currentChapterIndex, colors) { onChapterSelected(index) } } }
     }

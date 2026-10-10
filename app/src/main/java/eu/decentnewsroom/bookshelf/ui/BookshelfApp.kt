@@ -133,6 +133,7 @@ import eu.decentnewsroom.bookshelf.ui.settings.AccountSettingsState
 import eu.decentnewsroom.bookshelf.ui.settings.SettingsActions
 import eu.decentnewsroom.bookshelf.ui.settings.SettingsScreen
 import eu.decentnewsroom.bookshelf.ui.settings.SettingsViewModel
+import eu.decentnewsroom.bookshelf.ui.tutorials.TutorialDestination
 import eu.decentnewsroom.bookshelf.ui.theme.ReaderColors
 import eu.decentnewsroom.bookshelf.ui.theme.readerColors
 import kotlinx.coroutines.delay
@@ -349,6 +350,16 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                                     retryNow = settingsViewModel::retryPendingPublications,
                                 ),
                                 onBackFromSettings = viewModel::returnHome,
+                                onTutorialDestination = { destination ->
+                                    when (destination) {
+                                        TutorialDestination.Home -> viewModel.returnHome()
+                                        TutorialDestination.Search -> viewModel.openSearch()
+                                        TutorialDestination.MyBooks -> viewModel.selectTab(BookshelfTab.MyBooks)
+                                        TutorialDestination.Storage,
+                                        TutorialDestination.ReadingProgress,
+                                        TutorialDestination.Account -> Unit // Handled inside SettingsScreen.
+                                    }
+                                },
                                 onRetryReading = viewModel::syncReading,
                             )
                         }

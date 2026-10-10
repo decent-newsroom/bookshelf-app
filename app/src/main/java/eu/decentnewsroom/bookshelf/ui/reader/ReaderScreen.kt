@@ -274,12 +274,12 @@ internal fun ReaderScreen(
         )
     }
     if (showSettings) ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-        ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged)
+        ReaderSettingsSheet(preferences, onFontSizeChanged, onLineHeightChanged, onThemeChanged, onParagraphAlignmentChanged, onDismiss = { showSettings = false })
     }
     if (showHighlights) BookHighlightsSheet(highlights, highlightDelivery, { showHighlights = false }, { highlight -> showHighlights = false; val i = detail.chapters.indexOfFirst { it.reference.coordinate == highlight.chapterCoordinate }; if (i >= 0) { explicitNavigationGeneration += 1; coroutineScope.launch { listState.animateScrollToItem(readerListItemIndexForChapter(i, detail.chapters.size)) } } }, { highlight -> showHighlights = false; onShowHighlightComposer(highlight) }, onDeleteHighlight)
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) {
-        ReaderContentsSheet(detail.chapters, currentChapterIndex, colors) { chapterIndex ->
+        ReaderContentsSheet(detail.chapters, currentChapterIndex, colors, onDismiss = { showContents = false }) { chapterIndex ->
             showContents = false
             showNavigationMenus = false
             explicitNavigationGeneration += 1

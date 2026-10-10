@@ -4,6 +4,28 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import eu.decentnewsroom.bookshelf.R
 
+enum class TutorialDestination { Home, Search, MyBooks, Storage, ReadingProgress, Account }
+
+val TutorialTopic.destination: TutorialDestination
+    get() = when (this) {
+        TutorialTopic.GettingStarted, TutorialTopic.Highlights, TutorialTopic.Reviews -> TutorialDestination.Home
+        TutorialTopic.Search -> TutorialDestination.Search
+        TutorialTopic.SaveAndResume -> TutorialDestination.MyBooks
+        TutorialTopic.OfflineReading -> TutorialDestination.Storage
+        TutorialTopic.TrackingProgress -> TutorialDestination.ReadingProgress
+        TutorialTopic.ConnectAccount -> TutorialDestination.Account
+    }
+
+val TutorialTopic.actionLabelRes: Int
+    @StringRes get() = when (destination) {
+        TutorialDestination.Home -> R.string.tutorial_action_start_reading
+        TutorialDestination.Search -> R.string.tutorial_action_search
+        TutorialDestination.MyBooks -> R.string.tutorial_action_my_books
+        TutorialDestination.Storage -> R.string.tutorial_action_storage
+        TutorialDestination.ReadingProgress -> R.string.tutorial_action_tracking
+        TutorialDestination.Account -> R.string.tutorial_action_account
+    }
+
 enum class TutorialTopic(
     val id: String,
     @param:StringRes val titleRes: Int,

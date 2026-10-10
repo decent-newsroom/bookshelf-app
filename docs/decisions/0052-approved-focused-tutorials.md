@@ -4,6 +4,8 @@
 
 Accepted, 2026-10-09. Extends ADR 0049's catalog and supersedes its two-topic, empty-content restriction and requirement for user-authored copy with user-approved copy. ADR 0050's integrated reader controls remain accepted.
 
+[ADR 0056](0056-tutorial-paging-and-shared-navigation.md) extends the viewer with swipe paging, dots, shared icon controls, and explicit final actions to existing app screens. The approved copy, stable IDs, offline-content, and persistence boundaries remain accepted; paging itself retains the no-effects boundary.
+
 ## Context
 
 The offline tutorial viewer had two empty topics awaiting content review. The user requested shorter tutorials, combined book and chapter search, combined the first reading experience with reading comfort, and asked for inviting copy that includes highlights and reviews. The user approved the resulting eight tutorials and authorized integration.

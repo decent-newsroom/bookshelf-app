@@ -23,8 +23,23 @@ For additions or revisions, draft the copy for user review before integrating it
 
 Add ordered `TutorialStep` entries with stable, topic-local IDs and resource references. `TutorialStep.illustrationRes` is optional and accepts a local drawable; when used, set `descriptionRes` to localized, meaningful alt text. Leave both fields null when there is no illustration, as in the current catalog. Review catalog expansions as architectural decisions and document the accepted changes.
 
-The viewer owns paging, scroll restoration, navigation, and exit behavior. Content updates supply reviewed resources and catalog references without tutorial-specific persistence, remote loading, or reading actions. The approved Track a book content now selects the existing concise presentation in Reading progress & privacy Settings; status, errors, sharing controls, and privacy confirmations remain available. The reader uses the integrated progress controls from ADR 0050 and has no separate tracking-sheet tutorial launcher.
+The viewer owns paging, scroll restoration, navigation, and exit behavior. Its lightbulb header and the Settings Tutorials entry share the tutorial visual identity. Horizontal swipes move between steps; page dots indicate the active step, and Previous/Next buttons remain available as accessible alternatives. Stable step IDs and saveable per-step scroll positions preserve the lesson position through rotation. The shared icon-only close control and system Back return to the originating screen.
+
+Each topic supplies a localized final-page action and a typed `TutorialDestination`. The action intentionally leaves the tutorial and opens an existing app screen; paging itself does not change reading state or start network work. Opening a destination uses that screen's normal lifecycle. Account navigation opens Account & Sync without launching the signer.
+
+| Tutorial | Final action | Destination |
+| --- | --- | --- |
+| Start reading | Start reading | Home, to choose a book |
+| Search | Search now | Search |
+| Save a book and return to it | Open My Books | My Books |
+| Read offline | Check offline storage | Settings: Storage & Offline |
+| Keep the lines you love | Start reading | Home, to choose a book |
+| Share your take on a book | Start reading | Home, to choose a book |
+| Track a book | Open reading progress | Settings: Reading progress & privacy |
+| Connect your account | Connect your account | Settings: Account & Sync |
+
+Content updates supply reviewed resources and catalog references without tutorial-specific persistence or remote loading. The approved Track a book content selects the existing concise presentation in Reading progress & privacy Settings; status, errors, sharing controls, and privacy confirmations remain available. The reader uses the integrated progress controls from ADR 0050 and has no separate tracking-sheet tutorial launcher.
 
 ## Release verification
 
-Before release, confirm every listed topic has approved, non-empty content, topic IDs are unique, step IDs are unique within each topic, all resource references resolve, and Markdown and resource copy agree. Check paragraph breaks and any image alt text. Manually verify the rendered steps at large font sizes and with TalkBack, navigation and rotation restoration, offline access, and the contextual Settings return path. See [ADR 0052](decisions/0052-approved-focused-tutorials.md), which extends [ADR 0049](decisions/0049-topic-tutorials.md). Gradle verification and device checks are performed by the user per AGENTS.md.
+Before release, confirm every listed topic has approved, non-empty content, topic IDs are unique, step IDs are unique within each topic, all resource references resolve, and Markdown and resource copy agree. Check paragraph breaks and any image alt text. Manually verify the rendered steps at large font sizes and with TalkBack, swipes and Previous/Next navigation, dots, per-step scroll and rotation restoration, offline access, each final action destination, and the contextual Settings return path. Check icon control descriptions and touch targets across Settings and reader screens. See [ADR 0056](decisions/0056-tutorial-paging-and-shared-navigation.md) for viewer and navigation behavior and [ADR 0052](decisions/0052-approved-focused-tutorials.md) for approved copy. Gradle verification and device checks are performed by the user per AGENTS.md.

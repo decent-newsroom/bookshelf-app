@@ -2,12 +2,17 @@ package eu.decentnewsroom.bookshelf.ui.tutorials
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -15,22 +20,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import eu.decentnewsroom.bookshelf.R
+import eu.decentnewsroom.bookshelf.ui.components.BackCloseButton
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 @Composable
 fun TutorialsScreen(onOpenTopic: (TutorialTopic) -> Unit) {
@@ -80,46 +92,53 @@ fun TutorialsScreen(onOpenTopic: (TutorialTopic) -> Unit) {
 }
 
 @Composable
-fun TutorialScreen(topic: TutorialTopic, onClose: () -> Unit) {
+fun TutorialScreen(topic: TutorialTopic, onClose: () -> Unit, onAction: (TutorialDestination) -> Unit) {
     BackHandler(onBack = onClose)
-
-    val tutorial = remember(topic) { TutorialCatalog.get(topic) }
-    var savedStepId by rememberSaveable(topic.id) {
-        mutableStateOf(tutorial.steps.firstOrNull()?.id)
+    key(topic.id) {
+        TutorialPager(topic, onClose, onAction)
     }
-    val stepIndex = tutorial.steps.indexOfFirst { it.id == savedStepId }
-        .takeIf { it >= 0 }
-        ?: 0
-    val step = tutorial.steps.getOrNull(stepIndex)
-    val savedStepState = rememberSaveableStateHolder()
+}
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
-    ) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+@Composable
+private fun TutorialPager(topic: TutorialTopic, onClose: () -> Unit, onAction: (TutorialDestination) -> Unit) {
+    val tutorial = remember(topic) { TutorialCatalog.get(topic) }
+    var savedStepId by rememberSaveable { mutableStateOf(tutorial.steps.firstOrNull()?.id) }
+    val initialPage = tutorial.steps.indexOfFirst { it.id == savedStepId }.coerceAtLeast(0)
+    val pagerState = rememberPagerState(initialPage = initialPage) { tutorial.steps.size }
+    val savedStepState = rememberSaveableStateHolder()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            savedStepId = tutorial.steps.getOrNull(page)?.id
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Text(
                 text = stringResource(topic.titleRes),
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
-            TextButton(
-                onClick = onClose,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(stringResource(R.string.tutorial_close))
-            }
+            BackCloseButton(onClick = onClose, close = true)
         }
 
-        if (step != null) {
-            Column(Modifier.weight(1f).fillMaxWidth()) {
+        if (tutorial.hasContent) {
+            HorizontalPager(
+                state = pagerState,
+                key = { tutorial.steps[it].id },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+            ) { page ->
+                val step = tutorial.steps[page]
                 savedStepState.SaveableStateProvider(step.id) {
-                    val scrollState = rememberScrollState()
                     Column(
-                        modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         Text(
@@ -134,73 +153,61 @@ fun TutorialScreen(topic: TutorialTopic, onClose: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                        Text(
-                            text = stringResource(step.bodyRes),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
+                        Text(stringResource(step.bodyRes), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             }
-            Text(
-                text = stringResource(R.string.tutorial_step_of, stepIndex + 1, tutorial.steps.size),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 8.dp),
-            )
-            TutorialStepActions(
-                isFirst = stepIndex == 0,
-                isLast = stepIndex == tutorial.steps.lastIndex,
-                onPrevious = { savedStepId = tutorial.steps[(stepIndex - 1).coerceAtLeast(0)].id },
-                onNext = { savedStepId = tutorial.steps[(stepIndex + 1).coerceAtMost(tutorial.steps.lastIndex)].id },
-                onDone = onClose,
-            )
+            val page = pagerState.currentPage
+            val stepDescription = stringResource(R.string.tutorial_step_of, page + 1, tutorial.steps.size)
+            Row(
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 16.dp)
+                    .semantics(mergeDescendants = true) { contentDescription = stepDescription },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                repeat(tutorial.steps.size) { index ->
+                    Box(
+                        Modifier.size(if (index == page) 10.dp else 8.dp).background(
+                            if (index == page) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            CircleShape,
+                        ),
+                    )
+                }
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { scope.launch { pagerState.animateScrollToPage((page - 1).coerceAtLeast(0)) } },
+                    enabled = page > 0 && !pagerState.isScrollInProgress,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Outlined.ChevronLeft, contentDescription = null)
+                    Text(stringResource(R.string.tutorial_previous))
+                }
+                if (page == tutorial.steps.lastIndex) {
+                    Button(
+                        onClick = { onAction(topic.destination) },
+                        enabled = !pagerState.isScrollInProgress,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(topic.actionLabelRes))
+                    }
+                } else {
+                    Button(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(page + 1) } },
+                        enabled = !pagerState.isScrollInProgress,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(R.string.tutorial_next))
+                        Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+                    }
+                }
+            }
         } else {
             Spacer(Modifier.weight(1f))
-            Button(
-                onClick = onClose,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) {
-                Text(stringResource(R.string.tutorial_done))
-            }
-        }
-    }
-}
-
-@Composable
-private fun TutorialStepActions(
-    isFirst: Boolean,
-    isLast: Boolean,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onDone: () -> Unit,
-) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        OutlinedButton(
-            onClick = onPrevious,
-            enabled = !isFirst,
-            modifier = Modifier.heightIn(min = 48.dp),
-        ) {
-            Icon(Icons.Outlined.ChevronLeft, contentDescription = null)
-            Text(stringResource(R.string.tutorial_previous))
-        }
-        if (isLast) {
-            Button(
-                onClick = onDone,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(stringResource(R.string.tutorial_done))
-            }
-        } else {
-            Button(
-                onClick = onNext,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(stringResource(R.string.tutorial_next))
-                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-            }
         }
     }
 }

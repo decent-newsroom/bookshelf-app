@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
+import eu.decentnewsroom.bookshelf.ui.components.BackCloseButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -150,7 +151,10 @@ internal fun BookHighlightsSheet(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Highlights", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Highlights", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                BackCloseButton(onClick = onDismiss, close = true)
+            }
             if (highlights.isEmpty()) {
                 Text("No highlights yet. Long-press and drag across a passage in a chapter, then tap Create highlight in the floating selection control.")
             } else {
@@ -209,7 +213,10 @@ internal fun HighlightComposerSheet(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Publish highlight", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Publish highlight", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                if (!composer.isPublishing) BackCloseButton(onClick = onDismiss, close = true)
+            }
             Text("“${composer.highlight.quote}”", fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodyLarge)
             OutlinedTextField(
                 value = composer.comment,
