@@ -1,314 +1,201 @@
 # Architecture
 
+This guide describes implemented behavior. The [decision index](decisions/README.md) records rationale and supersession; [implementation records](README.md#implementation-records-and-remaining-work) retain acceptance checks and deferred work. Build and device verification are [owner-run](DEVELOPMENT.md#build-and-test-ownership).
+
 ## Application Shape
 
-Bookshelf is a native Android app built with Kotlin and Jetpack Compose. `AppGraph` owns process-wide dependencies; `BookshelfViewModel` coordinates UI state and use cases.
-
-The system Back gesture returns any reader, loading, search, My Books, or Settings state to Home. Returning Home clears transient navigation state and cancels an in-flight book open so a dismissed loading screen cannot later reopen the reader. The Home feed's saved Compose list state is owned by the app shell, so opening and dismissing a reader restores the prior feed position rather than resetting to the top.
-
-The main source boundaries are:
-
-- `domain`: Nostr events and book/chapter models.
-- `data/discovery`: checked-in curated shelf definitions, NIP-19 publication-reference encoding/decoding, and shelf metadata caching.
-- `data/mercury`: Mercury REST access, publication mapping, chapter-source settings, and relay-backed chapter retrieval.
-- `data/rendering`: AsciiDoc rendering and rendered-HTML caching.
-- `data/bookshelf`: local saved-book state and kind `30045` directory rules.
-- `data/reading`: account-scoped explicit reading lists, finished history, privacy preferences, and durable reading-event delivery.
-- `data/nostr`: Android signer integration and directory relay synchronization.
-- `ui`: Compose composition shell and feature presentation. `ui/home`, `ui/search`, `ui/library`, `ui/books`, `ui/ratings`, and `ui/reader` own bounded feature screens and components; `ui/shell` owns Android Activity Result signer and book-sharing effects; `ui/components` owns shared feedback primitives; and `ui/onboarding` owns tooltip presentation.
-
-The shared book actions sheet exposes Share book and Copy book link for a publication. Both actions encode the same locally generated NIP-19 `naddr` for kind `30040`, using the exact publication author and `d` coordinate. The coordinate remains stable across index revisions. The URI may include only a validated public `wss://` source relay; local, private, and HTTP hints are excluded. Link creation is local and performs no fetch, signing, or persistence. Sharing launches Android `ACTION_SEND` with `text/plain`, places only the URI in `EXTRA_TEXT`, and uses the title as `EXTRA_TITLE` metadata. Copy writes that same URI directly to the clipboard; Android 13 and later provide the system copy notification, while older versions receive app feedback. UI launch and clipboard effects belong to `ui/shell`; `BookshelfViewModel` only dismisses the menu. Invalid publication identity and launch or clipboard failures are shown to the user. Canceling the share flow does not change book or reading data. See [ADR 0047](decisions/0047-book-link-sharing.md).
-
-## Incoming Nostr Book Links
-
-`MainActivity` registers exported Android `ACTION_VIEW` handling with `DEFAULT` and `BROWSABLE` categories for the `nostr` scheme, alongside its launcher filter. Android can offer Bookshelf for a `nostr:naddr` URI when another app requests it. Registration happens through the installed manifest; chooser/default-app behavior remains Android's responsibility. Because kind information is encoded inside the NIP-19 payload, Android's scheme filter cannot distinguish books from other Nostr content.
-
-Incoming links cross a strict validation boundary before discovery: only the standard opaque `nostr:naddr` form identifying an exact kind `30040` author/`d` coordinate is accepted, with a 4,096-character URI limit. Invalid encoding, unsupported references, and non-book kinds produce user feedback. The existing exact-reference repository path resolves a signature-verified matching index, with supported secure relay hints and the HTTP exact-coordinate fallback. The `d` identifier remains exact, including surrounding whitespace, across decoding, query construction, and relay/HTTP publication mapping. The result enters the ordinary `openBook` loading, AsciiDoc rendering, HTML-cache, offline snapshot, and resume flow; a library card without readable chapter references opens details instead. Not-found and unavailable outcomes produce distinct feedback.
-
-`MainActivity` uses `singleTop` and shares its activity-scoped `BookshelfViewModel` with the Compose shell through `ViewModelProvider`. A retained ViewModel consumes the initial `ACTION_VIEW` once across configuration recreation, so rotation does not replay a link over reader position. Every warm `onNewIntent` delivery is a new request, including a repeated URI. After process recreation, the new ViewModel resolves the activity's current `ACTION_VIEW` afresh; no saved-bundle consumption marker or URI clearing suppresses that recovery.
-
-The ViewModel owns cancellable resolution and opening; a newer link, ordinary book open, Home, tab selection, Search, or book details invalidates pending work, and request checks prevent a late result from reopening dismissed content. Connectivity loss during resolution cancels it. While validated internet is unavailable, resolution uses matching saved, curated, reading-list, currently held metadata, or a fresh existing exact-search cache entry only, then follows the existing offline open behavior. An unknown coordinate yields feedback without remote discovery. Link handling itself does not auto-save a book, initiate explicit tracking, request a signature, or publish events; ordinary reader progress behavior remains in effect.
-
-This stage adds neither an `ACTION_SEND` receiver nor HTTPS App Links or NIP-89 handler announcements. See [ADR 0054](decisions/0054-incoming-nostr-book-links.md).
-
-## Mercury Search
-
-Search discovery uses the typed `BookSearchQuery` and returns transient
-`BookSearchResult` values. The default query searches all publication metadata
-with one `q` request. Enabling Search book contents selects the internal
-`CHAPTER_CONTENT` scope and sends only the chapter section search, followed
-by the existing parent-book resolution. Content terms must contain 4–160
-characters; the default internal `METADATA` scope makes no section request.
-In content mode, metadata prefixes are literal query text rather than scope
-overrides; an optional `content:` prefix is stripped. Raw exact event IDs,
-coordinates, and naddr references retain their dedicated lookup paths.
-The toggle remains session-only and applies on explicit submission. Its
-helper text carries the length requirement and longer-search notice.
-Structured scopes select one corresponding metadata field;
-chapter-content scope selects only the section request. Exact publication and
-chapter coordinates use author-plus-`#d` filters, never a broad author
-window.
-
-HTTP requests use an ordered API chain. The preferred endpoint is
-`https://decentnewsroom.com/books/api`; the legacy Mercury API remains an
-HTTPS fallback for transport failures and HTTP 5xx responses. A successful
-HTTP response, including an empty result or 4xx validation failure, is
-authoritative and does not issue a duplicate request. The preferred endpoint
-is HTTP-only: it is never converted into a WebSocket relay URL. Chapter relay
-connections use the separate chapter-source settings as their baseline, with
-valid relay hints from the loaded publication index added for that fetch.
-
-Mercury search responses are accepted only for kinds 30040 (publication
-indexes) and 30041 (chapter sections). A valid publication index without kind `30041` `a` tags is a library card: it remains discoverable and can be saved, viewed, and rated, but cannot open the reader. Results retain provenance, an optional
-matched chapter coordinate/title, and a maximum 320-character excerpt derived
-only from the verified section event returned by the search. Content hits
-use a single card containing the shared book header, an inset chapter/excerpt
-area, and Open matching chapter. The result's provenance determines this
-layout, so changing the toggle cannot relabel an already displayed result.
-The internal `ALL` scope still merges metadata and
-section channels by bounded rank fusion while preserving the
-ordering supplied by Mercury. Reciprocal-rank fusion uses k=60, so a result
-present in both channels gains score without allowing absolute endpoint
-weights to override channel rank. Duplicate publication coordinates combine
-provenance and keep the newest index event. Pasted NIP-19 `naddr` references for kind `30040` decode into exact coordinates. Their secure `wss://` relay hints are queried together with the configured read relays (capped at eight); only a signature-verified event matching the encoded author and `d` tag is accepted. The normal HTTP exact-coordinate lookup remains a parallel fallback. Search discovery never fetches or
-renders complete chapters; that remains the `openBook` boundary.
-
-Independent Mercury search branches return a `BookSearchOutcome` classified as
-complete, partial, or unavailable. A search-only resilience controller limits
-the process to two active Mercury search calls, retries HTTP 503 once with
-bounded exponential backoff and jitter, honors bounded `Retry-After`, and
-opens a five-second cooldown after repeated 503 responses. Non-503 failures
-are not retried. Successful branches remain visible when a peer branch fails.
-
-Only complete outcomes are stored in a process-memory cache: normalized query
-keys expire after 30 seconds and the cache holds at most 20 entries. Query
-text, excerpts, and search history are never persisted. `BookshelfViewModel`
-cancels a previous search when a newer query is submitted, the search panel is
-closed, or the user changes tabs. These controls reduce client-contributed
-load and visible transient failures; they do not substitute for Mercury
-server capacity.
-
-## Extended Books API discovery
-
-Full-text section searches use a dedicated derived OkHttp client with a 120-second read timeout, including fallback endpoints, instead of the shared 20-second read timeout. This applies to the section channel when Search book contents is enabled or an explicit `content:` query requests chapter-only search. Metadata searches, parent lookups, recommendations, and book loading retain their existing timeouts. Connection timeouts and coroutine cancellation are unchanged; the longer read timeout is per read, not a deadline for the entire multi-request search. See [ADR 0040](decisions/0040-full-text-search-timeout.md).
-
-Search exposes one field and a Search book contents toggle, off by default. Off selects metadata; on selects chapter-only search. Scope buttons are removed. The toggle is retained across navigation for the lifetime of `BookshelfViewModel`, without a persisted preference. Changing it only affects the next explicit Search/IME submission; it does not start a request or replace current results. Recognized prefixes remain available with the toggle off, including `content:` for chapter-only search. With it on, metadata prefixes are literal content text, not routing overrides. Validation follows the Decent Newsroom contract: ordinary text fields are bounded to 160 characters, language to 32, identifier to 512, and section text requires at least four characters. Exact references retain separate routing. Invalid fields produce feedback rather than being silently dropped. Search uses validated connectivity; offline it can show a fresh in-memory result or already visible results but starts no new search HTTP or exact-reference relay requests. Connectivity loss cancels active discovery work. See [ADR 0043](decisions/0043-content-only-search-and-result-cards.md).
-
-Section results resolve through bounded reverse-parent `#a` queries. A parent must actually reference a returned section, and the final newest index revision must still reference the chosen matched chapter. A failed parent lookup does not count as a successful section channel. Partial warnings remain visible alongside useful results. Chapter title/excerpts remain transient; analyzed hits without a literal local match are labeled generically as text matches. The UI does not promise pagination, exact phrase semantics, or complete totals.
-
-An explicit Open matching chapter action carries a transient coordinate through the normal reader-content loading/rendering/cache boundary. The resolved available chapter starts at offset zero, taking precedence over resume for that open. A new open-request composition key prevents a previous reader session from supplying its list position. Configuration restoration retains the current position without reapplying the jump. Progress and the saved book's last-opened timestamp are recorded after the initial target has been laid out. If the target is missing/unavailable, a notice explains that ordinary resume is used instead. Ordinary book opens retain existing behavior.
-
-Opening book details loads an inline More like this carousel below community ratings and above metadata, independently of publisher and rating reads. It shares Home's `BookCarousel` and cover-card presentation. A publication card above ratings shows type, chapter count, and Read; those fields also remain in metadata. Read uses the ordinary `openBook` rendering/cache/resume path and is disabled for library cards without chapter references. `BookRecommendationRepository` uses `POST /publications/recommendations` on the preferred Decent Newsroom API only; legacy capability is unverified, so recommendation requests do not use the normal fallback chain. The endpoint must return a raw array. Its events pass existing signature/kind verification and the shared repository publication mapper. Server order is preserved, with defensive coordinate revision deduplication; neither search fusion nor rating scores are applied.
-
-Recommendation requests use the displayed book event ID. Seed/saved coordinates are filtered locally on each display, including other revisions, and the saved library is not uploaded as exclusions. No repeated fill requests are made for short results. A 404 is an unavailable indexed seed, distinct from empty success, invalid input, or service failure. Library cards remain valid discovery results and open details rather than a reader.
-
-`BookRecommendationCache` persists ranked publication summaries and fetch timestamps under `context.cacheDir/book-recommendations/v1`, keyed by endpoint, seed event ID, limit, and canonical explicit exclusions. The cache is bounded to 20 entries and 8 MiB, with a 1 MiB limit per entry. Entries are fresh for 24 hours; cached results display immediately, and only missing/stale entries refresh while validated internet is available. Stale results remain usable offline and after a refresh failure. Only complete verified mapped responses, including successful empty lists, are cached before local saved filtering. Atomic writes and bounded decoding tolerate interrupted or corrupt entries. Storage & Offline exposes independent recommendation statistics and clearing; repository generation checks prevent pre-clear work from repopulating the cache. Ratings, Home shelf metadata, reader caches, and signed outboxes remain independent.
-
-The recommendation repository owns a separate `MercurySearchResilience` instance configured for one concurrent request; its bounded 503 retry/backoff/cooldown cannot change search's controller or book opening. Identical requests coalesce, and the last departing subscriber cancels upstream work. The ViewModel cancels on connectivity loss, seed changes, dismissal, and navigation, and checks request generations before updating state. HTTP cancellation now reaches the OkHttp call through body reading, and cancellation stops endpoint fallback. No recommendation is requested merely because a book card is visible.
-
-See [ADR 0042](decisions/0042-inline-book-details-recommendations.md), which supersedes ADR 0039's recommendation presentation and cache policy, and the [implementation record](plans/full-text-search-and-recommendations.md).
-
-## Book and Chapter Loading
-
-While opening a book, transient `loadingBook` state supplies its summary to a padded cover screen. Trusted cover artwork is fitted without cropping; a styled full-title-and-author cover remains visible until artwork succeeds and when it is unavailable. This presentation does not delay chapter loading or rendering. Completion, failure, and navigation clear the summary; no new cache or persisted reading state is introduced.
-
-Search and curated-shelf publication lookup use the Mercury HTTP API. My Books resolves its referenced kind `30040` coordinates through both the APIs and the known bookshelf relays, querying each relay by exact author/`d`-tag coordinate and retaining the newest verified event.
-
-Book-card details use the existing parsed `BookSummary` fields and resolve the index publisher's verified kind `0` profile from its `pubkey`. An explicit local-relay action re-fetches the original verified kind `30040` index and available verified kind `30041` chapters, queues them in index order, and publishes each signed event only to the configured local relay; missing events are reported and never synthesized.
-
-1. Open the already-resolved kind `30040` publication index. Search and Home summaries originate from Mercury; My Books may originate from a verified bookshelf relay, so opening never requires Mercury to mirror the same index event.
-2. Ask `PersistentNostrChapterSource` for the referenced kind `30041` chapter events.
-3. Query configured relays plus valid `wss://` hints from the publication's chapter `a` tags by event ID and by author/`d`-tag coordinate. Merge duplicate results by coordinate, keeping the newest `created_at` value.
-4. Use Mercury HTTP only for references not resolved by relays. A chapter HTTP failure does not discard chapters already received over WebSocket.
-5. Map events into `BookChapter` values. Missing events remain explicit unavailable chapters so publication order is preserved.
-6. Render available AsciiDoc chapters and cache the HTML before exposing the `BookDetail` to the reader UI.
-
-Saved books additionally retain a self-contained, versioned reader-content snapshot under `filesDir/bookshelf/reader-cache-v1` after they open successfully. A snapshot keeps the reader-ready chapter order, metadata, raw fallback content, and rendered HTML, but not the original signed event. `ValidatedInternetConnectivity` gates the reader's remote work: while offline, opening a saved book reads its exact snapshot and starts no relay or Mercury request. Online results replace cached chapters only when a fresh chapter is available; cached readable chapters remain the fallback for partial remote results. Removing a saved book intentionally retains its snapshot so it remains available if the book is saved again. The snapshot cache is bounded and may be cleared explicitly without changing saved-book membership or other durable reader state.
-
-The reader's publication index and chapter relay path remains separate from the My Books metadata lookup. The latter uses the known bookshelf relays only, so third-party publication sources can appear in My Books without changing Home or search discovery.
-
-## Reading Lists and Finished History
-
-`AppGraph.readingState` owns `ReadingStateRepository`, independent of saved-book membership and device-local chapter/pixel resume in `ReaderSettingsStore`. Versioned atomic state, pending operations, and the logical reading outbox share `filesDir/bookshelf/reading-state-v1.json`; chapter, rating, recommendation, and offline-content cache clearing never deletes this user-data file. Guest records and each signer account are separate partitions. Login never silently transfers guest records. Cached publication summaries keep tracking/completion lists useful offline, including unresolved synchronized coordinates.
-
-Reading-list and finished-history privacy are separate preferences, both defaulting to device-only. Public mode requires an active Android signer. Settings previews existing private entries and local public-list removals; only selected entries are shared. Future actions follow the enabled preference. Returning to device-only pauses undelivered events of that list's kind and retains previously published data; subsequent changes remain private until explicitly shared. Publishing a completed-book label never depends on publishing a review.
-
-Public tracking is one verified kind `16374` replaceable snapshot per account, with empty content, matching edition `a` tags, and `book` tuples `(edition, zero-based pos, total, optional section ID, updated timestamp)`. Public completion is a verified kind `1985` event with `L=ugc`, `l=read,ugc`, and the exact edition `a` tag. Both identify `client=Bookshelf`. Latest-snapshot selection uses the shared NIP-01 timestamp/event-ID ordering; older snapshots are not unioned and removed books are not resurrected.
-
-Before producing a snapshot, fetch the latest available public list and rebase pending advances, resets, and stops, preserving unrelated books and unfamiliar tags. A failed refresh is not an empty list and cannot justify replacing remote state. Persist operations before signing and immutable signed events before delivery. The reading outbox keeps signed IDs, account ownership, relay acknowledgements, and finish dependencies across restart. When completion and tracking are public, each relay must acknowledge the read label before receiving the snapshot removal, including a newly added destination. Independent private/public preferences otherwise send only the applicable event. Completed or superseded progress deliveries are compacted; the newest snapshot remains the separate synchronization baseline, and prerequisite labels plus each edition's latest label remain available for destination changes. Concurrent disconnected writers still obey replaceable-event last-writer behavior.
-
-Remote reading reads/publication use configured routes plus active-user NIP-65 routes only while `ValidatedInternetConnectivity` is online. Explicitly public signed events may be delivered to configured local Citrine offline. Device-only actions start no reading-event relay work. Foreground/account/connectivity recovery and manual Sync request refresh and retry. NIP-55 content-provider signing is attempted with permission; missing permission leaves durable pending work for an explicit Sync action. Scrolling never launches the foreground signer, and foreground requests are serialized and guarded against account changes.
-
-Tracking uses the complete ordered section-reference count retained before the existing 500-section body-loading cap. Unavailable chapter bodies retain ordinals. Unknown order/total leaves Track disabled with an unavailable-order hint, and a truncated loaded prefix does not expose book-end cards. One positioned reader observation updates local chapter presentation and physical resume together, and projects genuine chapter transitions into explicit tracking. Maximum tracked position advances immediately; a fixed three-second window from the first advance publishes the latest pending position without postponement. Backward scrolling changes local position but never reduces tracking. Reset explicitly sets tracking to zero, rejects previously queued advances, and waits for a new chapter transition rather than replaying the unchanged viewport. Reset/Stop preserve local progress, bookmarks, and finished history. ViewModel tracking mutations are serialized and automatic advances are guarded by the reader session, action generation, and account. Device-local resume wins over synchronized progress when reopening; a synchronized section/event ID is resolved only without a local resume and never moves an already-open reader.
-
-The reader book header and tap-to-show menu use the same compact progress component: one position label and progress bar with tracking status and actions. Current chapter/device-local position is primary, with a secondary furthest tracked section when it differs. Untracked books expose a filled Track progress action; tracked books expose theme-aware filled Reset tracking and Stop tracking actions, plus applicable Sync and concise device/public, unavailable-order, syncing, pending, and error feedback. Navigation actions wrap with end alignment at narrow widths or large font sizes; tracking actions stack at full width. Both retain accessible labels and at least 48 dp touch targets. The menu is height-bounded and scrollable so all controls remain reachable. Aa theme/alignment controls also wrap and use visible backgrounds; the inline Write/Edit review action uses the shared filled secondary button. Secondary actions retain a visible background when disabled, including Sync during synchronization. There is no separate tracking sheet or Aa tracking shortcut. Existing Track/Reset/Stop/Sync callbacks remain the behavior boundary. Track uses the latest positioned chapter observation, falling back to current progress, including when the viewport is on footer cards. Settings exposes sharing separately under Reading progress & privacy. See [ADR 0050](decisions/0050-unified-reader-progress-controls.md), which supersedes ADR 0048's reader tracking presentation. After the actual final chapter, explicit Finish gives an inline confirmation and removes tracking; arriving there alone never finishes. Signed-in readers get the shared review composer inline, using existing cached-review prefill/editing, account guards, and review outbox. Home's Reading now includes every tracked book. Its compact cards show a cover, title, and accessible three-dot button in one row, without detailed section progress or delivery text. The button opens the same shared actions sheet as long press; tracked books in the active partition expose Stop tracking as its first action. Stopping targets the chosen coordinate through the existing coordinated reading action boundary, invalidates pending advances, and preserves bookmark, saved membership, finished history, and synchronization rules. Reader Stop tracking shares that path. Unresolved entries retain metadata resolution. See [ADR 0053](decisions/0053-home-reading-now-actions.md). My Books shows only saved books, without sub-tabs. Home ends with Finished when completion history is nonempty: lazy centered rows of compact covers, responsive up to seven columns with incomplete rows centered, ordered by descending finishedAt and a stable coordinate tie-breaker. Tap opens a resolved book, long-press exposes existing actions, and unresolved entries offer metadata resolution. This presentation derives from active reading state without changing saved membership, timestamps, persistence, or synchronization. See [ADR 0051](decisions/0051-home-reading-history-and-saved-library.md). Finished titles are excluded from ordinary Continue reading until explicit rereading, which retains completion history. All tracked books are active; waiting slots, undo finished, other people's histories, recursive streams, and synchronized in-chapter anchors are deferred. See [ADR 0044](decisions/0044-reading-lists-and-finished-history.md) and the [implementation record](plans/reading-lists-and-finished-history.md).
-
-## Chapter Relay Connections
-
-`PersistentNostrChapterSource` uses its own Quartz `NostrClient` and OkHttp socket adapter, which own the relay pool, `REQ`/`CLOSE` encoding, reconnects, and per-relay subscription state. Each fetch creates an independent subscription, waits for `EOSE` from the selected relays or its timeout, and calls Quartz `unsubscribe` to send `CLOSE`; the app never hand-builds WebSocket frames. Directory/profile traffic retains a separately scoped Quartz client and its signer-neutral lazy NIP-42 boundary.
-
-Concurrent subscriptions are multiplexed by subscription ID. Quartz reconnects relays with its own backoff and reconciles the pool with active subscriptions; a connection failure completes the affected relay while successful peers can still supply chapters. When settings are changed, the current relay list is read on the next chapter fetch. Each fetch adds normalized, valid `wss://` hints from its chapter `a` tags after the configured list, deduplicates them, and caps the combined list at eight relays. Invalid hints are ignored.
-
-Chapter relay defaults are:
-
-- `wss://mercury-relay.imwald.eu`
-- `wss://thecitadel.nostr1.com`
-- `wss://njump.me`
-
-`ChapterSourceSettingsStore` persists the ordered list in app-private `SharedPreferences`. Settings accepts up to eight `wss://` URLs and normalizes and deduplicates entries. An empty saved list falls back to the built-in chapter relay defaults; valid publication hints are then appended within the same eight-relay limit.
-
-Chapter relays are separate from the relays used for kind `30045` bookshelf-directory synchronization. They use separate Quartz clients because their settings, event kinds, failure behavior, and subscription lifecycles differ.
-
-## Rendering and Cache Invariants
-
-Chapter event content is expected to be AsciiDoc. `AsciidoctorChapterRenderer` creates HTML and `ChapterHtmlCache` stores it under `context.cacheDir/chapter-html`.
-
-- `BookChapter.renderedHtml` is preferred by the UI; raw `content` is the fallback.
-- `BookshelfViewModel.openBook` renders/caches the complete loaded detail before publishing it to UI state.
-- Chapter HTML and saved-book reader-content caches are distinct. Both clear actions stay explicit and user-visible; neither removes saved-book membership, reading progress, highlights, or pending signed events.
-- Transient operation confirmations, including cache clearing, are presented by the app-level snackbar host with a dismiss action and short timeout; they are consumed after presentation rather than rendered as persistent screen content.
-- AsciiDoc sources above 2 MiB and rendered fragments above 4 MiB are not cached or exposed as rendered HTML. Serialized atomic writes are pruned by last access to a 64 MiB / 1,000-entry ceiling.
-- Rendering uses the Kotlin Multiplatform `asciidoc-kmp` parser to produce CSS-free HTML fragments without a JRuby runtime. The reader converts each fragment to a Compose `AnnotatedString`; no embedded Android `TextView` participates in reader gestures.
-- Reader highlights are selected from that same displayed `AnnotatedString`, stored with durable UTF-16 offsets plus contextual anchors, and rendered again when the chapter reopens. A private highlight can be deleted locally until it has been signed or queued. Publishing keeps the private record and routes its signed NIP-84 event through the durable highlight outbox; queued or published highlights cannot be deleted locally because their immutable event may still be delivering. A relay duplicate acknowledgement confirms durable storage of the immutable event and completes delivery; signer requests are launched only from the app UI callback. Highlight thread references use NIP-22 root tags `A`/`K`/`P` for the containing kind `30040` book index and lowercase parent tags `a`/`k`/`p` for the kind `30041` chapter containing the quote; see [`HIGHLIGHT_THREADING.md`](HIGHLIGHT_THREADING.md).
-
-## Application Appearance
-
-The persisted reader theme is the app-wide color scheme. Paper, Sepia, and Night each supply both the reader-specific content colors and the Material 3 colors used by discovery, search, My Books, Settings, sheets, dialogs, and navigation. The same choice also controls status-bar and navigation-bar icon contrast and scrims while the activity remains edge-to-edge. `MainActivity` applies the persisted scheme before the first Compose frame, and `BookshelfTheme` reapplies system-bar appearance whenever the setting changes.
-
-## Untrusted Content Navigation and Covers
-
-Chapter HTML is untrusted remote content. Compose links are intercepted by the
-reader and parsed by `ChapterLinkPolicy`; only absolute HTTPS URLs with a
-host and no user-info are eligible. Before opening an eligible URL through the
-platform URI handler, the reader shows the normalized destination host and
-requires an explicit confirmation. Malformed, cleartext, custom-scheme,
-relative, and user-info URLs are ignored safely.
-
-Cover art is an automatic network request. A kind `30040` publication's
-`image` tag takes precedence over inferred Project Gutenberg artwork when it
-is an absolute HTTPS URL with a host and no user-info. This supports complete
-independent publication indexes such as ones that provide a publisher-hosted
-cover. Rejected or missing image URLs leave the monogram fallback visible;
-Gutenberg indexes without an image tag continue to infer the standard
-`www.gutenberg.org` cover URL.
-
-## Saved Books and Nostr Identity
-
-Saved-book state is device-local and does not require a Nostr login. `LocalBookshelfStore` atomically persists normalized directory tags and the corresponding `BookSummary` values under `context.filesDir/bookshelf/local-v1.json`; My Books is restored on process restart and remains intact on sign-out or relay failure.
-
-Reader preferences and per-book chapter progress are stored separately in app-private `SharedPreferences`. Opening a saved book records its current chapter and a last-opened timestamp. Home joins that state with the device-local saved-book summaries and shows only the most recently opened saved book as **Continue reading**, and only when the active user's tracked list is empty so there is no Reading now shelf; selecting it follows the cache-aware `openBook` path and restores the persisted chapter. Unsaved books cannot appear in this card. Reader content is persisted independently only after a saved book has opened successfully, so a saved book with no snapshot remains visible but explains that it has not yet been downloaded for offline reading.
-
-Contextual onboarding is app-private. The reader menu tip records its stable identifier as soon as its one-time impression is presented, and every tooltip includes an explicit **Got it** dismissal. Tooltip buttons and timeouts record dismissal directly, and cancellation when an anchor leaves composition also consumes the tip; persistence does not depend on the persistent Material tooltip's `show()` returning normally. Seen tips render only their anchor, and tooltip gestures cannot reopen onboarding. The ViewModel initializes seen flags from `OnboardingTipStore` synchronously before the first reader composition. These flags apply across all books and app restarts, independently of accounts and cache clearing. Each new UI affordance receives its own identifier, so newly added tips remain eligible for people who have completed earlier ones. See [ADR 0057](decisions/0057-durable-reader-tip-dismissal.md).
-### Reader progress locations
-
-
-Phase 1 of the [precise reader-progress plan](plans/precise-reader-progress.md) and [ADR 0032](decisions/0032-precise-reader-progress.md) is implemented. [ADR 0046](decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) extends the same private reader-preferences record with started state, a current endpoint, full section count, a stable chapter coordinate, summary/order and loaded-content fingerprints, and activity/cycle timestamps. The app stores a clamped loaded chapter index and non-negative pixel offset; opening resolves an existing coordinate against current ordering, invalidates endpoints on content changes, and safely handles missing chapters. Legacy index-only records remain valid and resume at the chapter top. A mere open updates recency without starting a reading cycle.
-
-The reader emits one laid-out position snapshot for chapter progress, physical resume, and the tracking projection. Chapter/started/endpoint changes persist immediately; pixel-only writes coalesce for 500 ms and the final actual location is flushed on disposal. Footer cards retain the last real chapter's offset. A verified bottom requires known complete order, every body available, no truncation, visible layout with a positive viewport, and no forward scrolling. It produces 100% locally and may advance existing tracking to the final valid zero-based section index; it never publishes a finished label automatically or sends `position = total`. Backward navigation clears the local endpoint while tracking remains monotonic. An opened-only zero-position record does not suppress a tracked resume fallback; an unresolved explicit target also falls through to the valid local/tracked hierarchy.
-
-One pure `BookReadingPresentation` resolver drives reader labels, Continue reading, and cover indicators. Explicit finished history shows completion until a new tracking cycle or genuine local rereading; finishing a reread clears local cycle evidence while retaining its bookmark and original history. Local rereading remains finishable after Stop tracking. Local reading evidence takes precedence over synced positions, including an unknown local fraction for incomplete content. Tracked fallback fractions require a known full order, and changed editions require section-ID resolution. Presentation retains its local/tracked source, so furthest-section fallback is never labeled as the current local chapter. Approximate chapter percentages cap below 100%. Eligible started covers show a 26 dp badge with 4 dp bottom-right inset, opaque surface backing and a retained 2 dp margin from artwork, and a 3 dp round stroke with a neutral track at 18% `onSurface`. There is no outer border. Zero progress uses a 4 dp accent dot at 12 o'clock; positive progress uses a round-ended arc from -90 degrees; unknown fractions show a muted center dash; 100% shows a solid filled circle with a check for explicit finished history. Continue reading thumbnails, opening artwork, and reader-header covers show no badge; existing progress text and reader bars remain. The composition root supplies the coordinate-keyed presentation map to eligible shared cover UI; thumbnails perform no content loading or relay work. Indicator exceptions affect presentation only. Signer/repository handoffs suppress the previous account's overlays while device-local resume remains intact. Unsaved books are eligible for cover indicators, but Continue reading retains its saved-book restriction. See [ADR 0055](decisions/0055-cover-progress-badge-styling.md) for appearance and [ADR 0048](decisions/0048-progress-visibility-and-tracking-entry-points.md) for visibility and tracking entry points.
-
-All new local fields have serialization defaults and remain metadata only. These records do not change saved membership, reader-content snapshots, highlights, cache clearing, backups, or the Nostr wire format/outbox boundaries.
-
-Phase 2's semantic displayed-text anchors for reflow-stable resume and content-weighted whole-book progress remain planned; chapter-coordinate recovery is now implemented. Pixel offsets remain layout-specific and must not be presented as an exact global percentage.
-
-With an Android Nostr signer session, the app additionally reads and publishes a kind `30045` directory through the separate `NostrRelayClient`/`BookshelfRelaySync` path. Its configured bootstrap relays are `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, and `wss://pipe.imwald.eu`. Saving or removing a book commits locally before requesting a signature. Settings also provides a signer-approved **Sync to relays** action that signs and publishes the complete current local directory, so a rejected signer request or relay failure can be retried without another book change. **Sync from relays** remains a separate pull action. Published directory drafts contain exactly one `client` tag with the value `Bookshelf`; it is metadata only and is not persisted with the editable collection tags. Remote directory reads merge into device state instead of clearing or replacing local books, and a missing remote directory leaves local state unchanged. The signer owns private-key operations; the app stores only session metadata needed to invoke it.
-
-Directory, profile, and known-relay publication-index traffic share the application-scoped Quartz `NostrClient` through its OkHttp socket adapter. Quartz owns the relay pool, subscriptions, NIP-01 command encoding, reconnects, and publish confirmations; `NostrRelayClient` maps Quartz values across the existing verified-event boundary. Directory publication waits up to 15 seconds for each configured relay and reports acceptance, bounded rejection reason, authentication failure, transport failure, protocol failure, or timeout to Settings and safe Android logs. Chapter relay transport remains separate.
-
-Settings is a dedicated UI feature with an index and Reading & Display, Reading progress & privacy, Account & Sync, Discovery Sources, Nostr Relays, Storage & Offline, and About screens. Reading progress & privacy explains automatic local resume and the reader's Track progress action, shows current device-only/public sharing modes, and owns the existing independent reading-list/finished-history privacy controls and selected-entry preview. Its labeled switch rows have a minimum 48 dp touch target. Reading & Display owns appearance and typography. Its ViewModel adapts the existing specialized reader, chapter-source, local-relay, cache, connectivity, and outbox stores; it does not own canonical settings or a new queue. Shared account and directory signing remain coordinated by `BookshelfViewModel` because saving books also uses them. Reader preferences include semantic font family and paragraph alignment alongside size, line spacing, and the app-wide Paper/Sepia/Night theme. Existing saved preferences default to Serif and Left, retaining the prior reader appearance. The reader and the preview use the same typography mapping and observe the same store.
-
-Settings also provides the offline Tutorials catalog above About. It contains eight user-approved topics in order: Start reading, Search, Save a book and return to it, Read offline, Keep the lines you love, Share your take on a book, Track a book, and Connect your account. Each has two or three steps, for 22 steps in total. Start reading and Track a book retain the original `getting_started` and `tracking_progress` IDs. Android string resources define topic titles, summaries, and step text with paragraph breaks; their approved source copy is kept under `docs/tutorials/`. The current catalog uses no illustrations, while the model still supports local drawables with localized alt text. A lightbulb identifies the viewer and Settings entry. The reusable viewer uses `HorizontalPager` for forward/back swipes, page dots, and explicit Previous/Next controls; stable step IDs and saveable page/scroll state preserve position through rotation. Close and system Back return to the originating screen. Reading progress & privacy opens Track a book through `TutorialTopic.TrackingProgress`; its populated content selects the concise Settings presentation while sharing controls, status, errors, and privacy confirmations remain available. The former reader tracking-sheet launcher and return-to-sheet flow remain removed; compact reader controls retain operational feedback independently of tutorial content.
-
-Each tutorial's final page exposes a localized action backed by typed `TutorialDestination` navigation. Start reading, highlights, and reviews open Home for book selection; Search opens Search; save/resume opens My Books; offline reading opens Storage & Offline; tracking opens Reading progress & privacy; and account connection opens Account & Sync without automatically launching the signer. This deliberate destination change is distinct from Close/system Back's return to origin. Paging creates no reading-state, signer, outbox, or network effects; entering a destination retains that screen's normal lifecycle behavior. Tutorials introduce no durable state and remain independent from stable-ID contextual tooltip persistence in [ADR 0021](decisions/0021-persistent-contextual-onboarding.md) and [ADR 0031](decisions/0031-capped-dismissible-contextual-onboarding.md). See [ADR 0056](decisions/0056-tutorial-paging-and-shared-navigation.md) for viewer/navigation behavior and [ADR 0052](decisions/0052-approved-focused-tutorials.md) for the approved catalog, preserving [ADR 0050](decisions/0050-unified-reader-progress-controls.md).
-
-Settings, tutorial exits, and reader headers, menus, and sheet close controls reuse `BackCloseButton`: a 48 dp tonal icon control with an auto-mirrored back arrow or close icon and a localized accessible description. Each caller retains its existing back/dismiss callback and navigation ownership; the shared component introduces no navigation state or persistence.
-
-The reader menu presents three independent reader-themed cards in one bounded scrollable column. `ReaderScreen` measures bottom navigation and limits the menu to the smaller of 75% of the viewport and the available height above that navigation, without adding system-bar padding. The shared navigation card keeps Back at the leading edge and Contents, Aa, and Save/Remove in a trailing group that wraps with end alignment. Highlights is a full-width menu row with a trailing chevron in the middle card; future Comments, Labels, and other social entries remain deferred. Navigation and Highlights have a 12 dp gap, followed by a 24 dp gap above the unified reading-progress/tracking card. Its heading, single progress bar, position and sharing status, stacked full-width tracking actions, and delivery feedback stay together. `ReaderHeader` reuses the navigation and progress cards with a 24 dp gap, preserves the Save/Remove onboarding anchor, and adds no social card. This presentation preserves existing callbacks and tracking visibility/enablement rules, the unified controls in [ADR 0050](decisions/0050-unified-reader-progress-controls.md), and shared navigation in [ADR 0056](decisions/0056-tutorial-paging-and-shared-navigation.md); it adds no persistence, network, or lifecycle behavior. See the [reader menu layout record](plans/reader-menu-layout.md) for acceptance checks and pending owner build/device verification.
-
-Discovery Sources shows the fixed search APIs read-only and edits the ordered chapter relay list through `ChapterSourceSettingsStore`; built-in rows can be removed, while Restore defaults reinstates them. Nostr Relays separates fixed bootstrap relays, read-only NIP-65 routes, and the optional local `ws://` or `wss://` relay. The local relay is stored independently and added to the directory client's bootstrap read/write relays, not chapter sources; empty disables it. Storage shows saved books, pending outbox items, and chapter HTML, saved reader-content, rating, and recommendation cache statistics. Each cache row has a selection toggle; one Clear selected caches action confirms the selection and clears the independent stores sequentially, reporting individual failures and refreshing statistics once. Controls stay disabled for the batch. Clearing never removes saved books, progress, highlights, or signed outbox events. Offline status comes from `ValidatedInternetConnectivity`, which applies each default-network callback only to the network that emitted it so late loss or capability events from an old Wi-Fi, cellular, or VPN transport cannot overwrite the current status; local edits and permitted local-relay delivery remain available offline.
-
-On sign-in, the directory relay client fetches the account's signed NIP-65 kind `10002` relay list from the configured bootstrap relays. Only a signature-verified event by the active pubkey can affect routing. Valid `wss://` `r` tags marked `read` (or unmarked) are added to directory/profile/publication-index and community-rating reads; `write` (or unmarked) tags are added to kind `30045` publishing. The configured relays remain in both sets as fallbacks. Discovered relays are bounded to twelve per role, kept only for the active signer session, and cleared on sign-out.
-
-NIP-42 authentication is represented by `NostrRelayAuthenticator`, which signs
-canonical kind `22242` drafts containing exactly the relay and challenge tags.
-`NostrAuthEventValidator` verifies the returned event's id, signature, public
-key, kind, timestamp, empty content, and exact challenge/relay context before
-the relay client sends it. Challenges are authenticated lazily only after an
-`auth-required` response, and each connection attempts authentication once and
-retries the protected operation at most once after an accepted `OK`; without a
-provider, auth-required responses remain failures and no challenge is
-invented. `ExternalSignerNostrRelayAuthenticator` exposes one pending request
-to the Activity-result bridge at a time, cancels it when the signer session
-changes, and allows up to 90 seconds for user approval once auth signing starts.
-
-After a signer session becomes active, `NostrProfileRepository` reads the account's cached kind `0` metadata event and refreshes it from the current read relays plus the dedicated `wss://profiles.nostr1.com` profile lookup relay. The complete event is cached by pubkey under `context.cacheDir/nostr-profiles/v1`; parsed `display_name` (falling back to `name`) is exposed to Home and Settings. The dedicated relay is used only for kind `0` profile lookups; it does not change directory, publication-index, rating, or chapter relay routes. Cache and relay failures do not invalidate the signer session or block kind `30045` directory synchronization. See [ADR 0037](decisions/0037-dedicated-profile-lookup-relay.md).
-
-## Highlight Delivery Status
-
-The highlight outbox retains independent acknowledgements for the signed highlight and its exact cited chapter at every resolved destination. Visibility on one relay does not complete replication to the others. Completion requires resolved remote routing, at least one current destination, and both acknowledgements at every destination; moving a resolved remote destination into the configured local slot must not require a nonempty remote slot. Initial local-only delivery still waits for online route discovery.
-
-Each pair persists optional highlight/chapter failure reasons in the existing v1 outbox format, with absent fields supported for older files. Successful delivery of one event cannot erase the other event's outstanding failure. The outbox emits an in-process revision only after a durable write; Settings observes revisions and rereads pending entries independently of cache statistics. Account & Sync and Storage & Offline show the outstanding relay/event details, and both offer the same forced retry action. Neither retries nor cache clearing discard signed events or change their IDs. See [ADR 0045](decisions/0045-observable-highlight-delivery-status.md).
-
-## Backup and Device Transfer
-
-The app opts into explicit backup rules for both supported Android generations. On Android 11 and lower, `full_backup_content.xml` excludes all shared preferences, databases, and the durable `filesDir/bookshelf` directory because that platform uses one ruleset for cloud backup and device transfer. On Android 12 and newer, `data_extraction_rules.xml` excludes those data classes from cloud backup while allowing user-controlled device-to-device transfer of the local bookshelf, reader preferences (including progress), and chapter relay settings. The signer session preference is not included in either path, so a restored or transferred install must reauthorize with the external signer. This preserves normal migration UX without placing identity or reading data in cloud backup; legacy devices deliberately favor privacy because their platform cannot express the distinction.
-
-## Verification Notes
-
-The Windows verification command and temporary Gradle-home cleanup procedure are documented in [`DEVELOPMENT.md`](DEVELOPMENT.md) and `AGENTS.md`. `ChapterSourcesTest` covers chapter relay URL rules, hint merging, and Nostr request construction. `ChapterLinkPolicyTest` and `TrustedCoverImagePolicyTest` cover untrusted navigation and automatic-cover URL validation. `CuratedShelfTest` covers catalog decoding and cache behavior, while `MercuryBookRepositorySearchTest` covers exact publication-coordinate lookup, independent-publication image and relay tags, partial 503 outcomes, the short search cache, and the no-chapter-fetch discovery invariant. `MercurySearchResilienceTest` covers attempt caps, Retry-After, non-503 behavior, and cooldown.
+Bookshelf is a native Kotlin/Jetpack Compose Android app. `AppGraph` owns process-wide dependencies; `BookshelfViewModel` coordinates UI state and use cases.
+
+| Source boundary | Responsibility |
+| --- | --- |
+| `domain` | Nostr events and book/chapter models |
+| `data/discovery` | Curated catalog, NIP-19 references, shelf metadata, seeded recommendations |
+| `data/mercury` | REST access, publication mapping, chapter-source settings/retrieval |
+| `data/rendering` | AsciiDoc rendering and HTML cache |
+| `data/bookshelf` | Device-local saved books and kind-30045 directory rules |
+| `data/reader` | Reader preferences and device-local resume/presentation |
+| `data/reading` | Guest/account tracking, finished history, privacy, reading-event delivery |
+| `data/ratings` | Rating normalization, aggregates/cache, review delivery |
+| `data/nostr` | External signer, verified relay transport, directory/profile synchronization |
+| `ui` | Compose shell and bounded feature screens; `ui/shell` owns Android signer/share/clipboard effects |
+
+Shared controls and contextual tooltips live in `ui/components` and `ui/onboarding`. Settings and tutorials have dedicated UI packages.
+
+System Back returns reader, loading, search, My Books, or Settings to Home. Returning Home clears transient navigation and cancels book opening; request guards prevent dismissed work from reopening a reader. The app shell retains Home's list position across reader visits.
 
 ## Nostr Event Trust Boundary
 
-Every Mercury, relay, profile-cache, and signer-returned event crosses NostrEventVerifier before mapping, selection, persistence, rendering, merging, or publication. It validates bounded event fields and timestamps, recomputes the canonical NIP-01 ID, and verifies the Schnorr signature using Quartz. Callers provide request context where applicable (event ID, kind, author, d-tag, and relay subscription ID), and newest-event selection is deterministic by created_at then ID. Directory signer responses must also retain the exact draft kind, timestamp, tags, and content.
+Mercury, relay, profile-cache, and signer-returned events cross `NostrEventVerifier` before use. It bounds fields/timestamps, recomputes the canonical NIP-01 ID, and verifies the Schnorr signature through Quartz. Callers check requested kind, author, event ID, `d` coordinate, and subscription context where applicable. Replaceable-event selection uses deterministic timestamp/event-ID ordering. Signer responses must match the pending draft and active account. Private-key operations remain in the external signer. See ADRs [0005](decisions/0005-verified-nostr-event-boundary.md) and [0006](decisions/0006-bound-untrusted-content-resource-use.md).
 
-## Decision Records
+## Mercury Search
 
-- [`decisions/0001-persistent-relay-chapter-fetching.md`](decisions/0001-persistent-relay-chapter-fetching.md)
-- [`decisions/0002-cached-curated-discovery-shelves.md`](decisions/0002-cached-curated-discovery-shelves.md)
-- [`decisions/0003-cache-nostr-profile-on-login.md`](decisions/0003-cache-nostr-profile-on-login.md)
-- [`decisions/0004-device-local-bookshelf-with-optional-sync.md`](decisions/0004-device-local-bookshelf-with-optional-sync.md)
-- [`decisions/0005-verified-nostr-event-boundary.md`](decisions/0005-verified-nostr-event-boundary.md)
-- [`decisions/0006-bound-untrusted-content-resource-use.md`](decisions/0006-bound-untrusted-content-resource-use.md)
-- [`decisions/0007-private-cloud-backup-with-explicit-device-transfer.md`](decisions/0007-private-cloud-backup-with-explicit-device-transfer.md)
-- [`decisions/0008-untrusted-content-navigation-and-cover-privacy.md`](decisions/0008-untrusted-content-navigation-and-cover-privacy.md)
-- [`decisions/0009-typed-explainable-mercury-search.md`](decisions/0009-typed-explainable-mercury-search.md)
-- [`decisions/0010-resilient-mercury-search.md`](decisions/0010-resilient-mercury-search.md)
-- [`decisions/0011-preferred-books-api-with-mercury-fallback.md`](decisions/0011-preferred-books-api-with-mercury-fallback.md)
-- [`decisions/0012-nip42-relay-authentication.md`](decisions/0012-nip42-relay-authentication.md)
-- [`decisions/0013-my-books-publication-relay-lookup.md`](decisions/0013-my-books-publication-relay-lookup.md)
-- [`decisions/0014-publication-image-and-chapter-relay-hints.md`](decisions/0014-publication-image-and-chapter-relay-hints.md)
+`BookSearchQuery` produces transient `BookSearchResult` values and complete, partial, or unavailable `BookSearchOutcome`s. Search has one field and a session-only **Search book contents** toggle, off by default. Changing it affects the next explicit Search/IME submission only.
 
-- [`decisions/0015-continue-reading-from-durable-reader-state.md`](decisions/0015-continue-reading-from-durable-reader-state.md)
-- [`decisions/0016-retryable-local-bookshelf-publication.md`](decisions/0016-retryable-local-bookshelf-publication.md)
-- [`decisions/0017-quartz-directory-relay-transport.md`](decisions/0017-quartz-directory-relay-transport.md)
-- [`decisions/0018-quartz-chapter-relay-transport.md`](decisions/0018-quartz-chapter-relay-transport.md)
-- [`decisions/0019-nip65-user-relay-routing.md`](decisions/0019-nip65-user-relay-routing.md)
-- [`decisions/0027-reviewer-profile-resolution.md`](decisions/0027-reviewer-profile-resolution.md)
-- [decisions/0028-offline-review-outbox.md](decisions/0028-offline-review-outbox.md)
-- [decisions/0031-capped-dismissible-contextual-onboarding.md](decisions/0031-capped-dismissible-contextual-onboarding.md)
-- [decisions/0037-dedicated-profile-lookup-relay.md](decisions/0037-dedicated-profile-lookup-relay.md)
-- [decisions/0038-active-user-relays-for-rating-reads.md](decisions/0038-active-user-relays-for-rating-reads.md)
+- Default `METADATA` sends one publication `q` request. Structured prefixes select their field; `content:` selects chapter-only search.
+- With the toggle on, `CHAPTER_CONTENT` requests only sections plus bounded parent resolution. Metadata prefixes become literal content text; an optional `content:` prefix is stripped.
+- Exact IDs, coordinates, and kind-30040 `naddr` references keep dedicated routes. Coordinates use author plus `#d`, never a broad author window. Secure `naddr` relay hints join configured read relays, capped at eight, with parallel HTTP exact lookup.
+- Text fields are bounded to 160 characters, language to 32, identifier to 512; section queries require 4–160 characters. Invalid input produces feedback rather than silently broadening a query.
+
+The preferred base is `https://decentnewsroom.com/books/api`. Transport failures and HTTP 5xx may use the legacy Mercury HTTPS fallback; empty success and 4xx are authoritative. The HTTP base is never converted into a relay URL. Sections use a derived OkHttp client with a 120-second read timeout; other requests retain the shared 20-second read timeout. This is per-read, not an overall search deadline.
+
+Only verified kind-30040 indexes and kind-30041 sections are mapped. Parents resolve through bounded reverse `#a` queries and must reference the matched section, including after newest-index reconciliation. Parent lookup failure is not successful empty search. Results retain provenance, chapter coordinate/title, and at most 320 excerpt characters from the returned verified section. An analyzed hit without a literal local match uses generic text-match wording. Content cards keep book and chapter context together; changing the toggle cannot relabel existing results.
+
+Internal `ALL` combines channels with reciprocal-rank fusion (`k=60`), preserving channel rank, merging provenance, and keeping the newest index per coordinate. Search promises no analyzer/phrase semantics, pagination, exhaustive totals, or exact passage locations. Discovery never fetches/renders whole chapters.
+
+Search resilience permits two active calls, retries HTTP 503 once with bounded backoff/jitter and `Retry-After`, and enters a five-second cooldown after repeated 503s. Non-503 failures are not retried. Successful branches survive peer failures with partial warnings. Only complete outcomes enter the process-memory cache: 30-second TTL, 20 entries. Queries, excerpts, and history are never persisted.
+
+Validated connectivity gates HTTP and exact-reference relay discovery. Offline search retains visible or fresh memory-cached results without remote work. New submissions, dismissal, tab changes, and connectivity loss cancel pending work; coroutine cancellation reaches OkHttp through body reading and stops fallback.
+
+**Open matching chapter** carries a transient coordinate through normal loading/rendering. An available target overrides resume at offset zero once per open-request token; rotation preserves the resulting position. Missing targets show a notice and use ordinary resume. Progress/recency are recorded after positioning. See ADRs [0009](decisions/0009-typed-explainable-mercury-search.md), [0010](decisions/0010-resilient-mercury-search.md), [0039](decisions/0039-full-text-and-seeded-discovery.md), [0040](decisions/0040-full-text-search-timeout.md), and [0043](decisions/0043-content-only-search-and-result-cards.md).
 
 ## Curated Discovery Shelves
 
-The Home tab is driven by the checked-in editorial catalog in `data/discovery/CuratedShelfCatalog.kt`. Each shelf stores only its title, stable id, and ordered NIP-19 `naddr` publication references; displayed title, author, cover, and chapter-reference metadata always come from kind `30040` publication-index events.
+`CuratedShelfCatalog` stores stable shelf IDs, titles, and ordered kind-30040 `naddr` coordinates. Displayed metadata comes from verified indexes resolved through batched author/`#d` HTTP filters. Shelves never request chapter bodies or chapter WebSockets.
 
-`NaddrPublicationReferenceDecoder` validates each address as a kind `30040` replaceable publication coordinate. `MercuryApiClient.getPublicationsByCoordinates` resolves exact coordinates using grouped author and `#d` filters, batched at the Mercury filter limit. Shelf loading never requests chapter events or opens chapter WebSockets. Chapters are fetched only by `BookshelfViewModel.openBook` through the existing reader flow.
+`ShelfMetadataCache` displays cached summaries immediately, refreshes stale/missing coordinates, writes atomically, and retains stale data after failures. Its 24-hour cache contains no chapter bodies/HTML. See [ADR 0002](decisions/0002-cached-curated-discovery-shelves.md).
 
-`ShelfMetadataCache` stores serialized publication-index summaries under `context.cacheDir/shelf-metadata/v1.json`. Entries are fresh for 24 hours. Cached summaries are rendered immediately, stale/missing coordinates then refresh, successful refreshes are atomically written, and stale entries remain available when Mercury is unavailable. The cache contains no chapter bodies or rendered HTML.
+## Book Recommendations
 
+Opening details loads **More like this** independently of profiles and ratings, using Home's carousel. Requests use the displayed index event ID with `POST /publications/recommendations` on the preferred API only; legacy capability is unverified. A raw array of verified kind-30040 events passes the shared publication mapper. Server rank survives coordinate/revision deduplication; search fusion and rating scores are not applied.
+
+Seed and saved coordinates are filtered locally on every display, including other revisions; the saved library is not uploaded as exclusions. Short/empty responses are valid and never trigger fill loops. Seed-not-indexed 404, invalid input, and service failure have distinct states. Library cards open details rather than a reader.
+
+`BookRecommendationCache` stores complete verified summaries, including empty successes, before local filtering. Keys include endpoint, seed ID, limit, and canonical explicit exclusions. Freshness is 24 hours; limits are 20 entries / 8 MiB total / 1 MiB each. Cached results display immediately; only missing/stale entries refresh online. Stale entries remain usable offline and after failure. Atomic writes, bounded decoding, and generation checks prevent corrupt or pre-clear work from restoring cleared data.
+
+A separate one-request resilience controller provides bounded 503 retry/cooldown. Identical requests coalesce; the last departing subscriber cancels upstream work. Seed changes, dismissal, navigation, and connectivity loss cancel UI work with generation guards. Visible cards alone do not request recommendations. See [ADR 0042](decisions/0042-inline-book-details-recommendations.md), superseding ADR 0039's original presentation/cache policy.
+
+## Book and Chapter Loading
+
+My Books resolves kind-30040 coordinates through HTTP and known bookshelf relays, retaining the newest verified index. A resolved relay index need not be mirrored by Mercury before opening. An index without kind-30041 chapter `a` tags is a library card: discoverable, saveable, and rateable, without reader access.
+
+Online `openBook`:
+
+1. Uses the resolved index and ordered chapter references.
+2. Queries `PersistentNostrChapterSource` by event ID and author/`#d`, merging newest revisions.
+3. Uses Mercury HTTP only for unresolved references; failure preserves relay successes.
+4. Retains explicit unavailable chapters to preserve ordering.
+5. Renders/caches the loaded `BookDetail` before exposing it to the reader.
+
+The opening screen shows summary, fitted trusted artwork, and full-title/author fallback without delaying loading. Completion, failure, or navigation clears transient loading state.
+
+Saved books retain a self-contained reader snapshot after successful opening, containing ordered chapters, raw fallback and HTML, but no original signed events. Offline opens use the exact saved snapshot with no chapter relay/HTTP work. Online partial loads preserve readable cached chapters; only available fresh chapters replace them. Removing a saved book retains its snapshot. This bounded cache is explicitly clearable, independently of membership/progress. See [ADR 0030](decisions/0030-offline-reader-content-cache.md).
+
+Details use summary fields and the verified index publisher's kind-0 profile. Explicit local broadcast re-fetches original verified index/chapter events and publishes them in index order only to the configured local relay; missing events are reported, never synthesized. See [ADR 0022](decisions/0022-local-full-book-broadcast.md).
+
+## Relay Transport and Identity
+
+Directory, profile, rating, and known-relay index traffic share the process-scoped Quartz `NostrClient` behind `NostrRelayClient`. Chapters use a separate Quartz client because settings, failures, and subscription lifecycles differ. Quartz owns sockets, protocol encoding, reconnects, subscriptions, and publish confirmations.
+
+Chapter fetches multiplex subscription IDs, wait for selected relays' `EOSE` or timeout, then unsubscribe/send `CLOSE`. Peer failures preserve successful chapters. Each fetch reads current settings and appends normalized `wss://` publication hints within an eight-relay cap. Empty saved settings use defaults.
+
+| Route | Built-in relays / scope |
+| --- | --- |
+| Directory/bootstrap | `wss://relay.decentnewsroom.com`, `wss://thecitadel.nostr1.com`, `wss://pipe.imwald.eu` |
+| Chapters | `wss://mercury-relay.imwald.eu`, `wss://thecitadel.nostr1.com`, `wss://njump.me` |
+| Profile-only addition | `wss://profiles.nostr1.com`, kind-0 lookup only |
+| Optional local relay | Independently stored `ws://` or `wss://`; added to directory read/write routes, not chapter settings |
+
+On login, verified active-user NIP-65 kind-10002 lists augment configured routes. Read/unmarked `r` tags serve directory/profile/index/rating reads; write/unmarked tags serve directory publication. Discovered `wss://` routes are bounded to twelve per role, session-only, and cleared on logout. Another author's profile/relay lookup never replaces active-user routing.
+
+NIP-42 is lazy: unsolicited `AUTH` is stored without prompting. An `auth-required` response may request one validated kind-22242 signature and one protected-operation retry after accepted authentication. Relay/challenge, account, timestamp, empty content, ID, and signature must match. The signer bridge serializes requests, cancels on account change, and allows up to 90 seconds for approval. Directory publication waits up to 15 seconds per relay and reports bounded acceptance/rejection/auth/transport/protocol/timeout details to Settings and safe logs, without content or signer payloads. See ADRs [0012](decisions/0012-nip42-relay-authentication.md), [0017](decisions/0017-quartz-directory-relay-transport.md), [0018](decisions/0018-quartz-chapter-relay-transport.md), and [0019](decisions/0019-nip65-user-relay-routing.md).
+
+## Saved Books and Reader Progress
+
+`LocalBookshelfStore` atomically stores directory tags/summaries. Saving/removing commits locally before signer interaction; logout and relay failure preserve books. Directory sync publishes kind 30045 with one generated `client=Bookshelf` tag. **Sync to relays** retries the complete local directory; **Sync from relays** merges verified remote state without clearing local books on empty response.
+
+`ReaderSettingsStore` separately stores appearance and coordinate-keyed resume metadata: bounded chapter index, nonnegative pixel offset, stable chapter coordinate, started/endpoint/cycle evidence, full section count, fingerprints, and activity timestamps. Legacy fields have defaults; index-only records resume at chapter top. Opening updates recency without starting a reading cycle.
+
+One laid-out observation updates current chapter, physical resume, and explicit tracking projection. Chapter/started/endpoint changes persist immediately; pixel-only writes coalesce for 500 ms, with final actual location flushed on disposal. Footer cards retain the last real chapter's offset. Coordinate recovery handles reordered/missing chapters and invalidates stale endpoints after order/content changes.
+
+Opening precedence: resolved explicit target; valid local reading location; active account's tracked section at offset zero; beginning. Merely opened zero-position records do not suppress tracked fallback. Remote snapshots never move an already-open reader or overwrite its bookmark.
+
+A verified bottom requires known complete order, every body available, no truncation, positive laid-out viewport, and no forward scrolling. It displays 100% locally and may advance tracking only to `total - 1`; it never auto-finishes or sends `position = total`. Backward movement clears the local endpoint while tracking stays monotonic.
+
+`BookReadingPresentation` resolves reader labels, Continue reading, and badges. Local evidence takes precedence over tracked fallback, including unknown fractions for incomplete content. Approximate chapter percentages cap below 100%. Finished history supplies completion until a new tracking cycle or genuine rereading; opening alone is not rereading. Finishing a reread clears cycle evidence while preserving bookmark/history. Stop tracking does not prevent local reread completion.
+
+Eligible started covers, including unsaved books, receive a 26 dp bottom-right badge with 4 dp inset, opaque backing, 2 dp artwork margin, 3 dp round stroke, and neutral track. Zero uses an accent dot; partial an arc; unknown a muted dash; complete a filled circle, with a check for explicit history. Continue reading, opening artwork, and reader-header covers suppress badges. The composition root supplies resolved state; thumbnails perform no preference access, rendering, or relay work. Account handoffs suppress stale overlays while preserving device-wide resume. See ADRs [0032](decisions/0032-precise-reader-progress.md), [0046](decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md), and [0055](decisions/0055-cover-progress-badge-styling.md). Semantic anchors/text-weighted percentages remain [planned](plans/precise-reader-progress.md).
+
+## Reading Lists and Finished History
+
+`ReadingStateRepository` is independent of membership/local resume. Guest and signer accounts have separate partitions; login never silently transfers guest records. Cached summaries support unresolved offline entries. Tracking/history sharing are independent, default device-only, and require a signer for public mode. Settings previews selected existing entries; unselected entries stay private. Returning to device-only pauses undelivered events of that kind without retracting published data.
+
+| Public event | Contract |
+| --- | --- |
+| Kind 16374 | One replaceable account snapshot; empty content, edition `a` tags, `client=Bookshelf`, `book` tuples `(edition, zero-based position, full total, optional section ID, updated timestamp)` |
+| Kind 1985 | Explicit completion label; empty content, `L=ugc`, `l=read,ugc`, exact edition `a`, `client=Bookshelf` |
+
+Choose the newest verified snapshot, never union older snapshots. Before publishing, refresh/rebase pending advances/resets/stops, preserving unrelated books and unfamiliar tags. Failed reads are not empty lists. Persist operations before signing and exact signed events before delivery. When both lists are public, each relay acknowledges the label before snapshot removal, including new destinations. Compaction retains the newest snapshot baseline, pending events, prerequisite labels, and latest label per edition. Disconnected concurrent writers still follow Nostr replacement ordering.
+
+Full ordered metadata survives the 500-section body-loading cap; missing bodies retain ordinals. Unknown order disables tracking; truncated prefixes cannot expose end cards. Tracking advances immediately on genuine chapter transitions, publishes the latest pending position within a fixed three-second window from the first advance, and never decreases on backward scrolling. Reset sets zero, rejects stale advances, and waits for a new transition. Reset/Stop preserve bookmarks/local progress/history. Mutations are serialized and guarded by reader session, generation, and account. Reading-state/signing failures must not block local resume.
+
+Remote reading work uses configured/active-user NIP-65 routes only online; explicitly public signed events may reach local Citrine offline. Device-only actions start no reading-event relay work. Foreground/account/connectivity recovery and manual Sync request refresh/retry. NIP-55 background signing requires permission; otherwise pending work waits for explicit Sync. Scrolling never launches foreground signer UI.
+
+Explicit **Finish** after the actual final section confirms inline and removes tracking while preserving history. Signed-in readers get the shared inline review composer independently. Reading now includes every tracked book, with compact cover/title/menu cards and coordinate-specific Stop tracking. My Books is saved-only. Home ends with newest-first Finished covers in centered lazy rows of up to seven columns; unresolved entries offer resolution. Continue reading selects the most recently opened eligible saved book only when Reading now is empty; explicit rereading restores eligibility without erasing history. See ADRs [0044](decisions/0044-reading-lists-and-finished-history.md), [0051](decisions/0051-home-reading-history-and-saved-library.md), and [0053](decisions/0053-home-reading-now-actions.md).
+
+## Rendering and Cache Invariants
+
+Chapter content is AsciiDoc. Despite its name, `AsciidoctorChapterRenderer` uses Android-compatible `asciidoc-kmp`, producing CSS-free body HTML without JRuby/AsciidoctorJ. The reader converts fragments to native Compose `AnnotatedString`; `renderedHtml` is preferred, raw `content` is fallback. Sources above 2 MiB or fragments above 4 MiB are not cached/exposed as rendered HTML. Writes are atomic/serialized and pruned by access to 64 MiB / 1,000 entries.
+
+Highlights select displayed text and persist UTF-16 offsets/contextual anchors. Unsigned, unqueued private highlights can be deleted; signed/queued events cannot be locally deleted while delivering. Publishing retains the private record and sends the immutable NIP-84 event through its outbox. Book-root NIP-22 tags are uppercase `A`/`K`/`P`; chapter-parent tags are lowercase `a`/`k`/`p`. See [threading reference](HIGHLIGHT_THREADING.md) and [ADR 0033](decisions/0033-private-highlight-deletion.md).
+
+Highlight completion requires resolved remote routing, at least one destination, and independent acknowledgements for highlight and exact cited chapter at every destination. Duplicate acceptance counts as storage. Moving a resolved remote route to the local slot must not require a remaining remote slot; initial local-only delivery still waits for route discovery. Per-event failures persist independently. Durable writes emit revisions observed by Settings for live pending counts/details and retry. See [ADR 0045](decisions/0045-observable-highlight-delivery-status.md).
+
+## Untrusted Content Navigation and Covers
+
+`ChapterLinkPolicy` permits only absolute HTTPS destinations with host/no user-info, after explicit normalized-host confirmation. Cover `image` tags require HTTPS/host/no user-info and override inferred Gutenberg artwork; missing/rejected artwork uses fallback. See ADRs [0008](decisions/0008-untrusted-content-navigation-and-cover-privacy.md) and [0014](decisions/0014-publication-image-and-chapter-relay-hints.md).
 
 ## Book Ratings
 
-The book menu's Rate and review action opens the composer directly without constructing a community-ratings page. It reads the active signer's effective cached review before enabling editing, retains the exact normalized rating and replaceable target for edits, and does not wait for relay/profile work. Dismissal or account changes cancel local prefill so late work cannot reopen or overwrite a different composer. Community ratings retains its existing review entry point; both paths use the same signing and durable outbox delivery behavior.
+`BookRatingsRepository` reads verified kind-34259 events through shared Quartz. Exact `a` or `A` kind-30040 coordinates associate all publications, including library cards. The app creates namespaced `d=<type>:<coordinate>`, matching `a`/`A`, `k=30040`, and author `p`; `d` is not a retrieval key. Typed targets must agree with the address/optional `m`; absent/blank publication type defaults to book. Normalized `rating` deliberately accepts `[0,1]` despite R1's strict interval; stars multiply by five, and nonstandard `s` never drives aggregates.
 
-Book ratings are read through the application-scoped Quartz NostrClient and verified before R1 parsing. Both exact per-book lookups and recent-rating discovery query the configured relays (built-in defaults and optional local relay) plus the active signer's verified NIP-65 read relays. The relay set is normalized and deduplicated; without an active signer or discovered read list, configured relays remain available. The dedicated profile lookup relay is excluded from rating reads. See [ADR 0038](decisions/0038-active-user-relays-for-rating-reads.md). The interoperable lookup and association key is an exact `a` or `A` kind-30040 address tag for every publication, including library cards and full books. The app creates its namespaced `d=<type>:<30040-coordinate>` publication tag alongside matching `a` and `A` address tags plus `k=30040` and the publication-author `p` tag, but never uses `d` to retrieve reviews; when present as a typed target, its optional `m` tag must agree; an absent or blank type defaults to book. The app currently accepts the inclusive normalized interval [0, 1] as a compatibility policy despite R1's strict-boundary wording; this must be revisited if upstream confirms an intentional exclusion.
+`BookRatingCache` keeps newest verified revisions per `(kind, pubkey, d)` with deterministic ordering. Startup compaction works offline; process-wide locking serializes cache/outbox merges. Visible reviews share revision identity; aggregates select newest per reviewer. Details/reviews show cache immediately, then refresh online without hiding data on failure. Offline reads/suggestions use only this cache and start no rating relay work.
 
-`BookRatingCache` retains only the newest verified rating event for each `(kind, pubkey, d-tag)` tuple. A newer `created_at` replaces its revision; equal timestamps are ordered deterministically by event ID. Older or duplicate events cannot overwrite the cached winner. At app startup, a local background cache read compacts legacy cache files to those winners, even offline, so stale revisions are removed from disk without opening ratings or contacting relays. Subsequent reads also compact if needed, and cache instances serialize repository and outbox merges with a process-wide mutex. The visible review list uses the same revision key, so it never shows two revisions of one rating; aggregates continue to use the newest rating per reviewer. Newly signed ratings enter the cache immediately after durable outbox persistence.
+Rating reads use configured plus active-user NIP-65 read routes, excluding the profile-only relay. Reviewer profiles load cached-first and refresh in batches of four with pubkey fallback. Profile reads never mutate active-user routes. Direct **Rate and review**, community ratings, and inline reader reviews share composer/signing/outbox behavior. Active-user cached prefill does not wait for remote work; dismissal/account changes cancel stale prefill.
 
-The active signer's selected rating in Community ratings is editable, including a rating without written text. The composer starts with that rating and opinion; an opinion-only edit retains the exact normalized rating even when the displayed stars are rounded. A submitted edit signs a new kind `34259` event for the same namespaced `d` target. Its `created_at` comes from the submission wall clock; a same-second edit waits briefly for the clock to advance, while a future-dated existing review produces a clock error. The signed response must still match the pending draft and active signer before it enters the durable review outbox. Cancelling the composer or signer request does not change the existing review. Each accepted edit is a new immutable signed event, while the cache displays only the winning revision; pending older events retain their own outbox delivery state. See [ADR 0036](decisions/0036-edit-own-book-reviews.md).
+Editing signs a new event for the same replaceable target, preserving exact score for opinion-only changes. Same-second edits wait for the clock; future-dated existing reviews produce a clock error. Cancellation preserves the existing review. Signed responses must match draft/account.
 
-Opening book details from My Books or another book list reads the cached rating summary independently of publisher-profile refresh, then refreshes the rating when validated internet is available. Opening community ratings reads cached events first and shows the resulting list without waiting for relays. With validated internet, the repository refreshes relay ratings in the background and updates the visible list only when a newly discovered event changes the selected rating set. A relay failure leaves the cached list visible. `ValidatedInternetConnectivity` is the application-scoped source for validated internet state; while it is offline, rating reads and suggestions use only `BookRatingCache` and start no rating relay request.
+`ReviewOutbox` persists the immutable event before delivery, then merges it into the independent rating cache. Routes combine configured defaults, active-user NIP-65 write routes, and verified publication-author read routes. Local Citrine may receive the same event offline; remote work requires validated internet. Acknowledgements/retry metadata are per-route, with exponential delay capped at 15 minutes. Dispatch is process/ViewModel-driven on submission, online-state collection, and Settings retry, not an OS-scheduled worker. Recorded remote failures are not automatically removed on configuration changes. See [offline record](plans/airplane-mode-offline-review-sync.md) and ADRs [0026](decisions/0026-library-card-rating-address-tags.md), [0028](decisions/0028-offline-review-outbox.md), [0035](decisions/0035-cache-first-rating-revisions.md), [0036](decisions/0036-edit-own-book-reviews.md), and [0038](decisions/0038-active-user-relays-for-rating-reads.md).
 
-In review details, the ViewModel reads each distinct reviewer's cached kind-0 profile, then refreshes profiles in batches of four; profile failures leave the compact pubkey fallback intact and do not delay reviews. Public profile lookups add `wss://profiles.nostr1.com` to the current read-relay set but never replace the active signer's NIP-65 routes. Rating publication targets configured defaults, the active user's NIP-65 write relays, and the verified publication-index author's NIP-65 read relays without replacing active-user relay state. A newly signed rating is persisted first in the app-private `filesDir/bookshelf/review-outbox-v1.json` outbox, so it is immediately visible offline and survives restart. The dispatcher attempts the optional local Citrine relay even without validated internet, then sends the immutable same event to remote rating routes only when validated connectivity is available. Citrine acknowledgement and each remote relay acknowledgement are tracked independently; pending work retries with bounded exponential backoff, and chapter/rating cache clearing never deletes the outbox.
+## Incoming Nostr Book Links
+
+Shared actions locally create stable `nostr:naddr` kind-30040 author/`d` links with an optional validated public `wss://` source hint. Private/local/HTTP hints are excluded. Android `ACTION_SEND` places only URI in `EXTRA_TEXT`, title in `EXTRA_TITLE`; Copy uses the same URI. Shell-owned effects report failures without changing book/reading data. See [ADR 0047](decisions/0047-book-link-sharing.md).
+
+`MainActivity` registers exported `ACTION_VIEW` with `DEFAULT`/`BROWSABLE` for `nostr:`; Android owns chooser/default-app behavior. Strict parsing accepts opaque `nostr:naddr` kind-30040 coordinates within 4,096 characters, preserving exact `d` whitespace. Verified exact relay/HTTP resolution enters ordinary open/render/cache/resume; library cards open details. Invalid/not-found/unavailable outcomes have feedback.
+
+The activity uses `singleTop` and an activity-scoped ViewModel. Initial intent is consumed once across rotation; every warm intent, including repeats, is new. Process recreation resolves the current intent afresh. New links, normal opens, navigation, and connectivity loss cancel/invalidate resolution. Offline resolution uses held/saved/curated/reading metadata or fresh exact-search cache, without remote discovery. Link handling does not auto-save, track, sign, or publish. HTTPS App Links, incoming `ACTION_SEND`, and NIP-89 announcements are not implemented. See [ADR 0054](decisions/0054-incoming-nostr-book-links.md).
+
+## Settings, Appearance, and Help
+
+Settings adapts specialized stores without owning canonical settings/queues; signer/directory coordination stays in `BookshelfViewModel`. Screens cover Reading & Display, Reading progress & privacy, Account & Sync, Discovery Sources, Nostr Relays, Storage & Offline, Tutorials, and About. Sources separate fixed HTTP APIs, ordered chapter relays, bootstrap/NIP-65 routes, and optional local relay.
+
+Paper/Sepia/Night apply app-wide, including Material colors and edge-to-edge system-bar contrast before the first frame/after changes. Reader and preview share font/paragraph mapping; existing preferences default to Serif/Left.
+
+Reader header/menu reuse navigation and unified progress controls. Back stays leading; Contents/Aa/Save wrap trailing. The menu adds a Highlights card, then progress/tracking with a larger gap and stacked full-width actions. One scrolling column is capped at the smaller of 75% of viewport and space above bottom navigation. Track/Reset/Stop/Sync retain state/feedback and at least 48 dp targets; no tracking sheet remains. Shared `BackCloseButton` supplies accessible icon controls. See [menu record](plans/reader-menu-layout.md) and ADRs [0050](decisions/0050-unified-reader-progress-controls.md), [0056](decisions/0056-tutorial-paging-and-shared-navigation.md).
+
+Tutorials contain eight approved offline topics / 22 steps. Stable IDs and saveable pager/scroll state survive rotation. Swipes/dots/Previous/Next navigate; Close/Back return to origin. Typed final actions open existing screens with normal lifecycle; account navigation never auto-launches the signer. Tutorials have no durable completion state and remain separate from contextual tips. [Authoring and approved copy](tutorials.md) owns resource details.
+
+Contextual tips use stable app-private `OnboardingTipStore` flags initialized synchronously before reader composition. The menu tip records impression; Save/Remove records dismissal on Got it/timeout and leaving composition. Seen tips render only anchors; gestures cannot reopen them. Flags survive books/accounts/restarts/cache clearing. See [ADR 0057](decisions/0057-durable-reader-tip-dismissal.md).
+
+## Persistence, Cache Clearing, and Connectivity
+
+| Store / location | Role |
+| --- | --- |
+| `filesDir/bookshelf/local-v1.json` | Durable saved membership, tags, summaries |
+| Reader `SharedPreferences` | Appearance, local resume/presentation metadata |
+| `filesDir/bookshelf/reading-state-v1.json` | Durable guest/account lists/history, privacy, operations, reading outbox |
+| `filesDir/bookshelf/review-outbox-v1.json` | Durable signed review delivery |
+| Highlight store/outbox | Durable private highlights and signed delivery |
+| `filesDir/bookshelf/reader-cache-v1` | Disposable bounded saved-book snapshots |
+| `cacheDir/chapter-html` | Disposable rendered fragments |
+| `cacheDir/shelf-metadata/v1.json` | Disposable curated summaries, 24-hour freshness |
+| `cacheDir/book-ratings/v1/events.json` | Disposable verified rating revisions |
+| `cacheDir/book-recommendations/v1` | Disposable ranked recommendations |
+| `cacheDir/nostr-profiles/v1` | Disposable verified kind-0 events by pubkey |
+
+Storage & Offline exposes independent HTML, reader-content, rating, and recommendation statistics. **Clear selected caches** confirms selection, clears sequentially, reports individual failures, and refreshes once with controls disabled during the batch. Clearing never deletes saved books, progress/history, highlights, or signed outboxes. Transient confirmations use the dismissible app snackbar, consumed after presentation.
+
+`ValidatedInternetConnectivity` is the shared online authority: transport without validated internet is offline. Default-network callbacks apply only to their emitting network, preventing late Wi-Fi/cellular/VPN events from overwriting newer status. Offline preserves local edits and permitted local delivery without authorizing remote reads. See [ADR 0034](decisions/0034-default-network-connectivity-state.md).
+
+## Backup and Device Transfer
+
+Android 11 and lower exclude shared preferences, databases, and durable `filesDir/bookshelf` from shared cloud/transfer rules. Android 12+ excludes these from cloud backup but permits explicit transfer of selected bookshelf/reader/chapter-source state. Signer session preferences are excluded from both paths; transfer requires reauthorization. See [ADR 0007](decisions/0007-private-cloud-backup-with-explicit-device-transfer.md).

@@ -1,153 +1,30 @@
-# Mercury Search Improvement Proposal
+# Mercury search implementation record
 
-- Status: Query/result, reliability, metadata-first search with an optional contents toggle, and matched-chapter navigation implemented; global language selection and advanced analyzer guarantees deferred
-- Date: 2026-08-28
-- API reference: [Mercury/swagger.json](Mercury/swagger.json), Mercury Index-Relay 0.2.30
+Status: Implemented. The original 2026-08-28 proposal evolved through ADRs [0009](decisions/0009-typed-explainable-mercury-search.md), [0010](decisions/0010-resilient-mercury-search.md), [0039](decisions/0039-full-text-and-seeded-discovery.md), [0040](decisions/0040-full-text-search-timeout.md), [0041](decisions/0041-opt-in-book-content-search.md), and [0043](decisions/0043-content-only-search-and-result-cards.md). Current behavior is in [Architecture: Mercury Search](ARCHITECTURE.md#mercury-search).
 
-## Purpose
+## Delivered
 
-Improve search relevance and explainability while reducing avoidable Mercury API load and making searches useful during transient 503 Service Unavailable responses.
+- Typed query planning, exact coordinate/ID/NIP-19 routes, verified kinds, bounded excerpts, provenance, deterministic coordinate deduplication and internal rank fusion.
+- Metadata-first explicit submission with a session-only **Search book contents** toggle. Enabled means chapter-only search; original combined-search/filter-chip designs are superseded.
+- Bounded section-parent resolution and **Open matching chapter** through normal verified loading/rendering, with one-time target precedence over resume.
+- Complete/partial/unavailable outcomes, latest-query cancellation, search-only concurrency/retry/cooldown, and complete-only short memory cache.
+- Validated-connectivity gating; no query/history/excerpt persistence or full chapter loading during discovery.
 
-The typed query/result, 503-resilience, search controls, and matched-chapter navigation slices are implemented. ARCHITECTURE.md remains the source of truth; see ADRs 0009, 0010, 0039, and 0041. ADR 0041 supersedes this proposal's filter-chip design with metadata-first search and an optional Include book contents toggle. The extended Decent Newsroom API integration is recorded in [the implementation plan](plans/full-text-search-and-recommendations.md). Language selection across all channels and analyzer-specific promises remain deferred.
+## Verification checklist
 
-## Current Behavior
+Use deterministic signed fixtures/fake networking; automated checks must not depend on public services.
 
-MercuryBookRepository builds a typed SearchPlan. An ordinary eligible query issues one publication q request and one section request; kind 30041 hits are resolved to kind 30040 indexes only when needed. Results retain provenance, matched-chapter context, bounded excerpts, and deterministic fused ranking.
+- Request fields/limits, prefixes with toggle on/off, four-character section threshold, exact references, and wrong-kind rejection.
+- Unrelated/orphan parents, shared sections, newest revisions removing a match, deterministic ranking/provenance, and bounded excerpts.
+- Peer/parent failures preserving partial results; successful empty versus unavailable.
+- 503 attempt cap, Retry-After, jitter/backoff cancellation, cooldown, cache bounds/expiry, and latest-query-wins state.
+- Offline zero remote discovery; matching-target precedence, reordered/missing chapters, cancellation, and rotation without repeated jumps.
+- Discovery never fetches/renders whole books; saving retains summaries without query text.
 
-Independent branches are supervised and reported as complete, partial, or unavailable. Search-only Mercury calls share a two-request process-wide concurrency gate, one bounded 503 retry with jitter and Retry-After support, and a short cooldown after repeated 503 responses. Complete normalized outcomes are cached in memory for 30 seconds with a 20-entry ceiling. BookshelfViewModel cancels superseded or closed searches so stale work cannot overwrite newer state.
+Build/test and device execution remain [owner-run](DEVELOPMENT.md#build-and-test-ownership).
 
-## Mercury Capabilities and Limits
+## Deferred and contract limits
 
-Historical Mercury 0.2.30 capabilities (not guarantees of the preferred Decent Newsroom API):
+Global language selection, exact-phrase/analyzer guidance, passage offsets, and pagination require confirmed backend support. The [historical Mercury 0.2.30 specification](Mercury/swagger.json) described phrase/word behavior but is not a guarantee for the preferred [Decent Newsroom API](references/decent-newsroom-books-api.json). Neither contract promises exhaustive totals or snippets. Client retries cannot resolve sustained server capacity problems.
 
-- POST /api/publications/search for q and structured title, author, language, subject, d, and identifier fields, with a result limit of 1-100.
-- POST /api/publications/sections/search for kind 30041 title and body search. It supports case-insensitive matching, hyphen/space equivalence, AND matching for eligible unquoted words, and ranked or required exact phrases.
-- POST /api/events/filter for bounded NIP-01 filtering, including #a and #d.
-
-The specification has no cursor, offset, total count, highlights, or snippets. Search must remain a bounded result set. The app may derive a short bounded excerpt only from a verified matching section event already returned by search. True pagination needs a future Mercury API extension.
-
-## Proposed Design
-
-### 1. Typed Query Planning
-
-Implemented in the first search-model slice: typed BookSearchQuery/SearchScope,
-single metadata q plus eligible section request, exact coordinate routing,
-expected-kind checks, deterministic merging, provenance, and bounded verified
-section excerpts. UI filter chips and matched-chapter navigation are now implemented under ADR 0039.
-
-Replace repository-specific raw-text heuristics with a typed request representing:
-
-- Free text and quoted exact phrases.
-- Scope: all, metadata, title, author, subject, identifier, or chapter content.
-- Optional language filtering.
-- Exact event IDs and kind 30040 or 30041 coordinates.
-
-Keep existing prefixes for advanced users, but expose common scopes as Compose filter chips. Handle malformed prefixes predictably instead of silently broadening them.
-
-Before sending several structured fields together, confirm and test how Mercury combines them. Do not infer AND or OR behavior solely from the schema.
-
-### 2. Lower Request Fan-Out
-
-For ordinary free text, issue at most:
-
-1. One metadata request using q.
-2. One section request when the normalized term is at least four characters.
-3. Bounded #a resolution batches only when returned section hits must be mapped to publications.
-
-Do not send speculative title, author, slug, subject, identifier, and language requests for every query. Use structured fields only when explicitly selected or when the input is an unambiguous exact identifier.
-
-Resolve exact publication coordinates with the existing author-plus-#d lookup instead of fetching an author's broad result window and filtering locally.
-
-### 3. Explainable Results and Ranking
-
-Return a transient BookSearchResult containing:
-
-- The BookSummary.
-- Match provenance: title, author, subject, identifier, chapter title, or chapter body.
-- Best matching chapter coordinate and title when applicable.
-- A resource-bounded excerpt derived from the verified matching section.
-- Rank information used to merge result channels.
-
-Preserve Mercury ordering inside each response. Merge metadata and section channels with deterministic rank fusion rather than unrelated absolute score constants. Deduplicate by publication coordinate, retain the newest valid replaceable event, and combine its match provenance.
-
-Search must not fetch every chapter or render chapter content. BookshelfViewModel.openBook remains the full chapter-loading and rendering boundary.
-
-### 4. 503 and Transient-Failure Resilience (Implemented)
-
-Reducing fan-out is the primary load reduction. The first implementation slice should also:
-
-- Supervise independent metadata and section branches so one failure does not discard successful results from the other.
-- Cancel superseded work and allow only the latest submitted query to update UI state.
-- Apply a small process-wide concurrency limit to Mercury search calls.
-- Keep a short-lived, size-bounded in-memory cache for identical normalized queries; do not persist search history.
-- Retry read-only search requests on 503 with a low attempt cap, exponential backoff, and jitter.
-- Honor a valid Retry-After header.
-- Never retry validation failures or non-transient 4xx responses.
-- Apply a brief cooldown after repeated 503s to avoid a request storm.
-- Show a non-blocking partial-result message when one branch succeeds, reserving total failure for searches with no usable result.
-
-Retries must be cancellation-aware and must not outlive the active query. These changes reduce client-contributed load and visible failures but cannot fix sustained Mercury server capacity problems.
-
-### 5. Search UI and Navigation
-
-Implemented: all metadata by default and an off-by-default Include book contents toggle, retained only for the ViewModel session and applied on explicit submission. Advanced prefixes retain field-specific searches; `content:` requests chapter-only search. Exact Nostr references retain existing routing. This replaces the original scope buttons under ADR 0041. A global language selector and quoted-phrase guidance are deferred until compatible backend semantics are confirmed.
-
-Content hits should show the matching chapter title and bounded excerpt. Opening one should use the normal verified book-open path and then select or scroll to the matching chapter coordinate. Never derive a navigation target from untrusted HTML or a remote URL.
-
-Distinguish complete results, partial results, Mercury busy/retrying, total unavailability, and a successful empty result.
-
-## Delivery Slices
-
-### Slice 1: Reliability and Request Reduction (Implemented)
-
-- Typed query planning and reduced fan-out.
-- Exact coordinate filtering and expected-kind checks at the Mercury boundary.
-- Latest-query cancellation, supervised partial results, bounded 503 retry/backoff, concurrency limiting, cooldown, and in-memory caching.
-- Existing result-card UI retained initially.
-
-### Slice 2: Explainable Results and Filters (Core Implemented)
-
-- BookSearchResult, provenance, bounded excerpts, and deterministic rank fusion.
-- Implemented: metadata-first search with an optional contents toggle and partial-result messages. Deferred: a global language selector and exact-phrase help until supported semantics are confirmed.
-
-### Slice 3: Matched-Chapter Navigation (Implemented)
-
-- Carry an optional chapter coordinate through book opening.
-- Select or scroll after loading and rendering.
-- Continue persisting only BookSummary when saving a result, never query text or excerpts.
-
-## Verification
-
-Add deterministic tests for:
-
-- Free-text and structured request bodies, quoted phrases, and the four-character section threshold.
-- Exact event/coordinate routing and wrong-kind rejection.
-- Deduplication, newest-event selection, provenance merging, and ranking.
-- Partial results when either branch returns 503.
-- Retry-After, attempt caps, cancellation during backoff, cooldown, and no retry for non-transient errors.
-- Superseded queries, cache bounds/expiry, and latest-query-wins state.
-- The invariant that discovery search never starts full chapter fetching or rendering.
-- ViewModel state transitions and Compose filters, messages, excerpts, and matched-chapter navigation.
-
-A live Mercury smoke test may be an explicit non-default check; unit tests must not depend on the public service.
-
-## Acceptance Criteria
-
-- A normal eligible query makes no more than two initial search requests.
-- Section-to-publication resolution happens only for returned section hits.
-- Identical queries inside the cache window do not duplicate network work.
-- One endpoint 503 can still yield visible partial results when the other succeeds.
-- Retries are capped, jittered, cancellation-aware, and respect Retry-After.
-- Superseded searches cannot overwrite newer results.
-- Common scopes do not require prefix syntax.
-- Content hits identify a chapter and show only a bounded excerpt.
-- Opening a hit uses the existing verified loading/rendering path.
-- The UI does not imply unsupported pagination or a complete total count.
-
-## Non-Goals
-
-- Relay-side text search.
-- Fetching or indexing entire books during discovery.
-- Persisting queries, history, or excerpts.
-- Infinite scrolling without a server cursor or offset.
-- Treating client retries as a substitute for server capacity or observability work.
+Recommendations have their own [implementation record](plans/full-text-search-and-recommendations.md), cache, and resilience boundary.

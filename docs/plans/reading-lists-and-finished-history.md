@@ -1,37 +1,25 @@
 # Reading lists, finished history, and inline reviews
 
-This implementation record accompanies [ADR 0044](../decisions/0044-reading-lists-and-finished-history.md). The approved feature keeps device-local resume, explicit section tracking, and explicit finished history separate.
+Status: Implemented. [ADR 0044](../decisions/0044-reading-lists-and-finished-history.md) owns state/privacy/delivery; [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) coordinates local resume and section tracking. Current [architecture](../ARCHITECTURE.md#reading-lists-and-finished-history) is the behavior reference.
 
-The implemented [thumbnail progress record](book-thumbnail-reading-progress.md#cooperation-between-the-three-progress-tracks) and [ADR 0046](../decisions/0046-coordinated-reader-progress-and-thumbnail-indicators.md) define cooperation between local chapter presentation, Nostr section tracking, and physical scroll resume, including endpoint display, action sequencing, and shared presentation rules.
+## Delivered
 
-## User behavior
+Explicit tracking and finished history remain separate from automatic device-local resume and saved-book membership. `ReadingStateRepository` stores guest/account partitions, summaries, independent device-only/public preferences, pending operations, and logical signed outbox in `filesDir/bookshelf/reading-state-v1.json`. Cache clearing preserves it.
 
-- Track reading under reader metadata; show zero-based position over the complete section total, Reset tracking, Stop tracking, and delivery status. Opening a book only saves its existing resume position.
-- Advance immediately on visible section transitions, without reducing position during backward scrolling. Use a fixed three-second publication window after the first advance. Last-section arrival never finishes automatically.
-- Show Finish and a signed-in inline review form after the actual final section. Finishing provides inline confirmation and removes active tracking while retaining completion history. Review submission uses the shared cached-review/editing/signing/outbox path independently.
-- Home's Reading now includes all tracked books, regardless of saved membership. Finished appears at the bottom of Home as centered rows of compact covers, with up to seven columns and latest completions first. My Books shows saved books directly without sub-tabs. An explicit reread restores Continue reading eligibility without erasing finished history. See [ADR 0051](../decisions/0051-home-reading-history-and-saved-library.md).
-- Existing device-local chapter/offset resume takes precedence; a synchronized tracked section is the fallback when this device has no resume location.
+Public tracking is one kind-16374 replaceable snapshot; completion is an explicit kind-1985 read label. Fetch/rebase the latest snapshot before replacement, preserve unrelated entries/tags, and never treat read failure as empty. Signed IDs survive retries. Where both lists are public, each destination receives the completion label before snapshot removal.
 
-## State and interoperability
+Tracking uses full ordered section totals, including missing bodies/beyond the loaded cap. Genuine transitions advance monotonically with a fixed three-second publication window; Reset/Stop invalidate stale advances and preserve local bookmarks/history. Known complete order gates end cards; arrival alone never finishes. Explicit Finish and the signed-in inline review composer operate independently.
 
-`AppGraph` owns `ReadingStateRepository`. The versioned atomic `filesDir/bookshelf/reading-state-v1.json` file stores guest/account partitions, privacy preferences, cached summaries, pending unsigned operations, and the logical reading outbox's signed delivery records together. These are independent of saved-book membership, reader preferences, all cache clearing, and other outboxes.
+Guest data never silently migrates on login. Public mode requires a signer and selected-entry preview. Device-only changes start no reading-event relay work; permitted public local-Citrine delivery can occur offline. Remote work requires validated internet. Background signing needs permission; scrolling never launches foreground signer UI.
 
-Kind 16374 publishes one complete account reading snapshot with empty content, matching edition `a` tags, `client=Bookshelf`, and `book` tuples: coordinate, zero-based position, complete total, optional section ID, update timestamp. An empty snapshot removes all public tracking. Kind 1985 publishes an empty-content completed-book label with `L=ugc`, `l=read,ugc`, edition `a`, and `client=Bookshelf`. Verify signatures and exact signer payloads before accepting either.
+Presentation has evolved: [ADR 0050](../decisions/0050-unified-reader-progress-controls.md) unifies reader controls; [ADR 0051](../decisions/0051-home-reading-history-and-saved-library.md) makes My Books saved-only and places Reading now/Finished on Home; [ADR 0053](../decisions/0053-home-reading-now-actions.md) adds compact tracked cards and coordinate-specific Stop tracking. Earlier Saved/Reading/Finished sub-tabs are superseded.
 
-Preserve full ordered section metadata before the existing 500-section loading cap. Missing chapter bodies keep their ordinal positions. Unknown ordering/total disables tracking with a loading hint; a loaded prefix does not count as the book end.
+## Verification checklist
 
-## Privacy and delivery
+Cover wire examples/malformed events, optional/empty lists, signature/draft checks and replacement ordering; monotonic advances/reset/stop/fixed windows; unknown/missing/500-section boundaries; privacy selection and guest/account isolation; signer rejection/permission/restart; immutable IDs and destination-dependent label-before-removal; failed reads/two-device rebasing; cache clearing and independent membership.
 
-Independent Keep reading list on this device only and Keep finished books on this device only preferences default on. Public mode needs the active Android signer. Settings presents a selectable preview before sharing existing private entries, leaves unselected entries private, and warns that returning to device-only does not retract already published records. Guest entries never silently migrate to an account.
+Verify inline reviews/prefill/editing and logout behavior, explicit Finish/reread, local-versus-synced resume, footer offsets, Home list ordering/unresolved metadata, and narrow/theme/accessibility states. [The owner runs builds/tests and device checks](../DEVELOPMENT.md#build-and-test-ownership).
 
-Keep pending operations durable before signing and signed IDs immutable across relay retries. The reading outbox owns per-relay delivery and dependencies. When both lists are public, a relay must acknowledge the finished label before the replacement snapshot removes that book. Private finished history with public tracking sends only the removal; private tracking removes locally.
+## Deferred
 
-Refresh on foreground, account activation, validated-connectivity recovery, and explicit Sync. Fetch the latest verified 16374 before rebasing pending operations and publishing, preserving unrelated books/unfamiliar tags. A read failure is not an empty snapshot. Do not union older snapshots. Simultaneous disconnected updates retain Nostr last-writer behavior.
-
-Use configured and active-user NIP-65 routes; gate remote work on `ValidatedInternetConnectivity`. Explicit public signed events may reach configured local Citrine offline. Device-only operations start no reading-event relay work. NIP-55 background signing requires permission; when unavailable, retain pending work and offer explicit Sync without opening signer UI during scrolling. Foreground signing is serialized and account guarded.
-
-## Acceptance and follow-ups
-
-Cover wire examples, malformed events, optional fields, empty lists, signature/payload verification and replaceable ordering; monotonic section updates, reset/stop, fixed windows, footer indexing, missing bodies and the 500-section boundary; independent privacy, selection, guest/account isolation, signer rejection, restart and preserved IDs; failed reads, two-device rebasing and label-before-removal delivery. Verify inline reviews remain in the reader and disappear on logout, cached editing survives, and lists update without saved membership.
-
-Builds and tests remain user-run using the Windows commands in `AGENTS.md`; no agent executes Gradle. Deferred: waiting/promoted slots, undo finished, other people's histories, recursive streams, and synchronized in-chapter anchors.
+Waiting/promoted slots, undo finished, other people's histories, recursive publication streams, and synchronized in-chapter anchors. Local semantic resume is separately [planned](precise-reader-progress.md).
