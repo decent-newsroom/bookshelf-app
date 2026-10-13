@@ -79,6 +79,13 @@ class LocalBookshelfStore private constructor(
             .extractBookReferences(_directoryTags.value)
             .any { it.coordinate == coordinate }
 
+    /** Update metadata without changing membership or requiring a new signed directory. */
+    suspend fun updateSavedSummary(book: BookSummary) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (isSaved(book.coordinate)) persistAndApply(_directoryTags.value, _savedBooks.value + book)
+        }
+    }
+
     private fun persistAndApply(tags: List<List<String>>, books: List<BookSummary>) {
         val normalizedTags = BookshelfDirectoryRules.normalizeEditableTags(tags)
         val coordinates =

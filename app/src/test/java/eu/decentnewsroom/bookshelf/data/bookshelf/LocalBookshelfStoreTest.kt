@@ -12,6 +12,26 @@ import java.nio.file.Files
 
 class LocalBookshelfStoreTest {
     @Test
+    fun refreshedMetadataPreservesDirectoryAndDoesNotRestoreRemovedMembership() = runBlocking {
+        val root = Files.createTempDirectory("local-bookshelf-refresh").toFile()
+        try {
+            val store = LocalBookshelfStore(root)
+            val original = bookSummary("book", "1")
+            val refreshed = original.copy(id = "2".repeat(64), title = "Updated title", createdAt = 2)
+            store.toggle(original)
+            val tags = store.directoryTags.value
+            store.updateSavedSummary(refreshed)
+            assertEquals(tags, store.directoryTags.value)
+            assertEquals(listOf(refreshed), LocalBookshelfStore(root).savedBooks.value)
+            store.toggle(refreshed)
+            store.updateSavedSummary(refreshed)
+            assertTrue(store.savedBooks.value.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun signedOutSaveAndRemovePersistAcrossStoreRecreation() = runBlocking {
         val root = Files.createTempDirectory("local-bookshelf").toFile()
         try {

@@ -7,10 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- Add Refresh downloaded copy to saved-book actions. Fetch current book, nested-index, and chapter revisions by coordinate, update saved metadata and rendered offline content, and recover the existing bookmark. Keep the previous download when a refresh is incomplete, fails, or would replace it with older content; require an internet connection.
-
 ## v0.1.28
 
+- Add Refresh downloaded copy to saved-book actions. Fetch current book, nested-index, and chapter revisions by coordinate, update saved metadata and rendered offline content, and recover the existing bookmark. Keep the previous download when a refresh is incomplete, fails, or would replace it with older content; require an internet connection.
 - Load nested kind-30040 publication indexes with mixed chapter/index children in publisher order.
 - Show hierarchical Contents and titled Books/Parts/Acts story breaks, preserve occurrence-aware bookmarks and offline structure, and recursively broadcast original signed descendants. Bound cycles and expansion, retain readable partial branches, and prevent incomplete structure or bodies from claiming complete reading progress.
 
