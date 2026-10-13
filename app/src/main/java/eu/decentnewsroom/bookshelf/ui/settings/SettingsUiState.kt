@@ -11,7 +11,7 @@ import eu.decentnewsroom.bookshelf.data.ratings.BookRatingCacheStats
 import eu.decentnewsroom.bookshelf.data.reading.ReadingState
 
 enum class CacheSelection(val label: String) {
-    Chapters("Chapter HTML"),
+    Chapters("Chapter formatting"),
     Ratings("Community ratings"),
     Recommendations("Book recommendations"),
     OfflineBooks("Offline reading"),
