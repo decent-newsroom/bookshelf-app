@@ -69,5 +69,6 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0060: User completion of pending publications](0060-user-completion-of-pending-publications.md) | Accepted; extends 0028/0045 |
 | [ADR 0061: Nested publication indexes](0061-nested-publication-indexes.md) | Accepted; extends 0022/0025/0030/0032/0046 |
 | [ADR 0062: Refresh downloaded books](0062-refresh-downloaded-books.md) | Accepted; extends 0030/0061 |
+| [ADR 0063: Exclude contained indexes from recommendations](0063-exclude-contained-index-recommendations.md) | Accepted; extends 0042/0061 |
 
 Update supersession links when revising a decision. Proposed/deferred slices are not implementation claims, and acceptance checklists are not evidence that runtime verification passed.

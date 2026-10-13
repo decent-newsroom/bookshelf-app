@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Exclude directly contained publication indexes from More like this, including other revisions of those indexes and previously cached recommendations.
+
+
 ## v0.1.28
 
 - Add Refresh downloaded copy to saved-book actions. Fetch current book, nested-index, and chapter revisions by coordinate, update saved metadata and rendered offline content, and recover the existing bookmark. Keep the previous download when a refresh is incomplete, fails, or would replace it with older content; require an internet connection.

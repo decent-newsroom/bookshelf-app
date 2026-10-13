@@ -3,7 +3,9 @@ package eu.decentnewsroom.bookshelf.data.discovery
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercurySearchResilience
 import eu.decentnewsroom.bookshelf.data.mercury.MercurySearchRetryConfig
+import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.BookSummary
+import eu.decentnewsroom.bookshelf.domain.PublicationChildReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -19,6 +21,171 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class BookRecommendationRepositoryTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
+
+    @Test fun directIndicesExcludeEveryRevisionBeforeLimitWithoutChangingServerRank() = runBlocking {
+        val descendant = book(3)
+        val child = book(2).copy(childRefs = listOf(indexReference(descendant)))
+        val newerChild = child.copy(id = id(20), createdAt = 2L)
+        val seed = book(1).copy(childRefs = listOf(indexReference(child)))
+        var calls = 0
+        val repository = repository { seedId, exclusions, limit ->
+            calls++
+            assertEquals(seed.id, seedId)
+            assertTrue(exclusions.isEmpty())
+            assertEquals(2, limit)
+            listOf(child, newerChild, book(5), descendant, book(4))
+        }
+
+        val result = repository.recommendations(seed, limit = 2)
+
+        assertEquals(listOf(book(5), descendant), result.books)
+        assertEquals(BookRecommendationStatus.COMPLETE, result.status)
+        assertEquals(1, calls)
+    }
+
+    @Test fun chapterReferencesDoNotExcludePublicationWithSameIdentifierOrEventId() = runBlocking {
+        val publication = book(2)
+        val chapter = indexReference(publication).copy(
+            kind = BookKinds.PUBLICATION_CONTENT,
+            coordinate = "${BookKinds.PUBLICATION_CONTENT}:${publication.pubkey}:${publication.identifier}",
+        )
+        val seed = book(1).copy(childRefs = listOf(chapter), chapterRefs = listOf(chapter.asChapter()))
+        val repository = repository { _, _, _ -> listOf(publication) }
+
+        assertEquals(listOf(publication), repository.recommendations(seed).books)
+        assertEquals(listOf(publication), repository.recommendations(seed.copy(childRefs = emptyList())).books)
+    }
+
+    @Test fun memoryResultsUseCurrentDirectIndicesForFreshStaleOfflineAndFailureFallback() = runBlocking {
+        var now = 0L
+        var online = true
+        var calls = 0
+        val child = book(2)
+        val remaining = listOf(book(4), book(3))
+        val seed = book(1)
+        val updatedSeed = seed.copy(childRefs = listOf(indexReference(child)))
+        val repository = BookRecommendationRepository("primary", { _, _, _ ->
+            calls++
+            if (calls > 1) throw MercuryApiException("unavailable", statusCode = 500)
+            listOf(child) + remaining
+        }, { online }, { now })
+        repository.recommendations(seed)
+
+        assertEquals(remaining, repository.cachedRecommendations(updatedSeed)!!.books)
+        val fresh = repository.recommendations(updatedSeed)
+        assertTrue(fresh.servedFromCache)
+        assertFalse(fresh.isStale)
+        assertEquals(remaining, fresh.books)
+        now = 86_400_000L
+        val cachedStale = repository.cachedRecommendations(updatedSeed)!!
+        assertTrue(cachedStale.isStale)
+        assertEquals(remaining, cachedStale.books)
+        online = false
+        val offline = repository.recommendations(updatedSeed)
+        assertEquals(BookRecommendationStatus.OFFLINE, offline.status)
+        assertEquals(remaining, offline.books)
+        assertEquals(1, calls)
+        online = true
+        val failed = repository.recommendations(updatedSeed)
+        assertEquals(BookRecommendationStatus.UNAVAILABLE, failed.status)
+        assertTrue(failed.servedFromCache)
+        assertTrue(failed.isStale)
+        assertEquals(remaining, failed.books)
+        assertEquals(2, calls)
+    }
+
+    @Test fun persistedResultsUseCurrentDirectIndicesForFreshStaleOfflineAndFailureFallback() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        var now = 0L
+        var calls = 0
+        val child = book(2)
+        val newerChild = child.copy(id = id(20), createdAt = 2L)
+        val remaining = listOf(book(4), book(3))
+        val seed = book(1)
+        val updatedSeed = seed.copy(childRefs = listOf(indexReference(child)))
+        fun repository(online: Boolean) = BookRecommendationRepository(
+            "primary", { _, _, _ ->
+                calls++
+                if (calls > 1) throw MercuryApiException("unavailable", statusCode = 500)
+                listOf(newerChild) + remaining
+            }, { online }, { now }, persistentCache = BookRecommendationCache(root),
+        )
+        repository(true).recommendations(seed)
+
+        val fresh = repository(true).recommendations(updatedSeed)
+        assertTrue(fresh.servedFromCache)
+        assertFalse(fresh.isStale)
+        assertEquals(remaining, fresh.books)
+        now = 86_400_000L
+        val stale = repository(false).cachedRecommendations(updatedSeed)!!
+        assertTrue(stale.isStale)
+        assertEquals(remaining, stale.books)
+        val offline = repository(false).recommendations(updatedSeed)
+        assertEquals(BookRecommendationStatus.OFFLINE, offline.status)
+        assertEquals(remaining, offline.books)
+        assertEquals(1, calls)
+        val failed = repository(true).recommendations(updatedSeed)
+        assertEquals(BookRecommendationStatus.UNAVAILABLE, failed.status)
+        assertTrue(failed.servedFromCache)
+        assertTrue(failed.isStale)
+        assertEquals(remaining, failed.books)
+        assertEquals(2, calls)
+    }
+
+    @Test fun entirelyContainedResultsCacheSuccessfulEmptyStateWithoutRefilling() = runBlocking {
+        val root = temporaryFolder.newFolder()
+        val child = book(2)
+        val seed = book(1).copy(childRefs = listOf(indexReference(child)))
+        var calls = 0
+        fun repository() = BookRecommendationRepository(
+            "primary", { _, _, _ -> calls++; listOf(child, child.copy(id = id(20), createdAt = 2L)) },
+            { true }, persistentCache = BookRecommendationCache(root),
+        )
+        val original = repository()
+        val result = original.recommendations(seed)
+        assertEquals(BookRecommendationStatus.COMPLETE, result.status)
+        assertTrue(result.books.isEmpty())
+        assertTrue(result.visibleBooks(seed.coordinate, emptySet()).isEmpty())
+        assertNull(result.message)
+        assertFalse(result.servedFromCache)
+        assertTrue(original.recommendations(seed).servedFromCache)
+        val restarted = repository().recommendations(seed)
+        assertEquals(BookRecommendationStatus.COMPLETE, restarted.status)
+        assertTrue(restarted.servedFromCache)
+        assertTrue(restarted.books.isEmpty())
+        assertEquals(1, calls)
+    }
+
+    @Test fun coalescedRequestsFilterTheirOwnDirectIndicesBeforeLimit() = runBlocking {
+        withTimeout(5_000) {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val child = book(2)
+            val seed = book(1)
+            val containingSeed = seed.copy(childRefs = listOf(indexReference(child)))
+            val calls = AtomicInteger()
+            val repository = repository { _, _, _ ->
+                calls.incrementAndGet()
+                started.complete(Unit)
+                release.await()
+                listOf(child, book(3))
+            }
+            val containing = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.recommendations(containingSeed, limit = 1)
+            }
+            started.await()
+            val unrelated = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.recommendations(seed, limit = 1)
+            }
+            release.complete(Unit)
+
+            assertEquals(listOf(book(3)), containing.await().books)
+            assertEquals(listOf(child), unrelated.await().books)
+            assertEquals(listOf(book(3)), repository.cachedRecommendations(containingSeed, limit = 1)!!.books)
+            assertEquals(listOf(child), repository.cachedRecommendations(seed, limit = 1)!!.books)
+            assertEquals(1, calls.get())
+        }
+    }
     @Test fun rankAndNewestRevisionSurviveLiveSavedFiltering() = runBlocking {
         val seed = book(1)
         val old = book(2)
@@ -239,6 +406,10 @@ class BookRecommendationRepositoryTest {
         BookRecommendationRepository("primary", fetch, { true })
 
     private fun id(number: Int) = number.toString(16).padStart(64, '0')
+    private fun indexReference(book: BookSummary) = PublicationChildReference(
+        kind = BookKinds.PUBLICATION_INDEX, coordinate = book.coordinate,
+        pubkey = book.pubkey, identifier = book.identifier, eventId = book.id,
+    )
     private fun book(number: Int) = BookSummary(
         id = id(number), coordinate = "30040:${id(99)}:book-$number", pubkey = id(99),
         identifier = "book-$number", title = "Book $number", summary = null, authors = emptyList(),

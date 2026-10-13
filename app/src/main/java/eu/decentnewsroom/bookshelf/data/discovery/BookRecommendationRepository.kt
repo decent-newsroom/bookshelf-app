@@ -5,6 +5,7 @@ import eu.decentnewsroom.bookshelf.data.mercury.MercuryApiException
 import eu.decentnewsroom.bookshelf.data.mercury.MercuryBookRepository
 import eu.decentnewsroom.bookshelf.data.mercury.MercurySearchResilience
 import eu.decentnewsroom.bookshelf.data.mercury.MercurySearchRetryConfig
+import eu.decentnewsroom.bookshelf.domain.BookKinds
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -58,7 +59,7 @@ class BookRecommendationRepository internal constructor(
         excludeIds: List<String> = emptyList(),
     ): BookRecommendationResult? {
         val key = key(seed, limit, excludeIds) ?: return null
-        return mutex.withLock { cached(key) }
+        return mutex.withLock { cached(key) }?.excludingContainedIndices(seed, limit)
     }
 
     suspend fun recommendations(
@@ -70,15 +71,16 @@ class BookRecommendationRepository internal constructor(
             ?: return BookRecommendationResult(status = BookRecommendationStatus.INVALID_REQUEST)
         val flight = mutex.withLock {
             val cached = cached(key)
-            if (!isInternetAvailable()) return (cached ?: BookRecommendationResult()).copy(status = BookRecommendationStatus.OFFLINE)
-            if (cached != null && !cached.isStale) return cached
+            if (!isInternetAvailable()) return (cached ?: BookRecommendationResult())
+                .copy(status = BookRecommendationStatus.OFFLINE).excludingContainedIndices(seed, limit)
+            if (cached != null && !cached.isStale) return cached.excludingContainedIndices(seed, limit)
             flights.getOrPut(key) {
                 val requestGeneration = generation
                 Flight(scope.async(start = CoroutineStart.LAZY) { fetch(key, requestGeneration) })
             }.also { it.users++ }
         }
         try {
-            return flight.deferred.await()
+            return flight.deferred.await().excludingContainedIndices(seed, limit)
         } finally {
             // The final subscriber owns cancellation; another subscriber may still need this request.
             withContext(NonCancellable) {
@@ -115,7 +117,7 @@ class BookRecommendationRepository internal constructor(
             // Keep the first coordinate's server rank, but choose its newest verified revision.
             val ranked = books.groupBy(BookSummary::coordinate).values.map { revisions ->
                 revisions.maxWith(compareBy<BookSummary> { it.createdAt }.thenBy { it.id })
-            }.take(key.limit)
+            }.take(MAX_RECOMMENDATIONS)
             BookRecommendationResult(books = ranked)
         } catch (failure: CancellationException) {
             throw failure
@@ -166,14 +168,24 @@ class BookRecommendationRepository internal constructor(
     }
 
     private fun key(seed: BookSummary, limit: Int, exclusions: List<String>): Key? {
-        if (!EVENT_ID.matches(seed.id) || limit !in 1..50 || exclusions.size > 100 ||
+        if (!EVENT_ID.matches(seed.id) || limit !in 1..MAX_RECOMMENDATIONS || exclusions.size > 100 ||
             exclusions.any { !EVENT_ID.matches(it) }) return null
         return Key(endpoint.trimEnd('/'), seed.id.lowercase(), limit, exclusions.map { it.lowercase() }.distinct().sorted())
+    }
+
+    private fun BookRecommendationResult.excludingContainedIndices(seed: BookSummary, limit: Int): BookRecommendationResult {
+        val containedCoordinates = seed.directChildren
+            .filter { it.kind == BookKinds.PUBLICATION_INDEX }
+            .map { it.coordinate }
+            .toSet()
+        // Filter per caller: shared requests and existing caches retain the original server ranking.
+        return copy(books = books.filter { it.coordinate !in containedCoordinates }.take(limit))
     }
 
     private class OfflineRecommendations : RuntimeException()
     private companion object {
         val EVENT_ID = Regex("^[A-Fa-f0-9]{64}$")
+        const val MAX_RECOMMENDATIONS = 50
         const val CACHE_TTL_MILLIS = 24 * 60 * 60 * 1_000L
         const val MAX_CACHE_ENTRIES = 20
     }
