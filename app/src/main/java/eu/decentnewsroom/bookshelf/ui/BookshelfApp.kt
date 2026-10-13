@@ -395,6 +395,8 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                     bookShareActions.copyLink(book)
                 },
                 onBroadcast = { viewModel.broadcastBookToLocalRelay(book) },
+                isOnline = state.isOnline,
+                onRefresh = { viewModel.refreshDownloadedBook(book) },
             )
         }
         state.bookDetails?.let { details ->
@@ -408,7 +410,7 @@ fun BookshelfApp(viewModel: BookshelfViewModel = viewModel()) {
                 savedCoordinates = state.savedCoordinates,
                 onRetryRecommendations = viewModel::retryRecommendations,
                 onOpenRecommendation = { book ->
-                    if (book.chapterRefs.isEmpty()) viewModel.showBookDetails(book) else viewModel.openBook(book)
+                    if (!book.canOpen) viewModel.showBookDetails(book) else viewModel.openBook(book)
                 },
                 onRecommendationActions = viewModel::showBookActions,
             )

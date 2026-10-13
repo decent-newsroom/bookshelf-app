@@ -18,7 +18,7 @@ internal fun readerNeedsTrackedFallback(
     resolvedTargetIndex: Int?,
     progress: ReadingProgress?,
 ): Boolean = resolvedTargetIndex == null && progress?.let {
-    it.hasStarted || it.currentChapterIndex > 0 || it.chapterScrollOffsetPx > 0
+    it.hasStarted || it.currentChapterIndex > 0 || it.chapterScrollOffsetPx > 0 || it.readerEntryKey != null
 } != true
 
 /** Resolve a tracked bookmark against the loaded edition without clamping into another section. */
@@ -33,7 +33,9 @@ internal fun resolveTrackedReaderChapterIndex(book: BookDetail, tracked: Tracked
         if (byIdentity >= 0) return byIdentity
     }
 
-    val editionChanged = tracked.book?.id != null && tracked.book.id != book.summary.id
+    val editionChanged = tracked.book?.let {
+        it.id != book.summary.id || it.structureFingerprint != book.summary.structureFingerprint
+    } == true
     if (editionChanged) return null
 
     val summary = book.summary

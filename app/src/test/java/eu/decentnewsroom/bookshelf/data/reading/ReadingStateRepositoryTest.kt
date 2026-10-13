@@ -32,6 +32,24 @@ class ReadingStateRepositoryTest {
     private val session = NostrSignerSession(owner, "test.signer")
 
     @Test
+    fun unresolvedNestedStructureCannotStartOrAdvanceTracking() = runBlocking {
+        val fixture = fixture()
+        try {
+            val complete = book("nested")
+            val unresolved = complete.copy(summary = complete.summary.copy(sectionStreamKnown = false))
+            try {
+                fixture.repository.track(unresolved)
+                fail("An unresolved subtree cannot establish tracking ordinals")
+            } catch (_: IllegalArgumentException) { }
+            assertTrue(fixture.repository.state.value.tracked.isEmpty())
+            fixture.repository.track(complete)
+            fixture.repository.advance(unresolved, 4)
+            assertEquals(0, fixture.repository.state.value.tracked.single().position)
+            assertEquals(0, fixture.transport.calls)
+        } finally { fixture.scope.cancel() }
+    }
+
+    @Test
     fun guestProgressIsMonotonicResettableAndNeverStartsRelayOrSignerWork() = runBlocking {
         val fixture = fixture()
         try {

@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-02
 
+Recursive descendant loading and incomplete-broadcast reporting are extended by [ADR 0061](0061-nested-publication-indexes.md).
+
 ## Context
 
 A configured relay running on the device can be useful for keeping publication content locally available. A publication summary is not sufficient to reconstruct Nostr events because doing so would invalidate the publisher's signatures.

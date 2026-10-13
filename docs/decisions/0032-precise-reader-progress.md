@@ -4,6 +4,8 @@
 
 Accepted — Phase 1 implemented; extended by [ADR 0046](0046-coordinated-reader-progress-and-thumbnail-indicators.md) for chapter-coordinate recovery, endpoint detection, and shared presentation. Semantic anchoring remains planned.
 
+Local occurrence bookmarks and nested-structure fingerprints are extended by [ADR 0061](0061-nested-publication-indexes.md).
+
 ## Context
 
 ADR 0015 introduced durable chapter-level progress so Home can offer Continue reading. The reader is a continuous Compose `LazyColumn`, but stored state contains only a chapter index. It cannot restore a position inside a chapter, and its chapter-count fraction treats all chapters as equal and counts the active chapter as completed.

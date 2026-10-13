@@ -68,8 +68,10 @@ internal fun BookCardHeader(
                 maxLines = 1,
             )
             Text(
-                text = if (book.chapterRefs.isEmpty()) {
+                text = if (!book.canOpen) {
                     "Library card · Full text unavailable" + if (isSaved) " · In My Books" else ""
+                } else if (!book.sectionStreamKnown) {
+                    "Contents available" + if (isSaved) " · In My Books" else ""
                 } else {
                     "${book.chapterCount} chapters" + if (isSaved) " · In My Books" else ""
                 },

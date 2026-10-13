@@ -67,5 +67,7 @@ Two existing records share number 0015. Their descriptive filenames remain stabl
 | [ADR 0058: Tutorial actions in the lesson body](0058-tutorial-body-actions.md) | Accepted; supersedes 0056's paging controls/action placement |
 | [ADR 0059: Bundled tutorial component illustrations](0059-tutorial-component-illustrations.md) | Accepted; extends 0049/0052 with local Compose examples |
 | [ADR 0060: User completion of pending publications](0060-user-completion-of-pending-publications.md) | Accepted; extends 0028/0045 |
+| [ADR 0061: Nested publication indexes](0061-nested-publication-indexes.md) | Accepted; extends 0022/0025/0030/0032/0046 |
+| [ADR 0062: Refresh downloaded books](0062-refresh-downloaded-books.md) | Accepted; extends 0030/0061 |
 
 Update supersession links when revising a decision. Proposed/deferred slices are not implementation claims, and acceptance checklists are not evidence that runtime verification passed.

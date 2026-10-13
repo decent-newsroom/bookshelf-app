@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-22
 
+Outline snapshots, version-1 migration, and stale-subtree reconciliation are extended by [ADR 0061](0061-nested-publication-indexes.md).
+
 ## Context
 
 Saved-book membership survives restart, but it contains only publication metadata. Existing rendered chapter HTML lives in the disposable cache directory and has no durable index from a saved book to its reader content. Opening a saved book offline consequently starts relay and Mercury work, then presents unavailable placeholders even when usable chapter content was previously rendered.

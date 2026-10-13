@@ -36,9 +36,16 @@ data class BookSummary(
     val chapterCount: Int,
     val chapterRefs: List<ChapterReference>,
     @Transient val ratingSummary: BookRatingSummary? = null,
-    /** False for unsupported nested or malformed section streams. */
+    /** True only when the complete depth-first leaf sequence is known. */
     val sectionStreamKnown: Boolean = true,
-)
+    /** Direct children in publisher order; legacy summaries fall back to chapterRefs. */
+    val childRefs: List<PublicationChildReference> = emptyList(),
+    val structureFingerprint: String? = null,
+) {
+    val canOpen: Boolean get() = childRefs.isNotEmpty() || chapterRefs.isNotEmpty()
+    val directChildren: List<PublicationChildReference>
+        get() = childRefs.ifEmpty { chapterRefs.map { PublicationChildReference.fromChapter(it) } }
+}
 
 @Serializable
 public data class BookRatingSummary(
@@ -53,6 +60,8 @@ data class BookDetail(
     val availableChapterCount: Int,
     val missingChapterCount: Int,
     val truncated: Boolean,
+    /** Flat preorder representation of the tree, including unresolved divisions. */
+    val outline: List<PublicationOutlineNode> = emptyList(),
 )
 
 @Serializable
@@ -77,6 +86,7 @@ data class BookChapter(
     val renderedHtmlCachePath: String? = null,
     /** The verified, signed chapter event used to render this chapter, retained for NIP-84 publication. */
     val sourceEvent: NostrEvent? = null,
+    val occurrenceKey: String = reference.coordinate,
 )
 
 data class BookReference(

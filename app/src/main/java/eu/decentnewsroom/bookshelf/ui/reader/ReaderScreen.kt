@@ -73,19 +73,22 @@ internal fun ReaderScreen(
     val latestProgress by rememberUpdatedState(progress)
     val latestMarkedFinished by rememberUpdatedState(presentation.isMarkedFinished)
     val streamKnown = detail.summary.sectionStreamKnown && detail.summary.chapterCount > 0
-    val showFinishCards = readerHasTerminalActions(detail.summary.sectionStreamKnown, detail.summary.chapterCount, detail.chapters.size, detail.truncated)
+    val showFinishCards = readerHasCompleteContent(detail.summary.sectionStreamKnown && detail.summary.chapterRefs.size == detail.summary.chapterCount, detail.summary.chapterCount, detail.chapters.size, detail.chapters.all { it.available }, detail.truncated)
     val latestReaderObservation by rememberUpdatedState(onReaderObservation)
     val latestPrepareReview by rememberUpdatedState(onPrepareInlineReview)
     val latestInlineReviewComposer by rememberUpdatedState(inlineReviewComposer)
+    val navigation = remember(detail) { ReaderNavigation(detail) }
     val startPosition = readerStartPosition(progress, initialChapterIndex)
+    val savedEntryIndex = if (initialChapterIndex == null) navigation.listItemForEntry(progress.readerEntryKey) else null
+    val initialEntryOffset = if (savedEntryIndex != null) progress.readerEntryScrollOffsetPx.coerceAtLeast(0) else startPosition.scrollOffsetPx
     val currentPublicationFingerprint = remember(detail.summary) { readingPublicationFingerprint(detail.summary) }
-    val initialListItemIndex = readerListItemIndexForChapter(startPosition.chapterIndex, detail.chapters.size)
+    val initialListItemIndex = navigation.initialListItem(progress, initialChapterIndex)
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialListItemIndex,
-        initialFirstVisibleItemScrollOffset = startPosition.scrollOffsetPx,
+        initialFirstVisibleItemScrollOffset = initialEntryOffset,
     )
     val resumePositionTracker = remember(detail.summary.coordinate, currentPublicationFingerprint, detail.chapters.size) {
-        ReaderResumePositionTracker(detail.chapters.size, startPosition.chapterIndex to startPosition.scrollOffsetPx)
+        ReaderResumePositionTracker(detail.chapters.size, startPosition.chapterIndex to startPosition.scrollOffsetPx, navigation)
     }
     val completeContent = readerHasCompleteContent(
         detail.summary.sectionStreamKnown && detail.summary.chapterRefs.size == detail.summary.chapterCount,
@@ -124,7 +127,11 @@ internal fun ReaderScreen(
         mutableStateOf(OnboardingTip.ReaderMenus !in seenTips)
     }
     var pendingChapterLinkUrl by rememberSaveable(detail.summary.coordinate) { mutableStateOf<String?>(null) }
-    val currentChapterIndex = coerceReaderChapterIndex(progress.currentChapterIndex, detail.chapters.size); val uriHandler = LocalUriHandler.current
+    val currentEntryKey = navigation.entryAt(listState.firstVisibleItemIndex)?.occurrenceKey ?: latestObservation?.readerEntryKey
+    val activeContentsKeys = navigation.activeKeys(currentEntryKey)
+    val uriHandler = LocalUriHandler.current
+    var lastEntryKey by remember(detail.summary.coordinate, currentPublicationFingerprint) { mutableStateOf(progress.readerEntryKey) }
+    var lastEntryOffset by remember(detail.summary.coordinate, currentPublicationFingerprint) { mutableIntStateOf(progress.readerEntryScrollOffsetPx) }
     LaunchedEffect(detail.summary.coordinate, currentPublicationFingerprint, detail.chapters.size, listState, initialPositionApplied) {
         if (initialPositionApplied) {
             var previous: ReaderObservation? = ReaderObservation(
@@ -132,6 +139,8 @@ internal fun ReaderScreen(
                 scrollOffsetPx = startPosition.scrollOffsetPx,
                 reachedEnd = savedEndpoint,
                 readingActivity = false,
+                readerEntryKey = if (initialChapterIndex == null) progress.readerEntryKey else null,
+                readerEntryScrollOffsetPx = initialEntryOffset,
             )
             consumedNavigationGeneration = explicitNavigationGeneration
             var publishedPosition: ReaderObservation? = null
@@ -159,13 +168,17 @@ internal fun ReaderScreen(
                             viewportSizePx = snapshot.viewportSizePx,
                         )
                         val chapterIndex = resume.first
+                        navigation.entryAt(snapshot.listItemIndex)?.let {
+                            lastEntryKey = it.occurrenceKey
+                            lastEntryOffset = snapshot.scrollOffsetPx.coerceAtLeast(0)
+                        }
                         val prior = previous
                         val explicitNavigation = snapshot.explicitNavigationGeneration != consumedNavigationGeneration
                         val observation = ReaderObservation(
                             chapterIndex = chapterIndex,
                             scrollOffsetPx = resume.second,
                             reachedEnd = reachedEnd,
-                            readingActivity = prior?.let {
+                            readingActivity = (prior?.let {
                                 readerObservationHasActivity(
                                     previous = it,
                                     chapterIndex = chapterIndex,
@@ -174,17 +187,15 @@ internal fun ReaderScreen(
                                     isScrollInProgress = snapshot.isScrollInProgress,
                                     explicitNavigation = explicitNavigation,
                                 )
-                            } ?: false,
-                            trackingChapterIndex = readerTrackingChapterIndexForListItem(
-                                snapshot.listItemIndex,
-                                detail.chapters.size,
-                                reachedEnd,
-                            ),
+                            } ?: false) || ((prior?.readerEntryKey != lastEntryKey || prior?.readerEntryScrollOffsetPx != lastEntryOffset) && (explicitNavigation || snapshot.isScrollInProgress)),
+                            trackingChapterIndex = navigation.trackingChapterAt(snapshot.listItemIndex, reachedEnd).takeIf { streamKnown },
+                            readerEntryKey = lastEntryKey,
+                            readerEntryScrollOffsetPx = lastEntryOffset,
                         )
                         previous = observation
                         // Keep navigation intent until the positioned location changes;
                         // snapshotFlow can see the intent before scrollToItem has applied it.
-                        if (!explicitNavigation || prior?.chapterIndex != chapterIndex || prior.scrollOffsetPx != resume.second) {
+                        if (!explicitNavigation || prior?.chapterIndex != chapterIndex || prior.scrollOffsetPx != resume.second || prior.readerEntryKey != lastEntryKey) {
                             consumedNavigationGeneration = snapshot.explicitNavigationGeneration
                         }
                         latestObservation = observation
@@ -238,11 +249,9 @@ internal fun ReaderScreen(
                                     isScrollInProgress = listState.isScrollInProgress,
                                     explicitNavigation = explicitNavigationGeneration != consumedNavigationGeneration,
                                 ),
-                                trackingChapterIndex = readerTrackingChapterIndexForListItem(
-                                    listState.firstVisibleItemIndex,
-                                    detail.chapters.size,
-                                    reachedEnd,
-                                ),
+                                trackingChapterIndex = navigation.trackingChapterAt(listState.firstVisibleItemIndex, reachedEnd).takeIf { streamKnown },
+                                readerEntryKey = navigation.entryAt(listState.firstVisibleItemIndex)?.occurrenceKey ?: lastEntryKey,
+                                readerEntryScrollOffsetPx = if (navigation.entryAt(listState.firstVisibleItemIndex) != null) listState.firstVisibleItemScrollOffset else lastEntryOffset,
                             ),
                             true,
                         )
@@ -255,17 +264,20 @@ internal fun ReaderScreen(
     LaunchedEffect(showReaderMenusTip) {
         if (showReaderMenusTip) onTipSeen(OnboardingTip.ReaderMenus)
     }
-    val trackCurrentPosition = {
-        val observation = latestObservation
-        onTrackReading(observation?.trackingChapterIndex ?: observation?.chapterIndex ?: currentChapterIndex)
+    val trackCurrentPosition: () -> Unit = {
+        latestObservation?.trackingChapterIndex?.takeIf { streamKnown }?.let(onTrackReading)
     }
     val progressControls: @Composable () -> Unit = {
+        navigation.entryAt(listState.firstVisibleItemIndex)?.takeIf { it.isDivision }?.let {
+            Text("${it.title} · last chapter position retained below", color = colors.muted, style = MaterialTheme.typography.bodySmall)
+        }
         ReaderProgressControls(
             progress = progress,
             presentation = presentation,
             book = detail.summary,
             tracked = tracked,
             streamKnown = streamKnown,
+            canTrackCurrentPosition = latestObservation?.trackingChapterIndex != null,
             readingState = readingState,
             isSignedIn = isSignedIn,
             colors = colors,
@@ -290,7 +302,7 @@ internal fun ReaderScreen(
             if (chapterIndex >= 0) {
                 explicitNavigationGeneration += 1
                 coroutineScope.launch {
-                    listState.scrollToItem(readerListItemIndexForChapter(chapterIndex, detail.chapters.size))
+                    listState.scrollToItem(navigation.listItemForChapter(chapterIndex))
                 }
             }
         },
@@ -299,12 +311,12 @@ internal fun ReaderScreen(
     )
     highlightComposer?.let { composer -> HighlightComposerSheet(composer, onDismissHighlightComposer, onUpdateHighlightComment, onSubmitHighlight) }
     if (showContents) ModalBottomSheet(onDismissRequest = { showContents = false }) {
-        ReaderContentsSheet(detail.chapters, currentChapterIndex, colors, onDismiss = { showContents = false }) { chapterIndex ->
+        ReaderOutlineContentsSheet(navigation.entries, activeContentsKeys, detail.summary.sectionStreamKnown, colors, onDismiss = { showContents = false }) { entryKey ->
             showContents = false
             showNavigationMenus = false
             explicitNavigationGeneration += 1
             coroutineScope.launch {
-                listState.scrollToItem(readerListItemIndexForChapter(chapterIndex, detail.chapters.size))
+                navigation.listItemForEntry(entryKey)?.let { listState.scrollToItem(it) }
             }
         }
     }
@@ -329,12 +341,19 @@ internal fun ReaderScreen(
                             onBookListTipDismissed = { onTipSeen(OnboardingTip.BookListMembership) },
                             progressControls = progressControls,
                         )
+                        if (!detail.summary.sectionStreamKnown) Text("Some parts could not be resolved. The complete chapter count and reading progress are unavailable.", color = colors.muted)
                         if (detail.truncated) Text("This reader loaded only part of the publication. The end of the book is not available here.", color = colors.muted)
                         if (detail.missingChapterCount > 0) Text("${detail.missingChapterCount} sections are unavailable. Their positions remain in the reading order.", color = colors.muted)
                     }
                 }
-                itemsIndexed(detail.chapters, key = { _, chapter -> chapter.reference.coordinate }) { index, chapter ->
-                    if (chapter.available) ChapterSection(chapter, preferences, colors, { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } }, highlights, onSaveHighlight, Modifier.padding(top = if (index == 0) 0.dp else 24.dp))
+                items(navigation.entries, key = { it.occurrenceKey }) { entry ->
+                    val chapter = entry.chapterIndex?.let { detail.chapters.getOrNull(it) }
+                    if (entry.isDivision) ReaderDivision(entry, preferences, colors)
+                    else if (chapter == null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(entry.title, style = MaterialTheme.typography.titleLarge, color = colors.text)
+                        Text(entry.diagnostic ?: "This section was not loaded on this device.", color = colors.muted)
+                    }
+                    else if (chapter.available) ChapterSection(chapter, preferences, colors, { url -> ChapterLinkPolicy.parse(url)?.let { pendingChapterLinkUrl = it.url } }, highlights, onSaveHighlight, Modifier.padding(top = if (entry.chapterIndex == 0) 0.dp else 24.dp))
                     else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(chapter.title, style = MaterialTheme.typography.titleLarge, color = colors.text)
                         Text("This section is unavailable. Retry opening the book when its relay is reachable.", color = colors.muted)

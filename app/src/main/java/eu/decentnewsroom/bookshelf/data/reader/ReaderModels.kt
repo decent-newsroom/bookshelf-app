@@ -51,6 +51,9 @@ data class ReadingProgress(
     val publicationFingerprint: String? = null,
     val lastReadingActivityMillis: Long = 0,
     val readingCycleStartedAtMillis: Long = 0,
+    /** Local outline occurrence, including division headings. */
+    val readerEntryKey: String? = null,
+    val readerEntryScrollOffsetPx: Int = 0,
 ) {
     val currentChapterNumber: Int
         get() = if (chapterCount <= 0) 0 else (currentChapterIndex + 1).coerceIn(1, chapterCount)

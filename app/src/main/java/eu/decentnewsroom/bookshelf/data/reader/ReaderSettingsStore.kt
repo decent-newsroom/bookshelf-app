@@ -2,6 +2,7 @@ package eu.decentnewsroom.bookshelf.data.reader
 
 import android.content.Context
 import eu.decentnewsroom.bookshelf.domain.BookDetail
+import eu.decentnewsroom.bookshelf.domain.effectiveOutline
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,9 +65,11 @@ class ReaderSettingsStore(context: Context) {
         reachedEnd: Boolean = false,
         readingActivity: Boolean = false,
         persist: Boolean = true,
+        readerEntryKey: String? = null,
+        readerEntryScrollOffsetPx: Int = 0,
     ) {
         val loadedCount = book.chapters.size
-        if (loadedCount <= 0) return
+        if (loadedCount <= 0 && book.effectiveOutline().isEmpty()) return
 
         val normalizedIndex = normalizedReaderChapterIndex(chapterIndex, loadedCount)
         val normalizedOffset = normalizedReaderChapterScrollOffsetPx(chapterScrollOffsetPx)
@@ -87,6 +90,8 @@ class ReaderSettingsStore(context: Context) {
             reachedEnd = reachedEnd,
             readingActivity = readingActivity,
             nowMillis = System.currentTimeMillis(),
+            readerEntryKey = readerEntryKey,
+            readerEntryScrollOffsetPx = readerEntryScrollOffsetPx,
         )
         if (existing == next) {
             if (persist) flushProgress()
@@ -94,6 +99,7 @@ class ReaderSettingsStore(context: Context) {
         }
         val criticalChange = existing == null ||
             existing.currentChapterIndex != next.currentChapterIndex ||
+            existing.readerEntryKey != next.readerEntryKey ||
             existing.chapterCoordinate != next.chapterCoordinate ||
             existing.hasStarted != next.hasStarted || existing.reachedEnd != next.reachedEnd ||
             existing.publicationFingerprint != next.publicationFingerprint ||
@@ -106,7 +112,7 @@ class ReaderSettingsStore(context: Context) {
     /** Records a saved book as the reader's most recently opened book. */
     fun recordBookOpened(book: BookDetail) {
         val chapterCount = book.chapters.size
-        if (chapterCount <= 0) return
+        if (chapterCount <= 0 && book.effectiveOutline().isEmpty()) return
 
         val coordinate = book.summary.coordinate
         val existing = _progress.value[coordinate]
@@ -131,6 +137,8 @@ class ReaderSettingsStore(context: Context) {
             publicationFingerprint = metadata.publicationFingerprint,
             lastReadingActivityMillis = existing?.lastReadingActivityMillis ?: 0,
             readingCycleStartedAtMillis = existing?.readingCycleStartedAtMillis ?: 0,
+            readerEntryKey = retainedReaderEntryKey(existing, book),
+            readerEntryScrollOffsetPx = retainedReaderEntryOffset(existing, book),
         )
         updateProgress(coordinate, next, persist = true)
     }
@@ -143,6 +151,12 @@ class ReaderSettingsStore(context: Context) {
         val metadata = metadataFor(book)
         if (loadedCount <= 0) {
             val normalized = existing.copy(
+                currentChapterIndex = 0,
+                chapterCount = 0,
+                chapterScrollOffsetPx = 0,
+                chapterCoordinate = null,
+                readerEntryKey = retainedReaderEntryKey(existing, book),
+                readerEntryScrollOffsetPx = retainedReaderEntryOffset(existing, book),
                 reachedEnd = false,
                 fullChapterCount = metadata.fullChapterCount,
                 completeContent = false,
@@ -160,6 +174,8 @@ class ReaderSettingsStore(context: Context) {
             currentChapterIndex = index,
             chapterCount = loadedCount,
             chapterScrollOffsetPx = offset,
+            readerEntryKey = retainedReaderEntryKey(existing, book),
+            readerEntryScrollOffsetPx = retainedReaderEntryOffset(existing, book),
             hasStarted = existing.hasStarted || index > 0 || existing.chapterScrollOffsetPx > 0,
             reachedEnd = existing.reachedEnd && samePublication && metadata.completeContent,
             fullChapterCount = metadata.fullChapterCount,
@@ -202,6 +218,8 @@ class ReaderSettingsStore(context: Context) {
             publicationFingerprint = metadata.publicationFingerprint,
             lastReadingActivityMillis = existing?.lastReadingActivityMillis ?: 0,
             readingCycleStartedAtMillis = startedAtMillis.coerceAtLeast(1),
+            readerEntryKey = retainedReaderEntryKey(existing, book),
+            readerEntryScrollOffsetPx = retainedReaderEntryOffset(existing, book),
         ).let { readingCycleProgress(it, startedAtMillis, verifiedEndpoint) }
         updateProgress(coordinate, next, persist = true)
     }
@@ -313,8 +331,17 @@ internal fun resolveReaderChapterIndex(
     currentFingerprint: String,
 ): Int {
     if (loadedChapterCount <= 0) return 0
+    progress?.readerEntryKey?.let { key ->
+        val occurrenceIndex = book.chapters.indexOfFirst { it.occurrenceKey == key }
+        if (occurrenceIndex >= 0) return occurrenceIndex.coerceIn(0, loadedChapterCount - 1)
+    }
     val savedCoordinate = progress?.chapterCoordinate
     if (savedCoordinate != null) {
+        val savedIndex = progress.currentChapterIndex
+        if (progress.publicationFingerprint == currentFingerprint &&
+            savedIndex in 0 until loadedChapterCount &&
+            book.summary.chapterRefs.getOrNull(savedIndex)?.coordinate == savedCoordinate
+        ) return savedIndex
         val coordinateIndex = book.summary.chapterRefs.indexOfFirst { it.coordinate == savedCoordinate }
         if (coordinateIndex >= 0) return coordinateIndex.coerceIn(0, loadedChapterCount - 1)
         if (progress.publicationFingerprint != null && progress.publicationFingerprint != currentFingerprint) return 0
@@ -331,6 +358,10 @@ internal fun normalizedReaderScrollOffsetForBook(
 ): Int {
     val savedOffset = normalizedReaderChapterScrollOffsetPx(progress?.chapterScrollOffsetPx ?: 0)
     if (progress == null) return 0
+    if (book.summary.structureFingerprint != null &&
+        (progress.publicationFingerprint != readingPublicationFingerprint(book.summary) ||
+            progress.contentFingerprint != readingContentFingerprint(book))
+    ) return 0
     val savedCoordinate = progress.chapterCoordinate
     if (savedCoordinate != null) {
         val chapter = book.chapters.firstOrNull { it.reference.coordinate == savedCoordinate }
@@ -358,13 +389,16 @@ internal fun nextObservedReadingProgress(
     reachedEnd: Boolean,
     readingActivity: Boolean,
     nowMillis: Long,
+    readerEntryKey: String? = null,
+    readerEntryScrollOffsetPx: Int = 0,
 ): ReadingProgress {
     val count = chapterCount.coerceAtLeast(0)
     val index = normalizedReaderChapterIndex(chapterIndex, count)
     val offset = normalizedReaderChapterScrollOffsetPx(chapterScrollOffsetPx)
     val validEnd = reachedEnd && completeContent && fullChapterCount > 0
     val locationChanged = existing == null || existing.currentChapterIndex != index ||
-        existing.chapterScrollOffsetPx != offset
+        existing.chapterScrollOffsetPx != offset || existing.readerEntryKey != readerEntryKey ||
+        existing.readerEntryScrollOffsetPx != readerEntryScrollOffsetPx.coerceAtLeast(0)
     val stateChanged = existing == null || locationChanged || existing.reachedEnd != validEnd ||
         existing.hasStarted != (existing.hasStarted || index > 0 || offset > 0 || validEnd) ||
         existing.chapterCoordinate != chapterCoordinate || existing.chapterCount != count ||
@@ -380,6 +414,8 @@ internal fun nextObservedReadingProgress(
         chapterCount = count,
         updatedAtMillis = nowMillis,
         chapterScrollOffsetPx = offset,
+        readerEntryKey = readerEntryKey,
+        readerEntryScrollOffsetPx = readerEntryScrollOffsetPx.coerceAtLeast(0),
         hasStarted = (existing?.hasStarted == true) || index > 0 || offset > 0 || validEnd || recordActivity,
         reachedEnd = validEnd,
         fullChapterCount = fullChapterCount.coerceAtLeast(0),
@@ -423,4 +459,16 @@ internal fun readingContentFingerprint(book: BookDetail): String {
     }
     return java.security.MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
         .joinToString("") { byte -> "%02x".format(byte) }
+}
+
+/** Retain local heading/occurrence bookmarks only while that occurrence still exists. */
+internal fun retainedReaderEntryKey(progress: ReadingProgress?, book: BookDetail): String? =
+    progress?.readerEntryKey?.takeIf { key -> book.effectiveOutline().any { it.occurrenceKey == key } }
+
+internal fun retainedReaderEntryOffset(progress: ReadingProgress?, book: BookDetail): Int {
+    if (progress == null) return 0
+    return if (retainedReaderEntryKey(progress, book) != null &&
+        progress.publicationFingerprint == readingPublicationFingerprint(book.summary) &&
+        progress.contentFingerprint == readingContentFingerprint(book)
+    ) progress.readerEntryScrollOffsetPx.coerceAtLeast(0) else 0
 }

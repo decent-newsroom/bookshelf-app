@@ -43,6 +43,22 @@ class ReaderModelsTest {
         assertEquals(null, progress.publicationFingerprint)
         assertEquals(0L, progress.lastReadingActivityMillis)
         assertEquals(0L, progress.readingCycleStartedAtMillis)
+        assertEquals(null, progress.readerEntryKey)
+        assertEquals(0, progress.readerEntryScrollOffsetPx)
+    }
+
+    @Test
+    fun divisionObservationPersistsWithoutAdvancingLeafAndIsIdempotent() {
+        fun observed(existing: ReadingProgress?, time: Long) = nextObservedReadingProgress(
+            existing, "book", 0, 0, 0, 0, false, null, "publication", "content",
+            false, true, time, readerEntryKey = "act-two", readerEntryScrollOffsetPx = 48,
+        )
+        val first = observed(null, 10)
+        assertEquals("act-two", first.readerEntryKey)
+        assertEquals(48, first.readerEntryScrollOffsetPx)
+        assertEquals(0, first.currentChapterIndex)
+        assertEquals(false, first.reachedEnd)
+        assertEquals(first, observed(first, 20))
     }
 
     @Test

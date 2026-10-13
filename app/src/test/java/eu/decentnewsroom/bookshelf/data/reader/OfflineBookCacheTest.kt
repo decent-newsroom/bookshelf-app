@@ -1,5 +1,9 @@
 package eu.decentnewsroom.bookshelf.data.reader
 
+import eu.decentnewsroom.bookshelf.domain.PublicationChildReference
+import eu.decentnewsroom.bookshelf.domain.PublicationOutlineNode
+import eu.decentnewsroom.bookshelf.domain.OutlineResolution
+import eu.decentnewsroom.bookshelf.domain.publicationOccurrenceKey
 import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookKinds
@@ -115,6 +119,143 @@ class OfflineBookCacheTest {
         }
     }
 
+    @Test
+    fun nestedSnapshotPreservesDivisionAndLeafOccurrenceWithoutSignedSource() = runBlocking {
+        val root = Files.createTempDirectory("nested-reader-cache").toFile()
+        try {
+            val cache = OfflineBookCache(root)
+            val book = nestedBook()
+            cache.save(book)
+            val loaded = requireNotNull(cache.load(book.summary.coordinate))
+            assertEquals(book.outline, loaded.outline)
+            assertEquals(book.chapters.single().occurrenceKey, loaded.chapters.single().occurrenceKey)
+            assertNull(loaded.chapters.single().sourceEvent)
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
+    fun rejectsSnapshotWithInvalidParentPath() = runBlocking {
+        val root = Files.createTempDirectory("nested-reader-invalid").toFile()
+        try {
+            val cache = OfflineBookCache(root)
+            val book = nestedBook()
+            cache.save(book)
+            val entry = root.resolve("bookshelf/reader-cache-v1").listFiles()!!.single()
+            entry.writeText(entry.readText().replace(book.outline.first().occurrenceKey, "invalid-parent"))
+            assertNull(cache.load(book.summary.coordinate))
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
+    fun missingSubtreeUsesStaleCacheButCompleteRemovalIsAuthoritative() {
+        val cached = nestedBook()
+        val unresolved = cached.copy(
+            summary = cached.summary.copy(chapterRefs = emptyList(), chapterCount = 0, sectionStreamKnown = false),
+            chapters = emptyList(), availableChapterCount = 0,
+            outline = listOf(cached.outline.first().copy(resolution = OutlineResolution.UNAVAILABLE)),
+        )
+        val merged = mergeReaderSnapshots(cached, unresolved)
+        assertEquals(1, merged.chapters.size)
+        assertEquals(OutlineResolution.STALE, merged.outline.first().resolution)
+        assertTrue(!merged.summary.sectionStreamKnown)
+        assertEquals(cached.chapters.single().occurrenceKey, merged.chapters.single().occurrenceKey)
+        val removed = unresolved.copy(
+            summary = unresolved.summary.copy(sectionStreamKnown = true),
+            outline = listOf(cached.outline.first()),
+        )
+        assertTrue(mergeReaderSnapshots(cached, removed).chapters.isEmpty())
+    }
+
+    @Test
+    fun staleSubtreeMergeIsIdempotentAfterRemoteFailureOrRepeatedRefresh() {
+        val cached = nestedBook()
+        val partial = cached.copy(
+            summary = cached.summary.copy(chapterRefs = emptyList(), chapterCount = 0, sectionStreamKnown = false),
+            chapters = emptyList(), availableChapterCount = 0,
+            outline = listOf(cached.outline.first().copy(resolution = OutlineResolution.UNAVAILABLE)),
+        )
+        val stale = mergeReaderSnapshots(cached, partial)
+        assertEquals(stale, mergeReaderSnapshots(stale, stale))
+        val mergedAgain = mergeReaderSnapshots(stale, stale.copy())
+        assertEquals(stale.outline, mergedAgain.outline)
+        assertEquals(stale.chapters, mergedAgain.chapters)
+        assertEquals(mergedAgain.outline.size, mergedAgain.outline.map { it.occurrenceKey }.distinct().size)
+    }
+
+    @Test
+    fun staleGraftBudgetIncludesFreshNodesThatFollowTheBranch() {
+        val cached = nestedBook()
+        val division = cached.outline.first()
+        val remaining = (1 until 5_000).map { index ->
+            val ref = division.reference.copy(coordinate = "30040:${division.reference.pubkey}:act-$index",
+                identifier = "act-$index")
+            division.copy(reference = ref,
+                occurrenceKey = publicationOccurrenceKey(cached.summary.coordinate, ref.coordinate))
+        }
+        val partial = cached.copy(
+            summary = cached.summary.copy(chapterRefs = emptyList(), chapterCount = 0, sectionStreamKnown = false),
+            chapters = emptyList(), availableChapterCount = 0,
+            outline = listOf(division.copy(resolution = OutlineResolution.UNAVAILABLE,
+                diagnostic = "Unavailable")) + remaining,
+        )
+        val merged = mergeReaderSnapshots(cached, partial)
+        assertEquals(5_000, merged.outline.size)
+        assertEquals(OutlineResolution.UNAVAILABLE, merged.outline.first().resolution)
+        assertEquals("Unavailable", merged.outline.first().diagnostic)
+        assertTrue(merged.chapters.isEmpty())
+        assertTrue(!merged.summary.sectionStreamKnown)
+    }
+
+    @Test
+    fun rejectsSnapshotClaimingKnownOrderForUnavailableDivision() = runBlocking {
+        val root = Files.createTempDirectory("nested-reader-false-total").toFile()
+        try {
+            val cache = OfflineBookCache(root)
+            val book = nestedBook()
+            cache.save(book)
+            val entry = root.resolve("bookshelf/reader-cache-v1").listFiles()!!.single()
+            entry.writeText(entry.readText().replace("\"resolution\":\"RESOLVED\"", "\"resolution\":\"UNAVAILABLE\""))
+            assertNull(cache.load(book.summary.coordinate))
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
+    fun resumePrefersRepeatedOccurrenceThenFallsBackToFirstMatchingCoordinate() {
+        val original = nestedBook()
+        val first = original.chapters.single()
+        val repeated = original.copy(chapters = listOf(first, first.copy(occurrenceKey = "second-occurrence")),
+            summary = original.summary.copy(chapterRefs = listOf(first.reference, first.reference)))
+        val progress = ReadingProgress(repeated.summary.coordinate, 0, 2, 1,
+            chapterCoordinate = first.reference.coordinate, readerEntryKey = "second-occurrence")
+        assertEquals(1, resolveReaderChapterIndex(progress, repeated, 2, "fingerprint"))
+        assertEquals(0, resolveReaderChapterIndex(progress.copy(readerEntryKey = "removed"), repeated, 2, "fingerprint"))
+        // A division retains its preceding leaf position, including a repeated occurrence.
+        val headingProgress = progress.copy(currentChapterIndex = 1, readerEntryKey = original.outline.first().occurrenceKey,
+            publicationFingerprint = "fingerprint")
+        assertEquals(1, resolveReaderChapterIndex(headingProgress, repeated, 2, "fingerprint"))
+        assertEquals(0, resolveReaderChapterIndex(headingProgress, repeated, 2, "changed-edition"))
+    }
+
+    private fun nestedBook(): BookDetail {
+        val original = bookDetail()
+        val pubkey = original.summary.pubkey
+        val divisionRef = PublicationChildReference(30040, "30040:$pubkey:act", pubkey, "act")
+        val leafRef = original.chapters.single().reference.copy(coordinate = "30041:$pubkey:scene", identifier = "scene")
+        val divisionKey = publicationOccurrenceKey(original.summary.coordinate, divisionRef.coordinate)
+        val leafKey = publicationOccurrenceKey(divisionKey, leafRef.coordinate)
+        return original.copy(
+            summary = original.summary.copy(chapterRefs = listOf(leafRef), childRefs = listOf(divisionRef),
+                structureFingerprint = "nested"),
+            chapters = listOf(original.chapters.single().copy(reference = leafRef, occurrenceKey = leafKey)),
+            outline = listOf(
+                PublicationOutlineNode(divisionKey, reference = divisionRef, title = "Act I"),
+                PublicationOutlineNode(leafKey, parentKey = divisionKey,
+                    reference = PublicationChildReference.fromChapter(leafRef), depth = 1,
+                    title = "Scene I", chapterIndex = 0),
+            ),
+        )
+    }
+
     private fun bookDetail(): BookDetail {
         val pubkey = "1".repeat(64)
         val coordinate = "${BookKinds.PUBLICATION_INDEX}:$pubkey:offline"
@@ -152,7 +293,9 @@ class OfflineBookCacheTest {
         val entry = root.resolve("bookshelf/reader-cache-v1").listFiles()!!.single()
         val encoded = Json.parseToJsonElement(entry.readText()).jsonObject
         val legacySummary = JsonObject(encoded.getValue("summary").jsonObject - "sectionStreamKnown")
-        entry.writeText(JsonObject(encoded + ("summary" to legacySummary)).toString())
+        entry.writeText(JsonObject((encoded - "outline") + mapOf(
+            "summary" to legacySummary, "version" to kotlinx.serialization.json.JsonPrimitive(1),
+        )).toString())
     }
 }
 

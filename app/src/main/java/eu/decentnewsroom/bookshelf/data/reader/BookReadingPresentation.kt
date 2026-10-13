@@ -119,6 +119,7 @@ fun resolveBookReadingPresentation(
 internal fun readingPublicationFingerprint(summary: BookSummary): String {
     val identity = buildString {
         append(summary.id).append('\u0000')
+        summary.structureFingerprint?.let { append(it).append('\u0002') }
         summary.chapterRefs.forEach { ref ->
             append(ref.coordinate).append('\u0000').append(ref.eventId.orEmpty()).append('\u0001')
         }
@@ -133,7 +134,7 @@ private fun isSummaryCompleteOrder(summary: BookSummary): Boolean =
 private fun trackedPresentation(tracked: TrackedBook, book: BookSummary?): BookReadingPresentation {
     val knownOrder = if (book != null) isSummaryCompleteOrder(book) else tracked.total > 0
     val total = if (book != null) book.chapterCount else tracked.total
-    val editionChanged = book != null && tracked.book != null && tracked.book.id != book.id
+    val editionChanged = book != null && tracked.book != null && (tracked.book.id != book.id || tracked.book.structureFingerprint != book.structureFingerprint)
     val resolvedPosition = when {
         book == null -> tracked.position
         !knownOrder -> null

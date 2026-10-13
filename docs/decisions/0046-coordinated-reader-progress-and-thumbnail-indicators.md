@@ -6,6 +6,8 @@ Accepted, 2026-10-09. Extends ADR 0032's local position model and ADR 0044's ind
 
 [ADR 0048](0048-progress-visibility-and-tracking-entry-points.md) updates badge styling and excludes Continue reading, opening artwork, and reader-header covers from indicators; it also adds discoverable tracking entry points. The persistence and coordination decisions here remain in effect.
 
+Hierarchical reader entries, chapter-only leaf positions, and nested-structure fingerprints are extended by [ADR 0061](0061-nested-publication-indexes.md).
+
 ## Context
 
 Local chapter display, the furthest section in kind 16374 tracking, and the last physical scroll position have different meanings. The existing chapter-index fraction cannot reach 100% through valid persisted indexes, and saved-book opening alone creates resume metadata. A corner badge must distinguish started/completed books without inventing reading activity, moving bookmarks to remote positions, or treating entry into the last section as completion.

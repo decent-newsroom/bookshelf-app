@@ -40,6 +40,7 @@ internal fun ReaderProgressControls(
     onReset: () -> Unit,
     onStop: () -> Unit,
     onSync: () -> Unit,
+    canTrackCurrentPosition: Boolean = true,
 ) {
     val position = readerPositionPresentation(progress, presentation, book)
     val deviceOnly = !isSignedIn || readingState.preferences.readingDeviceOnly
@@ -78,7 +79,7 @@ internal fun ReaderProgressControls(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (tracked == null) {
-                Button(onClick = onTrack, enabled = streamKnown, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Button(onClick = onTrack, enabled = streamKnown && canTrackCurrentPosition, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text("Track progress")
                 }
             } else {
@@ -93,6 +94,8 @@ internal fun ReaderProgressControls(
         }
         if (tracked == null && !streamKnown) {
             Text("Section order unavailable; tracking isn't ready.", style = MaterialTheme.typography.bodySmall, color = colors.muted)
+        } else if (tracked == null && !canTrackCurrentPosition) {
+            Text("Scroll to a chapter to start tracking.", style = MaterialTheme.typography.bodySmall, color = colors.muted)
         }
         // Delivery belongs to the tracked entry; pending counts and errors belong to all reading lists.
         if (tracked?.isPublic == true) {

@@ -22,6 +22,7 @@ These records summarize implemented slices; they do not establish that builds or
 | [Offline review synchronization](plans/airplane-mode-offline-review-sync.md) | Durable delivery implemented; scheduling and route reconciliation limits recorded |
 | [Precise reader progress](plans/precise-reader-progress.md) | Physical resume and chapter recovery implemented; semantic anchors and text-weighted progress planned |
 | [Reader menu](plans/reader-menu-layout.md) | Implemented; owner build/device verification pending |
+| [Nested publication indexes](plans/nested-publication-indexes.md) | Implemented; owner build/device verification pending; reverse-parent search deferred |
 | [Cover progress](plans/book-thumbnail-reading-progress.md) | Implemented; approximate intermediate percentages remain |
 | [Reading lists and finished history](plans/reading-lists-and-finished-history.md) | Implemented; deferred extensions listed |
 | [Full-text search and recommendations](plans/full-text-search-and-recommendations.md) | Implemented, including persistent recommendation cache |

@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-11
 
+The library-card predicate is updated by [ADR 0061](0061-nested-publication-indexes.md): nested-only indexes are openable; no supported children identifies a library card.
+
 ## Context
 
 Some kind `30040` publication indexes intentionally have no kind `30041`

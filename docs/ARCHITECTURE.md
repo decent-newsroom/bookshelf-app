@@ -66,21 +66,25 @@ A separate one-request resilience controller provides bounded 503 retry/cooldown
 
 ## Book and Chapter Loading
 
-My Books resolves kind-30040 coordinates through HTTP and known bookshelf relays, retaining the newest verified index. A resolved relay index need not be mirrored by Mercury before opening. An index without kind-30041 chapter `a` tags is a library card: discoverable, saveable, and rateable, without reader access.
+My Books resolves kind-30040 coordinates through HTTP and known bookshelf relays, retaining the newest verified index. A resolved relay index need not be mirrored by Mercury before opening. An index without supported kind-30040 or kind-30041 child `a` tags is a library card: discoverable, saveable, and rateable, without reader access. Nested-only indexes are openable, and discovery does not expand them to determine chapter counts.
 
 Online `openBook`:
 
-1. Uses the resolved index and ordered chapter references.
-2. Queries `PersistentNostrChapterSource` by event ID and author/`#d`, merging newest revisions.
-3. Uses Mercury HTTP only for unresolved references; failure preserves relay successes.
-4. Retains explicit unavailable chapters to preserve ordering.
+1. Uses the resolved root's ordered typed child references. `PublicationOutlineResolver` expands kind-30040 children through verified publication-index relay/exact HTTP adapters, freezes one revision per coordinate, and preserves mixed sibling order in a preorder outline.
+2. Detects cycles on the ancestor path and bounds expansion to depth 16 below root, 256 index coordinates including root, 5,000 outline nodes/queued references, an 8 MiB retained-index estimate, four active index requests, and a 60-second structure deadline. Shared subtrees retain distinct occurrence keys while retrieval is deduplicated.
+3. Projects depth-first kind-30041 leaves and queries `PersistentNostrChapterSource`; exact Mercury event-ID/coordinate fallback supplies unresolved chapter bodies, capped at 500 occurrences.
+4. Retains explicit unavailable divisions/chapters. Structural completeness, body availability, and truncation are separate: an unresolved subtree cannot establish whole-book totals or tracking ordinals. Cancellation propagates upstream.
 5. Renders/caches the loaded `BookDetail` before exposing it to the reader.
 
 The opening screen shows summary, fitted trusted artwork, and full-title/author fallback without delaying loading. Completion, failure, or navigation clears transient loading state.
 
-Saved books retain a self-contained reader snapshot after successful opening, containing ordered chapters, raw fallback and HTML, but no original signed events. Offline opens use the exact saved snapshot with no chapter relay/HTTP work. Online partial loads preserve readable cached chapters; only available fresh chapters replace them. Removing a saved book retains its snapshot. This bounded cache is explicitly clearable, independently of membership/progress. See [ADR 0030](decisions/0030-offline-reader-content-cache.md).
+Saved books retain a self-contained version-2 reader snapshot containing the outline, occurrence identities, ordered chapter metadata, raw fallback and HTML, but no original signed events. Legacy version-1 snapshots remain readable with their previous completeness safeguards. Offline opens use the saved snapshot with no index/chapter relay or HTTP work. Complete fresh structure is authoritative; removed children stay removed. Online partial loads can reuse matching cached bodies and unresolved subtrees, marking subtree fallback stale without certifying current totals. Regressive partial saves preserve a more useful offline copy. Removing a saved book retains its snapshot. This bounded cache remains independently clearable. See ADRs [0030](decisions/0030-offline-reader-content-cache.md) and [0061](decisions/0061-nested-publication-indexes.md).
 
-Details use summary fields and the verified index publisher's kind-0 profile. Explicit local broadcast re-fetches original verified index/chapter events and publishes them in index order only to the configured local relay; missing events are reported, never synthesized. See [ADR 0022](decisions/0022-local-full-book-broadcast.md).
+Saved-book actions expose **Refresh downloaded copy** while online. This explicit path resolves the current root and nested indexes by coordinate across HTTP, configured index relays, and secure reference hints, selecting the newest returned revision with the repository's timestamp/event-ID ordering. Chapter coordinate requests consult both the chapter relays and HTTP even when either already returned a body; historical event-ID hints do not pin refresh results. Refresh requires complete structure and bodies within the existing loading cap, rejects root/chapter regressions against the saved baseline, renders the result, and atomically replaces the offline snapshot before opening it. Incomplete loads and snapshot storage failures retain the previous download; refresh does not mix cached bodies into a successful result. Saved summary metadata updates without changing directory membership or requesting a signature. Normal reader bookmark normalization applies to the refreshed contents. See [ADR 0062](decisions/0062-refresh-downloaded-books.md).
+
+Details use summary fields and the verified index publisher's kind-0 profile. Explicit local broadcast resolves the original signed root's actual outline, queues parent indexes before signed descendants in depth-first publisher order, deduplicates event IDs, and publishes only to the configured local relay. Missing/capped branches produce incomplete feedback; events are never synthesized from rendered snapshots. See ADRs [0022](decisions/0022-local-full-book-broadcast.md) and [0061](decisions/0061-nested-publication-indexes.md).
+
+Contents is an expanded hierarchy with bounded indentation and current ancestor emphasis. Native Compose division headings form story breaks before nested descendants. A shared entry/leaf map handles Contents, search/highlight jumps, scroll observation, and resume; only chapter leaves count toward reading positions. Root publication identity remains unchanged for membership, ratings, sharing, reading lists, and highlight roots.
 
 ## Relay Transport and Identity
 
@@ -103,7 +107,7 @@ NIP-42 is lazy: unsolicited `AUTH` is stored without prompting. An `auth-require
 
 `LocalBookshelfStore` atomically stores directory tags/summaries. Saving/removing commits locally before signer interaction; logout and relay failure preserve books. Directory sync publishes kind 30045 with one generated `client=Bookshelf` tag. **Sync to relays** retries the complete local directory; **Sync from relays** merges verified remote state without clearing local books on empty response.
 
-`ReaderSettingsStore` separately stores appearance and coordinate-keyed resume metadata: bounded chapter index, nonnegative pixel offset, stable chapter coordinate, started/endpoint/cycle evidence, full section count, fingerprints, and activity timestamps. Legacy fields have defaults; index-only records resume at chapter top. Opening updates recency without starting a reading cycle.
+`ReaderSettingsStore` separately stores appearance and coordinate-keyed resume metadata: bounded chapter index, nonnegative pixel offset, stable chapter coordinate, optional reader-entry occurrence key/offset, started/endpoint/cycle evidence, full section count, fingerprints, and activity timestamps. Occurrence identity distinguishes repeated chapters and division bookmarks; coordinate/index recovery supports old records. Nested structure/revisions contribute to publication fingerprints. Legacy fields have defaults; index-only records resume at chapter top. Opening updates recency without starting a reading cycle.
 
 One laid-out observation updates current chapter, physical resume, and explicit tracking projection. Chapter/started/endpoint changes persist immediately; pixel-only writes coalesce for 500 ms, with final actual location flushed on disposal. Footer cards retain the last real chapter's offset. Coordinate recovery handles reordered/missing chapters and invalidates stale endpoints after order/content changes.
 

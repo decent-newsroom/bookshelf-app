@@ -33,6 +33,19 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class MercuryApiClientContractTest {
+    @Test fun exactChapterLookupPreservesIdentifierWhitespaceAndColons() = runBlocking {
+        val requests = mutableListOf<Request>()
+        val api = client { requests += it; response(it, "[]") }
+        val identifier = " act:one "
+        api.getChaptersByCoordinates(listOf("30041:${"a".repeat(64)}:$identifier"))
+        val buffer = Buffer()
+        requests.single().body!!.writeTo(buffer)
+        val body = Json.parseToJsonElement(buffer.readUtf8()).jsonObject
+        assertEquals("[\"$identifier\"]", body.getValue("#d").toString())
+        assertEquals("[30041]", body.getValue("kinds").toString())
+        assertEquals("[\"${"a".repeat(64)}\"]", body.getValue("authors").toString())
+    }
+
     @Test fun recommendationsUseDocumentedPrimaryUrlAndNormalizedBody() = runBlocking {
         val requests = mutableListOf<Request>()
         val api = client { request -> requests += request; response(request, "[]") }

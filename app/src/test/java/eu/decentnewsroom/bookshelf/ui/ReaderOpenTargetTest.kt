@@ -50,6 +50,17 @@ class ReaderOpenTargetTest {
         assertFalse(readerNeedsTrackedFallback(resolvedTargetIndex = null, progress = openedOnly.copy(chapterScrollOffsetPx = 1)))
         assertFalse(readerNeedsTrackedFallback(resolvedTargetIndex = 2, progress = openedOnly))
         assertTrue(readerNeedsTrackedFallback(resolvedTargetIndex = null, progress = null))
+        assertFalse(readerNeedsTrackedFallback(null, openedOnly.copy(readerEntryKey = "act-two")))
+    }
+
+    @Test fun nestedRevisionChangeInvalidatesNumericPositionEvenWhenRootRevisionIsUnchanged() {
+        val current = bookDetail("same-root", listOf(chapter("first"), chapter("second")))
+            .let { it.copy(summary = it.summary.copy(structureFingerprint = "new-structure")) }
+        val previous = current.summary.copy(structureFingerprint = "old-structure")
+        assertNull(resolveTrackedReaderChapterIndex(current,
+            tracked(current.summary.coordinate, 1, null, previous)))
+        assertEquals(1, resolveTrackedReaderChapterIndex(current,
+            tracked(current.summary.coordinate, 1, null, current.summary)))
     }
 
     @Test fun trackedSectionIdentityResolvesAcrossEditionsButUnmatchedEditionDoesNotUsePosition() {

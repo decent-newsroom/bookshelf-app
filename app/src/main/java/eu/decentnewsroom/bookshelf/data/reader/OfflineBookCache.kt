@@ -5,6 +5,10 @@ import eu.decentnewsroom.bookshelf.domain.BookChapter
 import eu.decentnewsroom.bookshelf.domain.BookDetail
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
+import eu.decentnewsroom.bookshelf.domain.PublicationOutlineNode
+import eu.decentnewsroom.bookshelf.domain.OutlineResolution
+import eu.decentnewsroom.bookshelf.domain.BookKinds
+import eu.decentnewsroom.bookshelf.domain.publicationOccurrenceKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -67,6 +71,7 @@ class OfflineBookCache private constructor(
             require(book.summary.coordinate.isNotBlank()) { "Book coordinate must not be blank." }
             require(book.chapters.size <= maxChapters) { "Book has too many chapters to cache." }
             val snapshot = Snapshot.from(book)
+            require(snapshot.isSafeFor(book.summary.coordinate, maxChapters)) { "Invalid reader outline." }
             val encoded = json.encodeToString(Snapshot.serializer(), snapshot)
             val bytes = encoded.toByteArray(Charsets.UTF_8)
             require(bytes.size.toLong() <= maxSnapshotBytes) { "Book snapshot is too large to cache." }
@@ -153,6 +158,7 @@ class OfflineBookCache private constructor(
         val availableChapterCount: Int,
         val missingChapterCount: Int,
         val truncated: Boolean,
+        val outline: List<PublicationOutlineNode> = emptyList(),
     ) {
         fun toBookDetail() = BookDetail(
             summary = summary,
@@ -160,13 +166,73 @@ class OfflineBookCache private constructor(
             availableChapterCount = availableChapterCount,
             missingChapterCount = missingChapterCount,
             truncated = truncated,
+            outline = outline,
         )
 
-        fun isSafeFor(expectedCoordinate: String, chapterLimit: Int): Boolean =
-            version == CACHE_VERSION && coordinate == expectedCoordinate &&
-                summary.coordinate == expectedCoordinate && chapters.size <= chapterLimit &&
-                availableChapterCount >= 0 && missingChapterCount >= 0 &&
-                chapters.all(CachedChapter::isSafe)
+        fun isSafeFor(expectedCoordinate: String, chapterLimit: Int): Boolean {
+            if (version !in 1..CACHE_VERSION || coordinate != expectedCoordinate ||
+                summary.coordinate != expectedCoordinate || chapters.size > chapterLimit ||
+                summary.chapterRefs.size > MAX_OUTLINE_NODES || summary.childRefs.size > MAX_OUTLINE_NODES ||
+                availableChapterCount < 0 || missingChapterCount < 0 ||
+                availableChapterCount + missingChapterCount != chapters.size ||
+                chapters.any { !it.isSafe() } || outline.size > MAX_OUTLINE_NODES
+            ) return false
+            if (version >= 2 && summary.sectionStreamKnown) {
+                if (summary.chapterCount != summary.chapterRefs.size ||
+                    (outline.isEmpty() && summary.childRefs.any { it.kind == BookKinds.PUBLICATION_INDEX }) ||
+                    outline.any { node ->
+                        if (node.isDivision) node.resolution != OutlineResolution.RESOLVED
+                        else node.chapterIndex == null || node.resolution !in setOf(
+                            OutlineResolution.RESOLVED, OutlineResolution.UNAVAILABLE,
+                        )
+                    }
+                ) return false
+            }
+            if (outline.isEmpty()) return true // Legacy flat cache, retaining its original completeness rules.
+            val ancestors = mutableListOf<PublicationOutlineNode>()
+            val keys = HashSet<String>()
+            var leafIndex = 0
+            for (node in outline) {
+                if (node.depth !in 0..MAX_OUTLINE_DEPTH || node.occurrenceKey.length !in 1..MAX_KEY_CHARS ||
+                    !keys.add(node.occurrenceKey) || node.title.length > MAX_TEXT_CHARS ||
+                    (node.diagnostic?.length ?: 0) > MAX_TEXT_CHARS || node.depth > ancestors.size
+                ) return false
+                while (ancestors.size > node.depth) ancestors.removeAt(ancestors.lastIndex)
+                val parent = ancestors.lastOrNull()
+                if (node.parentKey != parent?.occurrenceKey || parent?.isDivision == false) return false
+                if (node.reference.kind != BookKinds.PUBLICATION_INDEX &&
+                    node.reference.kind != BookKinds.PUBLICATION_CONTENT) return false
+                if (node.reference.coordinate.length > MAX_KEY_CHARS ||
+                    node.reference.pubkey.length > MAX_KEY_CHARS || node.reference.identifier.length > MAX_KEY_CHARS ||
+                    (node.reference.relay?.length ?: 0) > MAX_KEY_CHARS ||
+                    (node.reference.eventId?.length ?: 0) > MAX_KEY_CHARS
+                ) return false
+                if (node.resolution != OutlineResolution.MALFORMED) {
+                    val ref = node.reference
+                    if (ref.coordinate != "${ref.kind}:${ref.pubkey}:${ref.identifier}" ||
+                        ref.pubkey.length != 64 || !ref.pubkey.all { it in "0123456789abcdefABCDEF" } ||
+                        ref.identifier.isBlank() || ref.coordinate.length > MAX_KEY_CHARS ||
+                        node.occurrenceKey != publicationOccurrenceKey(parent?.occurrenceKey ?: coordinate, ref.coordinate)
+                    ) return false
+                }
+                if (node.isDivision && node.chapterIndex != null) return false
+                if (node.chapterIndex != null) {
+                    if (node.chapterIndex != leafIndex++ ||
+                        summary.chapterRefs.getOrNull(node.chapterIndex)?.coordinate != node.reference.coordinate
+                    ) return false
+                }
+                ancestors.add(node)
+            }
+            if (leafIndex != summary.chapterRefs.size) return false
+            // Earlier hand-built flat snapshots used zero-based positions; live chapter models use one-based.
+            val positionBase = chapters.firstOrNull()?.position ?: 1
+            if (positionBase !in 0..1) return false
+            return chapters.withIndex().all { (index, chapter) ->
+                val node = outline.firstOrNull { it.chapterIndex == index }
+                node != null && chapter.position == index + positionBase && chapter.occurrenceKey == node.occurrenceKey &&
+                    chapter.reference.coordinate == node.reference.coordinate
+            }
+        }
 
         companion object {
             fun from(book: BookDetail) = Snapshot(
@@ -177,6 +243,7 @@ class OfflineBookCache private constructor(
                 availableChapterCount = book.availableChapterCount,
                 missingChapterCount = book.missingChapterCount,
                 truncated = book.truncated,
+                outline = book.outline,
             )
         }
     }
@@ -192,6 +259,7 @@ class OfflineBookCache private constructor(
         val id: String?,
         val createdAt: Long?,
         val renderedHtml: String?,
+        val occurrenceKey: String = reference.coordinate,
     ) {
         fun toBookChapter() = BookChapter(
             reference = reference,
@@ -203,9 +271,12 @@ class OfflineBookCache private constructor(
             id = id,
             createdAt = createdAt,
             renderedHtml = renderedHtml,
+            occurrenceKey = occurrenceKey,
         )
 
-        fun isSafe(): Boolean = position >= 0 && title.length <= MAX_TEXT_CHARS &&
+        fun isSafe(): Boolean = position in 0..MAX_OUTLINE_NODES && title.length <= MAX_TEXT_CHARS &&
+            occurrenceKey.length in 1..MAX_KEY_CHARS && reference.coordinate.length <= MAX_KEY_CHARS &&
+            reference.identifier.length <= MAX_KEY_CHARS && reference.pubkey.length <= MAX_KEY_CHARS &&
             (summary == null || summary.length <= MAX_TEXT_CHARS) &&
             (content == null || content.length <= MAX_CONTENT_CHARS) &&
             (renderedHtml == null || renderedHtml.length <= MAX_CONTENT_CHARS)
@@ -221,6 +292,7 @@ class OfflineBookCache private constructor(
                 id = chapter.id,
                 createdAt = chapter.createdAt,
                 renderedHtml = chapter.renderedHtml,
+                occurrenceKey = chapter.occurrenceKey,
             )
         }
     }
@@ -228,7 +300,10 @@ class OfflineBookCache private constructor(
     private companion object {
         const val STORAGE_DIRECTORY = "bookshelf"
         const val CACHE_DIRECTORY = "reader-cache-v1"
-        const val CACHE_VERSION = 1
+        const val CACHE_VERSION = 2
+        const val MAX_OUTLINE_NODES = 5_000
+        const val MAX_OUTLINE_DEPTH = 16
+        const val MAX_KEY_CHARS = 16_384
         const val MAX_ENTRIES = 32 // 32 * 8 MiB keeps the bounded cache under 256 MiB
         const val MAX_CHAPTERS = 500
         const val MAX_SNAPSHOT_BYTES = 8L * 1024 * 1024

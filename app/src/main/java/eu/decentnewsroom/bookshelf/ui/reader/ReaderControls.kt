@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,14 +20,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import eu.decentnewsroom.bookshelf.data.reader.ParagraphAlignment
 import eu.decentnewsroom.bookshelf.data.reader.ReaderPreferences
 import eu.decentnewsroom.bookshelf.data.reader.ReaderTheme
 import eu.decentnewsroom.bookshelf.domain.BookChapter
+import eu.decentnewsroom.bookshelf.domain.PublicationOutlineNode
 import eu.decentnewsroom.bookshelf.ui.BookshelfTab
 import eu.decentnewsroom.bookshelf.ui.books.BookCover
 import eu.decentnewsroom.bookshelf.ui.components.SecondaryButton
@@ -183,7 +187,7 @@ internal fun ReaderHeader(
             Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(text = detail.summary.title, style = MaterialTheme.typography.headlineMedium, color = colors.text, fontWeight = FontWeight.Bold)
                 Text("by ${detail.summary.authors.joinToString(", ").ifBlank { "Unknown author" }}", style = MaterialTheme.typography.bodyLarge, color = colors.muted)
-                Text("${detail.availableChapterCount} / ${detail.summary.chapterCount} chapters available", style = MaterialTheme.typography.labelLarge, color = colors.muted)
+                Text(if (detail.summary.sectionStreamKnown) "${detail.availableChapterCount} / ${detail.summary.chapterCount} chapters available" else "${detail.availableChapterCount} chapters available · total unknown", style = MaterialTheme.typography.labelLarge, color = colors.muted)
             }
         }
         detail.summary.summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.muted) }
@@ -243,6 +247,53 @@ internal fun ReaderContentsSheet(chapters: List<BookChapter>, currentChapterInde
     }
 }
 @Composable internal fun ReaderContentsItem(chapter: BookChapter, selected: Boolean, colors: ReaderColors, onClick: () -> Unit) { Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (selected) colors.track else Color.Transparent).clickable(enabled = chapter.available, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(chapter.title, style = MaterialTheme.typography.titleMedium, color = if (selected) colors.accent else colors.text, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis); if (!chapter.available) Text("Not saved on this device", style = MaterialTheme.typography.labelSmall, color = colors.muted); chapter.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis) } } }
+
+/** Expanded preorder list; indentation is bounded, but accessibility retains the true level. */
+@Composable
+internal fun ReaderOutlineContentsSheet(
+    entries: List<PublicationOutlineNode>, activeKeys: Set<String>, structureKnown: Boolean,
+    colors: ReaderColors, onDismiss: () -> Unit, onEntrySelected: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Contents", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            BackCloseButton(onClick = onDismiss, close = true)
+        }
+        Text(if (structureKnown) "${entries.count { !it.isDivision }} chapters" else "Complete chapter count unavailable", color = colors.muted)
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
+            items(entries, key = { it.occurrenceKey }) { entry ->
+                val selected = entry.occurrenceKey in activeKeys
+                Column(Modifier.fillMaxWidth().padding(start = (entry.depth.coerceIn(0, 5) * 14).dp)
+                    .clip(RoundedCornerShape(8.dp)).background(if (selected) colors.track else Color.Transparent)
+                    .clickable { onEntrySelected(entry.occurrenceKey) }
+                    .semantics { contentDescription = "${if (entry.isDivision) "Division" else "Chapter"}, level ${entry.depth + 1}, ${entry.title}" }
+                    .padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(entry.title, style = if (entry.isDivision) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                        color = if (selected) colors.accent else colors.text, fontWeight = if (entry.isDivision) FontWeight.Bold else FontWeight.Medium)
+                    entry.diagnostic?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.muted) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ReaderDivision(entry: PublicationOutlineNode, preferences: ReaderPreferences, colors: ReaderColors) {
+    val scale = when (entry.depth) { 0 -> 1.65f; 1 -> 1.45f; else -> 1.25f }
+    Column(Modifier.fillMaxWidth().padding(vertical = 36.dp).semantics { heading() },
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        HorizontalDivider(Modifier.width(64.dp), color = colors.muted)
+        Text(entry.title, style = when (entry.depth) {
+            0 -> MaterialTheme.typography.headlineLarge
+            1 -> MaterialTheme.typography.headlineMedium
+            else -> MaterialTheme.typography.headlineSmall
+        }, fontSize = (preferences.fontSizeSp * scale).sp,
+            fontFamily = readerTextStyle(preferences).fontFamily,
+            lineHeight = (preferences.fontSizeSp * scale * preferences.lineHeightMultiplier).sp, color = colors.text, fontWeight = FontWeight.Bold,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        entry.diagnostic?.let { Text(it, color = colors.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+    }
+}
 
 private val BookshelfTab.label: String get() = when (this) { BookshelfTab.Home -> "Home"; BookshelfTab.MyBooks -> "My Books"; BookshelfTab.Settings -> "Settings" }
 private fun Float.formatOneDecimal(): String = ((this * 10f).roundToInt() / 10f).toString()

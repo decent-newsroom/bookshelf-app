@@ -110,7 +110,9 @@ class ReadingStateRepository(
     }
 
     suspend fun track(book: BookDetail, chapterIndex: Int = 0) {
-        require(book.summary.sectionStreamKnown && book.summary.chapterCount > 0) { "The section list is still loading." }
+        require(book.summary.sectionStreamKnown && book.summary.chapterCount > 0 &&
+            book.summary.chapterRefs.size == book.summary.chapterCount
+        ) { "The section list is still loading." }
         mutate { current ->
             if (current.tracked.any { it.bookCoordinate == book.summary.coordinate }) return@mutate current
             val public = session != null && !current.preferences.readingDeviceOnly
@@ -127,7 +129,8 @@ class ReadingStateRepository(
     suspend fun advance(book: BookDetail, chapterIndex: Int) {
         mutate { current ->
             val old = current.tracked.firstOrNull { it.bookCoordinate == book.summary.coordinate } ?: return@mutate current
-            if (!book.summary.sectionStreamKnown || chapterIndex <= old.position) return@mutate current
+            if (!book.summary.sectionStreamKnown || book.summary.chapterRefs.size != book.summary.chapterCount ||
+                book.summary.chapterCount <= 0 || chapterIndex <= old.position) return@mutate current
             val public = old.isPublic && !current.preferences.readingDeviceOnly && session != null
             val entry = trackedEntry(book, chapterIndex, public)
             val next = if (public) current else privatizeReading(current, entry.bookCoordinate)

@@ -7,6 +7,8 @@ import eu.decentnewsroom.bookshelf.domain.BookReference
 import eu.decentnewsroom.bookshelf.domain.BookSummary
 import eu.decentnewsroom.bookshelf.domain.ChapterReference
 import eu.decentnewsroom.bookshelf.domain.NostrEvent
+import eu.decentnewsroom.bookshelf.domain.PublicationChildReference
+import eu.decentnewsroom.bookshelf.domain.OutlineResolution
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
@@ -298,103 +300,141 @@ class MercuryBookRepository(
      * Opens an already-resolved publication index without requiring its event to be mirrored by Mercury.
      * This lets independently published books saved through a verified relay retain their chapter relay hints.
      */
-    suspend fun openBook(book: BookSummary): BookDetail {
-        val refs = book.chapterRefs.take(MAX_CHAPTERS)
-        val eventsById = mutableMapOf<String, NostrEvent>()
-        val eventsByCoordinate = mutableMapOf<String, NostrEvent>()
+    suspend fun openBook(book: BookSummary): BookDetail = resolveBook(book).first
 
+    /** Explicit refresh follows coordinates rather than historical event-ID hints. */
+    suspend fun refreshBook(book: BookSummary): BookDetail {
+        val reference = PublicationChildReference(BookKinds.PUBLICATION_INDEX, book.coordinate,
+            book.pubkey, book.identifier, book.relay)
+        val event = fetchLatestIndex(reference)
+            ?: throw MercuryApiException("The current book index is unavailable.")
+        val latest = mapIndexEvent(event)
+            ?: throw MercuryApiException("The current book index is invalid.")
+        if (latest.createdAt < book.createdAt || (latest.createdAt == book.createdAt && latest.id < book.id)) {
+            throw MercuryApiException("Only an older book index is available.")
+        }
+        return resolveBook(latest, refresh = true).first
+    }
+
+    private suspend fun fetchLatestIndex(reference: PublicationChildReference): NostrEvent? = supervisorScope {
+        val http = async { captureNonCancellation {
+            apiClient.getPublicationsByCoordinates(listOf(PublicationCoordinate(reference.pubkey, reference.identifier)))
+        }.getOrDefault(emptyList()) }
+        val relays = async { captureNonCancellation {
+            publicationIndexRelaySource?.fetchPublicationIndexes(listOf(reference.coordinate)).orEmpty()
+        }.getOrDefault(emptyList()) }
+        val hinted = async { captureNonCancellation {
+            reference.relay?.let { hint ->
+                naddrPublicationIndexRelaySource?.fetchPublicationIndex(reference.coordinate, listOf(hint))
+            }.orEmpty()
+        }.getOrDefault(emptyList()) }
+        (http.await() + relays.await() + hinted.await())
+            .filter { matchesPublicationChild(it, reference) }
+            .maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
+    }
+
+    private suspend fun fetchIndex(reference: PublicationChildReference): NostrEvent? {
+        fun choose(events: List<NostrEvent>): NostrEvent? {
+            val matching = events.filter { matchesPublicationChild(it, reference) }
+            return reference.eventId?.let { id -> matching.firstOrNull { it.id.equals(id, true) } }
+                ?: matching.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
+        }
+        reference.eventId?.let { id ->
+            choose(captureNonCancellation { apiClient.getPublicationEventsByIds(listOf(id)) }.getOrDefault(emptyList()))?.let { return it }
+        }
+        reference.relay?.let { hint ->
+            naddrPublicationIndexRelaySource?.let { source ->
+                choose(captureNonCancellation { source.fetchPublicationIndex(reference.coordinate, listOf(hint)) }
+                    .getOrDefault(emptyList()))?.let { return it }
+            }
+        }
+        publicationIndexRelaySource?.let { source ->
+            choose(captureNonCancellation { source.fetchPublicationIndexes(listOf(reference.coordinate)) }
+                .getOrDefault(emptyList()))?.let { return it }
+        }
+        return choose(captureNonCancellation {
+            apiClient.getPublicationsByCoordinates(listOf(PublicationCoordinate(reference.pubkey, reference.identifier)))
+        }.getOrDefault(emptyList()))
+    }
+
+    private suspend fun resolveBook(book: BookSummary, refresh: Boolean = false): Pair<BookDetail, Map<String, NostrEvent>> {
+        val structure = PublicationOutlineResolver(fetchIndex = { reference ->
+            if (refresh) fetchLatestIndex(reference.copy(eventId = null)) else fetchIndex(reference)
+        }).resolve(book)
+        val leafNodes = structure.outline.filter { it.chapterIndex != null }
+        val allRefs = leafNodes.map { it.reference.asChapter() }
+        val refs = allRefs.take(MAX_CHAPTERS).map { if (refresh) it.copy(eventId = null) else it }
+        val candidates = mutableListOf<NostrEvent>()
         chapterEventSource?.let { source ->
-            runCatching { source.fetchChapters(refs) }
-                .getOrDefault(emptyList())
-                .let { events ->
-                    indexChapterEvents(
-                        events = events,
-                        eventsById = eventsById,
-                        eventsByCoordinate = eventsByCoordinate,
-                    )
-                }
+            candidates += captureNonCancellation { source.fetchChapters(refs.distinctBy { it.coordinate }) }.getOrDefault(emptyList())
         }
-
-        val unresolvedEventIds =
-            refs
-                .filter { ref ->
-                    ref.eventId != null &&
-                        eventsById[ref.eventId] == null &&
-                        eventsByCoordinate[ref.coordinate] == null
-                }
-                .mapNotNull(ChapterReference::eventId)
-
-        indexChapterEvents(
-            events = runCatching { apiClient.getEventsByIds(unresolvedEventIds) }.getOrDefault(emptyList()),
-            eventsById = eventsById,
-            eventsByCoordinate = eventsByCoordinate,
-        )
-
-        val unresolvedAuthors =
-            refs
-                .filter { ref ->
-                    (ref.eventId == null || eventsById[ref.eventId] == null) &&
-                        eventsByCoordinate[ref.coordinate] == null
-                }
-                .map(ChapterReference::pubkey)
-                .distinct()
-
-        if (unresolvedAuthors.isNotEmpty()) {
-            indexChapterEvents(
-                events =
-                    runCatching {
-                        apiClient.getChaptersByAuthors(unresolvedAuthors, MAX_CHAPTERS)
-                    }.getOrDefault(emptyList()),
-                eventsById = eventsById,
-                eventsByCoordinate = eventsByCoordinate,
-            )
+        fun matching(ref: ChapterReference): List<NostrEvent> = candidates.filter {
+            matchesPublicationChild(it, PublicationChildReference.fromChapter(ref))
         }
-
-        val chapters =
-            refs.mapIndexed { index, ref ->
-                val event = ref.eventId?.let(eventsById::get) ?: eventsByCoordinate[ref.coordinate]
-                mapChapter(ref, event, index + 1)
-            }
-        val availableCount = chapters.count(BookChapter::available)
-
+        val missingIds = refs.filter { ref ->
+            ref.eventId != null && matching(ref).none { it.id.equals(ref.eventId, true) }
+        }.mapNotNull { it.eventId }.distinct()
+        if (missingIds.isNotEmpty()) candidates += captureNonCancellation { apiClient.getEventsByIds(missingIds) }.getOrDefault(emptyList())
+        val missingCoordinates = refs.filter { refresh || matching(it).isEmpty() }.map { it.coordinate }.distinct()
+        if (missingCoordinates.isNotEmpty()) candidates += captureNonCancellation {
+            apiClient.getChaptersByCoordinates(missingCoordinates)
+        }.getOrDefault(emptyList())
+        // Freeze one revision per coordinate, even if that coordinate occurs under multiple divisions.
+        val selected = refs.distinctBy { it.coordinate }.associate { ref ->
+            val events = matching(ref)
+            ref.coordinate to (ref.eventId?.let { id -> events.firstOrNull { it.id.equals(id, true) } }
+                ?: events.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id }))
+        }
+        val chapters = refs.mapIndexed { index, ref ->
+            mapChapter(ref, selected[ref.coordinate], index + 1).copy(occurrenceKey = leafNodes[index].occurrenceKey)
+        }
+        val loadedNodes = structure.outline.map { node ->
+            node.chapterIndex?.let { chapters.getOrNull(it) }?.let { chapter ->
+                node.copy(title = chapter.title, eventId = chapter.id,
+                    resolution = if (node.resolution != OutlineResolution.RESOLVED) node.resolution
+                        else if (chapter.available) OutlineResolution.RESOLVED else OutlineResolution.UNAVAILABLE,
+                    diagnostic = node.diagnostic ?: if (chapter.available) null else "Chapter body is unavailable.")
+            } ?: node
+        }
+        val available = chapters.count(BookChapter::available)
         return BookDetail(
-            summary = book,
+            summary = book.copy(chapterRefs = allRefs, chapterCount = allRefs.size,
+                sectionStreamKnown = structure.complete,
+                structureFingerprint = structure.fingerprint.takeIf {
+                    !structure.complete || book.directChildren.any { it.kind == BookKinds.PUBLICATION_INDEX }
+                }),
             chapters = chapters,
-            availableChapterCount = availableCount,
-            missingChapterCount = chapters.size - availableCount,
-            truncated = book.chapterRefs.size > MAX_CHAPTERS,
-        )
+            availableChapterCount = available,
+            missingChapterCount = chapters.size - available,
+            truncated = allRefs.size > MAX_CHAPTERS,
+            outline = loadedNodes,
+        ) to structure.indexes
     }
 
-    /** Returns the original signed index and all currently available signed chapters. */
-    suspend fun getBookEventsForBroadcast(book: BookSummary): List<NostrEvent> {
-        val index = runCatching { apiClient.getEvent(book.id, BookKinds.PUBLICATION_INDEX) }.getOrNull()
-            ?: publicationIndexRelaySource
-                ?.fetchPublicationIndexes(listOf(book.coordinate))
-                ?.maxWithOrNull(compareBy<NostrEvent> { it.createdAt }.thenBy { it.id })
-            ?: throw MercuryApiException("The signed book index is not available.")
+    data class BookBroadcastResult(val events: List<NostrEvent>, val complete: Boolean, val diagnosticCount: Int)
 
-        val refs = book.chapterRefs.take(MAX_CHAPTERS)
-        val candidates = buildList {
-            chapterEventSource?.let { source ->
-                addAll(runCatching { source.fetchChapters(refs) }.getOrDefault(emptyList()))
+    /** Original signed root first, followed by signed descendants in publisher preorder. */
+    suspend fun getBookBroadcastResult(book: BookSummary): BookBroadcastResult {
+        val rootReference = PublicationChildReference(BookKinds.PUBLICATION_INDEX, book.coordinate,
+            book.pubkey, book.identifier, book.relay, book.id)
+        val index = fetchIndex(rootReference) ?: throw MercuryApiException("The signed book index is not available.")
+        val signedRoot = mapIndexEvent(index) ?: throw MercuryApiException("The signed book index is invalid.")
+        val (detail, indexes) = resolveBook(signedRoot)
+        val events = buildList {
+            add(index)
+            detail.outline.forEach { node ->
+                if (node.isDivision) indexes[node.reference.coordinate]?.let { add(it) }
+                else node.chapterIndex?.let { detail.chapters.getOrNull(it)?.sourceEvent }?.let { add(it) }
             }
-            addAll(runCatching {
-                apiClient.getChaptersByCoordinates(refs.map(ChapterReference::coordinate))
-            }.getOrDefault(emptyList()))
-        }
-        val newestByCoordinate = mutableMapOf<String, NostrEvent>()
-        candidates.forEach { event ->
-            val coordinate = publicationContentCoordinate(event) ?: return@forEach
-            val current = newestByCoordinate[coordinate]
-            if (current == null || event.createdAt > current.createdAt ||
-                (event.createdAt == current.createdAt && event.id > current.id)
-            ) {
-                newestByCoordinate[coordinate] = event
-            }
-        }
-        return listOf(index) + refs.mapNotNull { newestByCoordinate[it.coordinate] }
+        }.distinctBy { it.id }
+        val failures = detail.outline.count { it.resolution != OutlineResolution.RESOLVED } +
+            (detail.summary.chapterRefs.size - detail.chapters.size).coerceAtLeast(0)
+        return BookBroadcastResult(events,
+            detail.summary.sectionStreamKnown && !detail.truncated && detail.missingChapterCount == 0, failures)
     }
+
+    suspend fun getBookEventsForBroadcast(book: BookSummary): List<NostrEvent> = getBookBroadcastResult(book).events
+
     suspend fun getBooksForReferences(references: List<BookReference>): List<BookSummary> {
         val eventsById = mutableMapOf<String, NostrEvent>()
         val eventsByCoordinate = mutableMapOf<String, NostrEvent>()
@@ -493,7 +533,8 @@ class MercuryBookRepository(
             return null
         }
 
-        val chapterRefs = extractChapterRefs(event.tags)
+        val childRefs = parsePublicationChildren(event.tags)
+        val chapterRefs = childRefs.filter { it.kind == BookKinds.PUBLICATION_CONTENT && validPublicationChild(it) }.map { it.asChapter() }
 
         val identifier = firstTagValue(event.tags, "d") ?: return null
         if (event.id.isBlank() || event.pubkey.isBlank() || identifier.isBlank()) {
@@ -526,45 +567,9 @@ class MercuryBookRepository(
             createdAt = event.createdAt,
             chapterCount = chapterRefs.size,
             chapterRefs = chapterRefs,
-            sectionStreamKnown = chapterRefs.isNotEmpty() && event.tags.none { tag ->
-                if (tag.getOrNull(0) != "a") false else {
-                    val parts = tag.getOrNull(1).orEmpty().split(':', limit = 3)
-                    parts.firstOrNull() == BookKinds.PUBLICATION_INDEX.toString() ||
-                        (parts.firstOrNull() == BookKinds.PUBLICATION_CONTENT.toString() &&
-                            (parts.size != 3 || !HEX_64.matches(parts[1]) || parts[2].isBlank()))
-                }
-            },
+            childRefs = childRefs,
+            sectionStreamKnown = childRefs.none { it.kind == BookKinds.PUBLICATION_INDEX || !validPublicationChild(it) },
         )
-    }
-
-    private fun extractChapterRefs(tags: List<List<String>>): List<ChapterReference> {
-        val seen = mutableSetOf<String>()
-        val references = mutableListOf<ChapterReference>()
-        for (tag in tags) {
-            if (tag.getOrNull(0) != "a") {
-                continue
-            }
-
-            val coordinate = tag.getOrNull(1) ?: continue
-            val parts = coordinate.split(":", limit = 3)
-            if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_CONTENT) {
-                continue
-            }
-            if (!HEX_64.matches(parts[1]) || parts[2].isBlank()) continue
-            val normalizedCoordinate = "${BookKinds.PUBLICATION_CONTENT}:${parts[1].lowercase()}:${parts[2]}"
-            if (!seen.add(normalizedCoordinate)) {
-                continue
-            }
-
-            references += ChapterReference(
-                coordinate = normalizedCoordinate,
-                pubkey = parts[1].lowercase(),
-                identifier = parts[2],
-                relay = tag.getOrNull(2)?.takeIf { it.startsWith("wss://") },
-                eventId = tag.getOrNull(3)?.lowercase()?.takeIf { HEX_64.matches(it) },
-            )
-        }
-        return references
     }
 
     private fun publicationContentCoordinate(event: NostrEvent): String? {

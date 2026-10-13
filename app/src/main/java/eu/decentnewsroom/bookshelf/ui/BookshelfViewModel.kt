@@ -466,7 +466,7 @@ class BookshelfViewModel(
                     return@launch
                 }
                 bookLinkJob = null
-                if (book.chapterRefs.isEmpty()) {
+                if (!book.canOpen) {
                     _uiState.update { it.copy(isLoadingBook = false, loadingBook = null) }
                     showBookDetails(book)
                 } else openBook(book, null, reportFailure = true)
@@ -492,7 +492,16 @@ class BookshelfViewModel(
         bookLinkJob = null
     }
 
-    private fun openBook(book: BookSummary, target: ReaderOpenTarget?, reportFailure: Boolean = false) {
+    fun refreshDownloadedBook(book: BookSummary) {
+        if (!localBookshelf.isSaved(book.coordinate)) return
+        if (!connectivity.isOnline) {
+            _uiState.update { it.copy(syncMessage = "Connect to the internet to refresh this book.") }
+            return
+        }
+        openBook(book, null, reportFailure = true, refresh = true)
+    }
+
+    private fun openBook(book: BookSummary, target: ReaderOpenTarget?, reportFailure: Boolean = false, refresh: Boolean = false) {
         cancelBookLinkResolution()
         dismissRatingComposer()
         cancelSearchWork()
@@ -500,7 +509,7 @@ class BookshelfViewModel(
         dismissBookDetails()
         dismissBookActions()
         _uiState.update { it.copy(isSearching = false, readerInitialChapterIndex = null, latestReviewDelivery = null, inlineReviewCoordinate = null) }
-        if (book.chapterRefs.isEmpty()) {
+        if (!book.canOpen && !refresh) {
             bookOpenJob?.cancel()
             _uiState.update {
                 it.copy(
@@ -523,11 +532,12 @@ class BookshelfViewModel(
             }
 
             try {
-                val detail = readerContent.open(
+                val detail = if (refresh) readerContent.refresh(book) else readerContent.open(
                     book = book,
                     isSaved = localBookshelf.isSaved(book.coordinate),
                 )
                 currentCoroutineContext().ensureActive()
+                if (refresh) localBookshelf.updateSavedSummary(detail.summary)
                 val localResume = readerSettings.normalizeBookProgress(detail)
                 val targetIndex = target?.resolveChapterIndex(detail.chapters)
                 val trackedIndex = if (readerNeedsTrackedFallback(targetIndex, localResume)) {
@@ -546,7 +556,7 @@ class BookshelfViewModel(
                         selectedBook = detail,
                         readerInitialChapterIndex = initialIndex,
                         readerOpenRequestId = UUID.randomUUID().toString(),
-                        syncMessage = if (target != null && targetIndex == null) "The matching chapter is no longer available. Resuming this book." else it.syncMessage,
+                        syncMessage = if (refresh) "Downloaded copy refreshed." else if (target != null && targetIndex == null) "The matching chapter is no longer available. Resuming this book." else it.syncMessage,
                         error = null,
                     )
                 }
@@ -557,11 +567,11 @@ class BookshelfViewModel(
                     reportFailure,
                 )
             } catch (exception: MercuryApiException) {
-                reportBookOpenFailure("Could not load this book right now. Try again when you have an internet connection.", reportFailure)
+                reportBookOpenFailure(if (refresh) "Could not refresh this book. Your existing download has been kept." else "Could not load this book right now. Try again when you have an internet connection.", reportFailure)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
-                reportBookOpenFailure("Could not open this book.", reportFailure)
+                reportBookOpenFailure(if (refresh) "Could not refresh the full book. Try again; your downloaded copy remains available." else "Could not open this book.", reportFailure)
             }
         }
     }
@@ -956,6 +966,10 @@ class BookshelfViewModel(
 
     fun finishReading() {
         val book = _uiState.value.selectedBook ?: return
+        if (!book.summary.sectionStreamKnown || book.summary.chapterCount <= 0 ||
+            book.summary.chapterRefs.size != book.summary.chapterCount ||
+            book.chapters.size != book.summary.chapterCount || book.truncated || book.chapters.any { !it.available }
+        ) return
         readerTrackingGate.invalidatePendingAdvances()
         coordinatedReadingAction {
             readingState.finish(book.summary)
@@ -968,7 +982,7 @@ class BookshelfViewModel(
     fun openReadingCoordinate(coordinate: String) = readingAction {
         val book = readingState.resolveBook(coordinate)
         if (book != null) {
-            if (book.chapterRefs.isEmpty()) showBookDetails(book) else openBook(book)
+            if (!book.canOpen) showBookDetails(book) else openBook(book)
         } else _uiState.update { it.copy(syncMessage = "Book details are unavailable. Connect and try again.") }
     }
 
@@ -1300,19 +1314,22 @@ class BookshelfViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isBroadcastingBook = true, error = null) }
             try {
-                val events = repository.getBookEventsForBroadcast(book)
+                val result = repository.getBookBroadcastResult(book)
+                val events = result.events
                 var accepted = 0
                 events.forEach { event ->
                     if (relaySync.publishToRelay(event, relayUrl).acceptedRelays > 0) accepted++
                 }
-                val missing = (book.chapterCount + 1 - events.size).coerceAtLeast(0)
-                val suffix = if (missing == 0) "." else "; $missing chapter events were unavailable."
+                val suffix = if (result.complete) "." else "; publication incomplete (${result.diagnosticCount} unavailable or limited branches/events)."
                 _uiState.update {
                     it.copy(
                         isBroadcastingBook = false,
                         syncMessage = "Broadcast $accepted of ${events.size} queued events to the local relay$suffix",
                     )
                 }
+            } catch (failure: CancellationException) {
+                _uiState.update { it.copy(isBroadcastingBook = false) }
+                throw failure
             } catch (failure: Throwable) {
                 _uiState.update {
                     it.copy(
@@ -1635,7 +1652,8 @@ class BookshelfViewModel(
         // Nostr completion times can be logical seconds slightly ahead of wall time.
         // Actual movement away from completion still starts a local reread immediately.
         if (finished != null && observation.readingActivity && !observation.reachedEnd &&
-            (existing?.currentChapterIndex != observation.chapterIndex || existing.chapterScrollOffsetPx != observation.scrollOffsetPx) &&
+            (existing?.currentChapterIndex != observation.chapterIndex || existing.chapterScrollOffsetPx != observation.scrollOffsetPx ||
+                existing.readerEntryKey != observation.readerEntryKey || existing.readerEntryScrollOffsetPx != observation.readerEntryScrollOffsetPx) &&
             (existing?.readingCycleStartedAtMillis ?: 0L) < localReadingCycleTime(0L, finished.finishedAt)
         ) {
             readerSettings.markReadingCycle(book, readingCycleStartMillis(book.summary.coordinate))
@@ -1645,6 +1663,8 @@ class BookshelfViewModel(
             reachedEnd = observation.reachedEnd,
             readingActivity = observation.readingActivity,
             persist = persist,
+            readerEntryKey = observation.readerEntryKey,
+            readerEntryScrollOffsetPx = observation.readerEntryScrollOffsetPx,
         )
         val ticket = readerTrackingGate.sectionChanged(readerSessionId, observation.trackingChapterIndex) ?: return
         coordinatedReadingAction(ticket) {

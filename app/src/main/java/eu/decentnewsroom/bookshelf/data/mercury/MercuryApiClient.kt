@@ -248,7 +248,7 @@ class MercuryApiClient(
     /** Resolves only the requested replaceable chapter coordinates. */
     suspend fun getChaptersByCoordinates(coordinates: List<String>): List<NostrEvent> {
         val normalized = coordinates.mapNotNull { candidate ->
-            val parts = candidate.trim().split(":", limit = 3)
+            val parts = candidate.split(":", limit = 3)
             if (parts.size != 3 || parts[0].toIntOrNull() != BookKinds.PUBLICATION_CONTENT ||
                 !HEX_64.matches(parts[1]) || parts[2].isBlank()) {
                 null

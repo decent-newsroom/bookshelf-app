@@ -8,6 +8,8 @@ internal data class ReaderObservation(
     val readingActivity: Boolean,
     /** Null until a real chapter position or verified endpoint can be attributed. */
     val trackingChapterIndex: Int? = null,
+    val readerEntryKey: String? = null,
+    val readerEntryScrollOffsetPx: Int = 0,
 )
 
 internal data class ReaderLayoutSnapshot(
@@ -82,6 +84,8 @@ internal fun readerShouldPublishPosition(
     current: ReaderObservation,
     activityNeedsPublication: Boolean,
 ): Boolean = previous == null || previous.chapterIndex != current.chapterIndex ||
+    previous.readerEntryKey != current.readerEntryKey ||
+    (previous.readerEntryScrollOffsetPx == 0 && current.readerEntryScrollOffsetPx > 0) ||
     previous.reachedEnd != current.reachedEnd ||
     (previous.scrollOffsetPx == 0 && current.scrollOffsetPx > 0) || activityNeedsPublication
 
@@ -108,11 +112,13 @@ internal fun readerIsAtVerifiedEnd(
 internal class ReaderResumePositionTracker(
     private val chapterCount: Int,
     initialPosition: Pair<Int, Int>? = null,
+    private val navigation: ReaderNavigation? = null,
 ) {
     private var lastChapterPosition: Pair<Int, Int>? = initialPosition
 
     fun observe(listItemIndex: Int, scrollOffsetPx: Int): Pair<Int, Int>? =
-        readerResumePositionForListItem(listItemIndex, scrollOffsetPx, chapterCount)
+        (if (navigation != null) navigation.chapterAt(listItemIndex)?.let { it to scrollOffsetPx.coerceAtLeast(0) }
+        else readerResumePositionForListItem(listItemIndex, scrollOffsetPx, chapterCount))
             ?.also { lastChapterPosition = it }
 
     fun positionOnExit(listItemIndex: Int, scrollOffsetPx: Int): Pair<Int, Int>? =

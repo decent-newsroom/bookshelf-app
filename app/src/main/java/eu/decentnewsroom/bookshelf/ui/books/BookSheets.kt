@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
@@ -63,6 +64,8 @@ fun BookActionsSheet(
     onShare: () -> Unit,
     onCopyLink: () -> Unit,
     onBroadcast: () -> Unit,
+    isOnline: Boolean,
+    onRefresh: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -74,6 +77,9 @@ fun BookActionsSheet(
                 BookActionRow(Icons.Outlined.StopCircle, "Stop tracking", onStopTracking)
             }
             BookActionRow(if (isSaved) Icons.Outlined.BookmarkRemove else Icons.Outlined.BookmarkAdd, if (isSaved) "Remove from My Books" else "Add to My Books", onToggleSaved)
+            if (isSaved) {
+                BookActionRow(Icons.Outlined.Refresh, "Refresh downloaded copy", onRefresh, enabled = isOnline)
+            }
             BookActionRow(Icons.Outlined.Info, "See details", onDetails)
             BookActionRow(Icons.Outlined.Star, "Rate and review", onRateReview)
             BookActionRow(Icons.Outlined.Share, "Share book", onShare)
@@ -146,7 +152,7 @@ fun BookDetailsSheet(
                 }
                 Text("Publication", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 DetailRow("Type", book.type)
-                DetailRow("Chapters", book.chapterCount.toString())
+                DetailRow("Chapters", if (book.sectionStreamKnown) book.chapterCount.toString() else "Count available after loading contents")
                 book.language?.let { DetailRow("Language", it) }
                 book.releaseDate?.let { DetailRow("Published", it) }
                 book.version?.let { DetailRow("Version", it) }
@@ -166,12 +172,12 @@ fun BookDetailsSheet(
 
 @Composable
 private fun PublicationReadingCard(book: BookSummary, onRead: () -> Unit) {
-    val canRead = book.chapterRefs.isNotEmpty()
+    val canRead = book.canOpen
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(book.type.uppercase(java.util.Locale.ROOT), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                Text("${book.chapterCount} ${if (book.chapterCount == 1) "chapter" else "chapters"}", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text(if (book.sectionStreamKnown) "${book.chapterCount} ${if (book.chapterCount == 1) "chapter" else "chapters"}" else "Nested contents", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             }
             Button(onClick = onRead, enabled = canRead, modifier = Modifier.fillMaxWidth()) { Text("Read") }
             if (!canRead) {
